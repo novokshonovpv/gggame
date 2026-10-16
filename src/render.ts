@@ -354,22 +354,8 @@ export class Renderer {
   private rider(cam: Camera, bike: Bike, look: Look) {
     const ch = bike.chassis;
     const s = cam.ppm;
-    const l = bike.lean;
     const L = (p: [number, number]) => this.local(cam, ch, p[0], p[1]);
-
-    // Body pose in chassis space; lean shifts hips back/forward and tilts the torso.
-    const hip: [number, number] = [-0.24 - 0.16 * l, 0.62 - 0.06 * Math.abs(l)];
-    const tilt = 0.5 - 0.45 * l;
-    const torso = 0.48;
-    const shoulder: [number, number] = [hip[0] + Math.sin(tilt) * torso, hip[1] + Math.cos(tilt) * torso];
-    const head: [number, number] = [
-      shoulder[0] + Math.sin(tilt - 0.15) * 0.22,
-      shoulder[1] + Math.cos(tilt - 0.15) * 0.22,
-    ];
-    const hand: [number, number] = [0.32, 0.62];
-    const foot: [number, number] = [-0.12, 0.02];
-    const elbow = ik(shoulder, hand, 0.3, 0.3, -1);
-    const knee = ik(hip, foot, 0.45, 0.45, 1);
+    const { hip, shoulder, head, hand, foot, elbow, knee } = riderPose(bike.lean);
 
     this.line(L(hip), L(knee), 0.15 * s, look.pants);
     this.line(L(knee), L(foot), 0.13 * s, C.boots);
@@ -401,6 +387,20 @@ export class Renderer {
     ctx.fill();
     ctx.restore();
   }
+}
+
+type P2 = [number, number];
+
+// Rider pose in chassis space (shared by the 2D and 3D renderers): lean shifts the
+// hips back/forward and tilts the torso; knees and elbows come from two-bone IK.
+export function riderPose(l: number) {
+  const hip: P2 = [-0.24 - 0.16 * l, 0.62 - 0.06 * Math.abs(l)];
+  const tilt = 0.5 - 0.45 * l;
+  const shoulder: P2 = [hip[0] + Math.sin(tilt) * 0.48, hip[1] + Math.cos(tilt) * 0.48];
+  const head: P2 = [shoulder[0] + Math.sin(tilt - 0.15) * 0.22, shoulder[1] + Math.cos(tilt - 0.15) * 0.22];
+  const hand: P2 = [0.32, 0.62];
+  const foot: P2 = [-0.12, 0.02];
+  return { hip, shoulder, head, hand, foot, tilt, elbow: ik(shoulder, hand, 0.3, 0.3, -1), knee: ik(hip, foot, 0.45, 0.45, 1) };
 }
 
 // Two-bone IK: joint position between a and b with given bone lengths.

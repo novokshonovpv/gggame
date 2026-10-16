@@ -3,6 +3,7 @@ import { Controls } from "./input.ts";
 import { MISSIONS, MissionTracker, missionText } from "./missions.ts";
 import { Race, type Racer } from "./race.ts";
 import { type Camera, Renderer } from "./render.ts";
+import { Renderer3D } from "./render3d.ts";
 import { TRACKS, type Track, groundY } from "./track.ts";
 import "./style.css";
 
@@ -47,8 +48,21 @@ function stars(t: Track) {
   return "★".repeat(done) + "☆".repeat(Math.max(0, total - done));
 }
 
+// 3D by default; the 2D canvas renderer remains as a fallback (no WebGL) or via ?2d.
+function makeRenderer(): Renderer | Renderer3D {
+  const canvas = $<HTMLCanvasElement>("game");
+  if (!new URLSearchParams(location.search).has("2d")) {
+    try {
+      return new Renderer3D(canvas);
+    } catch {
+      /* no WebGL: fall back to 2D */
+    }
+  }
+  return new Renderer(canvas);
+}
+
 class Game {
-  renderer = new Renderer($<HTMLCanvasElement>("game"));
+  renderer = makeRenderer();
   controls = new Controls((code) => this.onKey(code));
   track: Track = TRACKS[0];
   race!: Race;

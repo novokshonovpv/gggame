@@ -29,6 +29,20 @@ export interface Theme {
     strata: string;
     fence: string;
   };
+  // 3D renderer: lighting, fog and what grows beside the track.
+  world: {
+    hemiSky: string;
+    hemiGround: string;
+    hemi: number;
+    sun: string;
+    sunI: number;
+    apron: string; // ground between the track and the backdrop
+    props: "rocks" | "pines" | "trees";
+    propColor: string;
+    propColor2: string;
+    fogNear: number;
+    fogFar: number;
+  };
 }
 
 export const THEMES: Record<ThemeId, Theme> = {
@@ -49,6 +63,19 @@ export const THEMES: Record<ThemeId, Theme> = {
       strata: "rgba(70,40,20,0.35)",
       fence: "#6b4a2e",
     },
+    world: {
+      hemiSky: "#ffe2bd",
+      hemiGround: "#8a5634",
+      hemi: 1.6,
+      sun: "#fff0d6",
+      sunI: 2.4,
+      apron: "#a8693f",
+      props: "rocks",
+      propColor: "#9a5b37",
+      propColor2: "#b9764a",
+      fogNear: 90,
+      fogFar: 520,
+    },
   },
   forest: {
     sky: ["#5d9fd6", "#9fcbea", "#dcefe9"],
@@ -67,6 +94,19 @@ export const THEMES: Record<ThemeId, Theme> = {
       face: ["#7b5636", "#3d2919"],
       strata: "rgba(40,25,12,0.35)",
       fence: "#5a4330",
+    },
+    world: {
+      hemiSky: "#d8ecff",
+      hemiGround: "#4c6b3c",
+      hemi: 1.5,
+      sun: "#fffaf0",
+      sunI: 2.3,
+      apron: "#4f7a45",
+      props: "pines",
+      propColor: "#2f5e45",
+      propColor2: "#3d7354",
+      fogNear: 80,
+      fogFar: 480,
     },
   },
   city: {
@@ -87,8 +127,203 @@ export const THEMES: Record<ThemeId, Theme> = {
       strata: "rgba(30,15,20,0.4)",
       fence: "#e9e2f0",
     },
+    world: {
+      hemiSky: "#c890d8",
+      hemiGround: "#3a2040",
+      hemi: 1.3,
+      sun: "#ffd6e8",
+      sunI: 1.5,
+      apron: "#3d2547",
+      props: "trees",
+      propColor: "#2a1836",
+      propColor2: "#3a2148",
+      fogNear: 70,
+      fogFar: 420,
+    },
   },
 };
+
+export type { Layer };
+
+// Paints one backdrop layer as a horizontally seamless strip for the 3D renderer, which
+// maps it onto a far-away plane. Proportions match drawLayer: S is the "screen height"
+// the 2D layer was designed against, so amp = L.amp * S.
+export function paintLayer(L: Layer, w: number, h: number, base: number, amp: number): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d")!;
+  const S = amp / L.amp;
+  const TAU = Math.PI * 2;
+  const cells = (cw: number, fn: (i: number, x0: number) => void) => {
+    const n = Math.max(1, Math.round(w / cw));
+    const step = w / n;
+    for (let i = -2; i <= n + 1; i++) fn(((i % n) + n) % n, i * step);
+  };
+  const fillBelow = (f: (u: number) => number, color: string | CanvasGradient) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let px = 0; px <= w; px += 4) ctx.lineTo(px, f(px / w));
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fill();
+  };
+  const cyc = (k: number) => Math.max(1, Math.round((w / S) * k)); // whole cycles per strip
+
+  switch (L.kind) {
+    case "ridge": {
+      const k1 = cyc(1 / 0.9);
+      const g = ctx.createLinearGradient(0, base - amp, 0, base);
+      g.addColorStop(0, L.color2 ?? L.color);
+      g.addColorStop(0.35, L.color);
+      g.addColorStop(1, L.color);
+      fillBelow((u) => {
+        const n = 0.55 * tri(k1 * u + L.seed) + 0.3 * tri(Math.round(k1 * 2.3) * u + 0.37) + 0.15 * tri(Math.round(k1 * 5.1) * u + 0.71);
+        return base - amp * n;
+      }, g);
+      break;
+    }
+    case "hills": {
+      const k = cyc(4 / TAU);
+      fillBelow((u) => base - amp * (0.5 + 0.3 * Math.sin(TAU * k * u + L.seed) + 0.2 * Math.sin(TAU * k * 2 * u + L.seed * 2)), L.color);
+      break;
+    }
+    case "water": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, base - amp, w, h);
+      ctx.strokeStyle = L.color2 ?? "#fff";
+      ctx.lineWidth = Math.max(1.5, S * 0.003);
+      cells(S * 0.16, (i, x0) => {
+        const y = base - amp + amp * 0.3 + hash(i, L.seed) * amp * 1.4;
+        const len = S * (0.03 + hash(i, L.seed + 1) * 0.06);
+        const x = x0 + hash(i, L.seed + 2) * S * 0.1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + len, y);
+        ctx.stroke();
+      });
+      break;
+    }
+    case "mesa": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, base, w, h);
+      cells(S * 0.55, (i, x0) => {
+        if (hash(i, L.seed) < 0.3) return;
+        const width = S * (0.25 + hash(i, L.seed + 1) * 0.45);
+        const height = amp * (0.45 + hash(i, L.seed + 2) * 0.55);
+        const x = x0 + hash(i, L.seed + 3) * S * 0.2;
+        const slant = width * 0.14;
+        const top = base - height;
+        ctx.fillStyle = L.color;
+        ctx.beginPath();
+        ctx.moveTo(x - slant, base + 1);
+        ctx.lineTo(x, top + height * 0.08);
+        ctx.lineTo(x + width * 0.08, top);
+        ctx.lineTo(x + width - width * 0.08, top);
+        ctx.lineTo(x + width, top + height * 0.1);
+        ctx.lineTo(x + width + slant, base + 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = L.color2 ?? L.color;
+        for (let b = 1; b <= 3; b++) {
+          const y = top + (height * b) / 4;
+          const inset = (slant * b) / 4;
+          ctx.fillRect(x - inset, y, width + inset * 2, Math.max(2, height * 0.05));
+        }
+      });
+      break;
+    }
+    case "rocks": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, base, w, h);
+      cells(S * 0.22, (i, x0) => {
+        if (hash(i, L.seed) < 0.35) return;
+        const r = amp * (0.35 + hash(i, L.seed + 1) * 0.65);
+        const x = x0 + hash(i, L.seed + 2) * S * 0.12;
+        ctx.fillStyle = hash(i, L.seed + 3) < 0.5 ? L.color : (L.color2 ?? L.color);
+        ctx.beginPath();
+        ctx.moveTo(x - r, base + 2);
+        ctx.lineTo(x - r * 0.7, base - r * 0.6);
+        ctx.lineTo(x - r * 0.1, base - r);
+        ctx.lineTo(x + r * 0.6, base - r * 0.75);
+        ctx.lineTo(x + r, base + 2);
+        ctx.closePath();
+        ctx.fill();
+      });
+      break;
+    }
+    case "pines": {
+      const k = cyc(3 / TAU);
+      const ground = (u: number) => base - amp * 0.15 * (1 + Math.sin(TAU * k * u + L.seed));
+      fillBelow(ground, L.color);
+      cells(S * 0.045, (i, x0) => {
+        if (hash(i, L.seed) < 0.25) return;
+        const th = amp * (0.45 + hash(i, L.seed + 1) * 0.55);
+        const tw = th * 0.32;
+        const x = x0 + hash(i, L.seed + 2) * S * 0.03;
+        const gy = ground((((x % w) + w) % w) / w) + 2;
+        ctx.fillStyle = hash(i, L.seed + 3) < 0.5 ? L.color : (L.color2 ?? L.color);
+        ctx.beginPath();
+        for (let tier = 0; tier < 3; tier++) {
+          const ty = gy - th * (tier * 0.28);
+          const tw2 = tw * (1 - tier * 0.22);
+          ctx.moveTo(x - tw2, ty);
+          ctx.lineTo(x, ty - th * 0.5);
+          ctx.lineTo(x + tw2, ty);
+        }
+        ctx.fill();
+      });
+      break;
+    }
+    case "buildings": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, base, w, h);
+      cells(S * 0.16, (i, x0) => {
+        const bw = S * (0.1 + hash(i, L.seed) * 0.08);
+        const bh = amp * (0.35 + hash(i, L.seed + 1) * 0.65);
+        const x = x0 + hash(i, L.seed + 2) * S * 0.05;
+        const top = base - bh;
+        ctx.fillStyle = L.color;
+        ctx.fillRect(x, top, bw, bh + 2);
+        if (hash(i, L.seed + 3) < 0.3) ctx.fillRect(x + bw * 0.45, top - bh * 0.1, Math.max(2, S * 0.003), bh * 0.1);
+        ctx.fillStyle = L.color2 ?? "#fc8";
+        const ww = Math.max(2, bw * 0.12);
+        const wh = Math.max(2, ww * 1.2);
+        let k = 0;
+        for (let wy = top + wh; wy < base - wh; wy += wh * 2.2)
+          for (let wx = x + ww; wx < x + bw - ww; wx += ww * 2.2)
+            if (hash(i * 997 + k++, L.seed + 4) < 0.45) ctx.fillRect(wx, wy, ww, wh);
+      });
+      break;
+    }
+    case "puffs": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, base, w, h);
+      cells(S * 0.2, (i, x0) => {
+        if (hash(i, L.seed) < 0.3) return;
+        const r = amp * (0.25 + hash(i, L.seed + 1) * 0.3);
+        const x = x0 + hash(i, L.seed + 2) * S * 0.1;
+        const cy = base - r * 1.6;
+        ctx.fillStyle = L.color;
+        ctx.fillRect(x - r * 0.08, cy, r * 0.16, r * 1.7);
+        ctx.fillStyle = hash(i, L.seed + 3) < 0.5 ? L.color : (L.color2 ?? L.color);
+        for (const [dx, dy, rr] of [
+          [0, 0, 1],
+          [-0.7, 0.25, 0.7],
+          [0.7, 0.2, 0.75],
+          [0.1, -0.55, 0.7],
+        ]) {
+          ctx.beginPath();
+          ctx.arc(x + dx * r, cy + dy * r, rr * r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+      break;
+    }
+  }
+  return c;
+}
 
 function hash(i: number, seed: number) {
   let t = (Math.imul(i, 374761393) + Math.imul(seed, 668265263)) >>> 0;
