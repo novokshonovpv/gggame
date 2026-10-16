@@ -1,5 +1,4 @@
-import type { Body } from "planck";
-import { BIKE, type Bike, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
+import { BIKE, type BikePose, type BodyPose, type ChassisPose, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
 import type { Look } from "./race.ts";
 import { THEMES, type Theme, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
@@ -20,7 +19,8 @@ const C = {
 };
 
 export interface RiderView {
-  bike: Bike;
+  bike: BikePose;
+  ghost?: boolean; // replay of the player's best run: drawn see-through
   look: Look;
   isPlayer: boolean;
 }
@@ -73,7 +73,7 @@ export class Renderer {
       if (r.isPlayer) continue;
       const x = this.sx(cam, r.bike.chassis.getPosition().x);
       if (x < -100 || x > this.w + 100) continue;
-      ctx.globalAlpha = 0.82;
+      ctx.globalAlpha = r.ghost ? 0.35 : 0.82;
       this.bike(cam, r.bike, r.look);
       ctx.globalAlpha = 1;
       this.nameTag(cam, r);
@@ -246,7 +246,7 @@ export class Renderer {
     }
   }
 
-  private local(cam: Camera, body: Body, x: number, y: number): [number, number] {
+  private local(cam: Camera, body: ChassisPose, x: number, y: number): [number, number] {
     const p = body.getWorldPoint({ x, y });
     return [this.sx(cam, p.x), this.sy(cam, p.y)];
   }
@@ -261,7 +261,7 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private wheel(cam: Camera, wheel: Body) {
+  private wheel(cam: Camera, wheel: BodyPose) {
     const { ctx } = this;
     const p = wheel.getPosition();
     const x = this.sx(cam, p.x);
@@ -299,7 +299,7 @@ export class Renderer {
     ctx.fill();
   }
 
-  private poly(cam: Camera, body: Body, pts: number[], color: string) {
+  private poly(cam: Camera, body: ChassisPose, pts: number[], color: string) {
     const { ctx } = this;
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -312,12 +312,12 @@ export class Renderer {
     ctx.fill();
   }
 
-  private bike(cam: Camera, bike: Bike, look: Look) {
+  private bike(cam: Camera, bike: BikePose, look: Look) {
     const { ctx } = this;
     const ch = bike.chassis;
     const s = cam.ppm;
     const L = (x: number, y: number) => this.local(cam, ch, x, y);
-    const W = (b: Body): [number, number] => {
+    const W = (b: BodyPose): [number, number] => {
       const p = b.getPosition();
       return [this.sx(cam, p.x), this.sy(cam, p.y)];
     };
@@ -351,7 +351,7 @@ export class Renderer {
     this.rider(cam, bike, look);
   }
 
-  private rider(cam: Camera, bike: Bike, look: Look) {
+  private rider(cam: Camera, bike: BikePose, look: Look) {
     const ch = bike.chassis;
     const s = cam.ppm;
     const L = (p: [number, number]) => this.local(cam, ch, p[0], p[1]);

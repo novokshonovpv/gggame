@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BIKE, type Bike } from "./bike.ts";
+import { BIKE, type BikePose } from "./bike.ts";
 import type { Look } from "./race.ts";
 import { type Camera, type RiderView, riderPose } from "./render.ts";
 import { type Layer, THEMES, type Theme, paintLayer } from "./scenery.ts";
@@ -13,6 +13,7 @@ const FOV = 30;
 const TAN = Math.tan(((FOV / 2) * Math.PI) / 180);
 const REF_D = 24; // typical camera distance, used to place the backdrop layers
 const LANES = [0.7, -0.15, -0.85, -1.45]; // player in front, rivals behind
+const GHOST_LANE = 0.3; // just behind the player
 const LAYER_W = 4096;
 const LAYER_H = 512;
 const LAYER_BASE = 400; // baseline row in the layer canvas
@@ -471,6 +472,17 @@ function mat(color: string) {
   return m;
 }
 
+const ghostMats = new Map<string, THREE.MeshLambertMaterial>();
+function ghostMat(color: THREE.Color) {
+  const k = color.getHexString();
+  let m = ghostMats.get(k);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color("#cfe2ff"), 0.4), transparent: true, opacity: 0.35, depthWrite: false });
+    ghostMats.set(k, m);
+  }
+  return m;
+}
+
 function shadowed<T extends THREE.Object3D>(o: T) {
   o.traverse((n) => {
     n.castShadow = true;
@@ -552,7 +564,7 @@ class BikeModel {
   boots: THREE.Mesh[];
   tag: THREE.Sprite | null = null;
 
-  constructor(look: Look, isPlayer: boolean) {
+  constructor(look: Look, isPlayer: boolean, ghost = false) {
     const b = this.body;
     b.add(extrude([-0.22, 0.12, 0.2, 0.12, 0.22, -0.16, -0.12, -0.2], 0.28, "#4a4a4a"));
     for (const z of [-0.09, 0.09]) {
@@ -602,14 +614,20 @@ class BikeModel {
     b.add(...this.thighs, ...this.shins, ...this.uppers, ...this.fores, ...this.boots, this.torso, this.helmet);
 
     this.root.add(b, this.rear, this.front);
-    shadowed(this.root);
+    if (ghost) {
+      // See-through, no shadow: it is a memory of a run, not a bike on the track.
+      this.root.traverse((n) => {
+        const mesh = n as THREE.Mesh;
+        if (mesh.isMesh) mesh.material = ghostMat((mesh.material as THREE.MeshLambertMaterial).color);
+      });
+    } else shadowed(this.root);
     if (!isPlayer) {
       this.tag = nameTag(look);
       this.root.add(this.tag);
     }
   }
 
-  update(bike: Bike) {
+  update(bike: BikePose) {
     const ch = bike.chassis;
     const p = ch.getPosition();
     this.body.position.set(p.x, p.y, 0);
@@ -683,7 +701,7 @@ export class Renderer3D {
   world = new THREE.Group();
   sky = new THREE.Group();
   trackId = "";
-  bikes = new Map<Bike, BikeModel>();
+  bikes = new Map<BikePose, BikeModel>();
 
   constructor(canvasEl: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
@@ -777,13 +795,13 @@ export class Renderer3D {
     const stars = this.sky.getObjectByName("stars");
     if (stars) stars.position.set(cam.x, cam.y, -far + 20);
 
-    const live = new Set<Bike>();
+    const live = new Set<BikePose>();
     riders.forEach((r, i) => {
       live.add(r.bike);
       let m = this.bikes.get(r.bike);
       if (!m) {
-        m = new BikeModel(r.look, r.isPlayer);
-        m.root.position.z = LANES[i] ?? -1.6;
+        m = new BikeModel(r.look, r.isPlayer, r.ghost);
+        m.root.position.z = r.ghost ? GHOST_LANE : (LANES[i] ?? -1.6);
         this.bikes.set(r.bike, m);
         this.scene.add(m.root);
       }

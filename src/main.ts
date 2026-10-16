@@ -15,7 +15,8 @@ import {
 } from "./garage.ts";
 import { MISSIONS, MissionTracker, missionText } from "./missions.ts";
 import { Race, type Racer } from "./race.ts";
-import { type Camera, Renderer } from "./render.ts";
+import { GHOST_LOOK, type GhostBike, GhostRecorder, loadGhost, saveGhost } from "./ghost.ts";
+import { type Camera, Renderer, type RiderView } from "./render.ts";
 import { Renderer3D } from "./render3d.ts";
 import { TRACKS, type Track, groundY } from "./track.ts";
 import "./style.css";
@@ -91,6 +92,8 @@ class Game {
   profile = loadProfile();
   newMissions = 0; // missions completed for the first time in this race
   sound = new Sound();
+  recorder = new GhostRecorder();
+  ghost: GhostBike | null = null;
   lastCount = 0; // countdown number last beeped
 
   constructor() {
@@ -265,6 +268,9 @@ class Game {
       },
     }, Math.floor(Math.random() * 1e9));
 
+    this.recorder = new GhostRecorder();
+    this.ghost = loadGhost(track.id);
+
     this.tracker = new MissionTracker(MISSIONS[track.id] ?? [], missionsDone(track), (i) => {
       store.set(missionsKey(track), this.tracker.done);
       // Mission coins are paid at once, so they count even if the race is abandoned.
@@ -300,7 +306,9 @@ class Game {
     $("res-place").classList.toggle("win", place === 1);
     this.sound.finish(place === 1);
     $("res-time").textContent = fmt(time);
-    $("res-best").textContent = record ? "Новый рекорд!" : `Рекорд: ${fmt(prev!)}`;
+    // A new record replaces the ghost you'll race against next time.
+    const ghostSaved = record && saveGhost(this.track.id, this.recorder);
+    $("res-best").textContent = record ? (ghostSaved ? "Новый рекорд! Призрак обновлён" : "Новый рекорд!") : `Рекорд: ${fmt(prev!)}`;
     $("res-best").classList.toggle("record", record);
     // Mission coins were already paid during the race; place and record are paid now.
     const reward = raceReward(place, this.newMissions, record);
@@ -365,6 +373,7 @@ class Game {
     while (this.acc >= DT) {
       race.step(DT, input);
       if (this.state === "racing" && !player.crashed && !player.finished) this.tracker.step(player.bike, DT);
+      if (race.started && !player.finished) this.recorder.step(player.bike, race.time);
       this.acc -= DT;
     }
 
@@ -375,7 +384,12 @@ class Game {
     if (this.state === "finished" && this.frame % 15 === 0) this.renderStandings();
 
     this.updateCamera(dt);
-    this.renderer.draw(this.cam, this.track, race.racers, this.clock);
+    const riders: RiderView[] = [...race.racers];
+    if (this.ghost) {
+      this.ghost.setTime(race.time);
+      riders.push({ bike: this.ghost, look: GHOST_LOOK, isPlayer: false, ghost: true });
+    }
+    this.renderer.draw(this.cam, this.track, riders, this.clock);
     this.hud();
 
     const inRace = this.state === "countdown" || this.state === "racing" || this.state === "finished";

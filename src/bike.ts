@@ -42,6 +42,26 @@ export interface Input {
   lean: number; // +1 = back (nose up), -1 = forward
 }
 
+// What the renderers need from a bike: satisfied by the physics Bike and by a replayed ghost.
+export interface P {
+  x: number;
+  y: number;
+}
+export interface BodyPose {
+  getPosition(): P;
+  getAngle(): number;
+}
+export interface ChassisPose extends BodyPose {
+  getWorldPoint(local: P): P;
+  getLocalPoint(world: P): P;
+}
+export interface BikePose {
+  chassis: ChassisPose;
+  rear: BodyPose;
+  front: BodyPose;
+  lean: number;
+}
+
 // What garage upgrades change on a particular bike.
 export interface BikeStats {
   power: number; // engine multiplier: top speed and torque
