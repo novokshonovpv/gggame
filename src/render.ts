@@ -69,17 +69,46 @@ export class Renderer {
     this.fence(cam, track, theme);
     this.flags(cam, track);
     this.ground(cam, track, theme);
-    // Rivals are slightly see-through and labelled; the player is drawn last, on top.
+    // Rivals are see-through and labelled (unless right on top of the player); the player
+    // is drawn last, on top, with the "ТЫ" marker.
+    const playerX = riders.find((r) => r.isPlayer)?.bike.chassis.getPosition().x ?? Infinity;
     for (const r of riders) {
       if (r.isPlayer) continue;
       const x = this.sx(cam, r.bike.chassis.getPosition().x);
       if (x < -100 || x > this.w + 100) continue;
-      ctx.globalAlpha = r.ghost ? 0.35 : 0.82;
+      ctx.globalAlpha = r.ghost ? 0.35 : 0.5;
       this.bike(cam, r.bike, r.look);
       ctx.globalAlpha = 1;
-      this.nameTag(cam, r);
+      if (Math.abs(r.bike.chassis.getPosition().x - playerX) > 2.2) this.nameTag(cam, r);
     }
-    for (const r of riders) if (r.isPlayer) this.bike(cam, r.bike, r.look);
+    for (const r of riders)
+      if (r.isPlayer) {
+        this.bike(cam, r.bike, r.look);
+        this.playerMarker(cam, r, time);
+      }
+  }
+
+  // Yellow "ТЫ" arrow bobbing over the player's helmet.
+  private playerMarker(cam: Camera, r: RiderView, time: number) {
+    const { ctx } = this;
+    const head = r.bike.chassis.getWorldPoint(RIDER_HEAD);
+    const x = this.sx(cam, head.x);
+    const y = this.sy(cam, head.y) - RIDER_HEAD_R * cam.ppm - 14 + Math.sin(time * 5) * 3;
+    ctx.fillStyle = "#ffd21f";
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x - 16, y - 30, 32, 18, 6);
+    ctx.moveTo(x - 7, y - 12);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + 7, y - 12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#1a1a1a";
+    ctx.font = "900 12px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ТЫ", x, y - 21);
   }
 
   private nameTag(cam: Camera, r: RiderView) {

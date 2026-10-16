@@ -15,6 +15,7 @@ const TAN = Math.tan(((FOV / 2) * Math.PI) / 180);
 const REF_D = 24; // typical camera distance, used to place the backdrop layers
 const LANES = [0.7, -0.15, -0.85, -1.45]; // player in front, rivals behind
 const GHOST_LANE = 0.3; // just behind the player
+const NEAR_PLAYER = 2.2; // m: rival tags hide this close to the player
 const LAYER_W = 4096;
 const LAYER_H = 512;
 const LAYER_BASE = 400; // baseline row in the layer canvas
@@ -473,13 +474,20 @@ function mat(color: string) {
   return m;
 }
 
-const ghostMats = new Map<string, THREE.MeshLambertMaterial>();
-function ghostMat(color: THREE.Color) {
-  const k = color.getHexString();
-  let m = ghostMats.get(k);
+// See-through variants of a color: the ghost (pale, faint) and rivals (muted, half
+// transparent), so the player's bike is the only solid, saturated one on screen.
+const FADE = {
+  ghost: { tint: "#cfe2ff", mix: 0.4, opacity: 0.35 },
+  rival: { tint: "#8f99a8", mix: 0.3, opacity: 0.5 },
+} as const;
+const fadedMats = new Map<string, THREE.MeshLambertMaterial>();
+function fadedMat(color: THREE.Color, kind: keyof typeof FADE) {
+  const k = kind + color.getHexString();
+  let m = fadedMats.get(k);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color("#cfe2ff"), 0.4), transparent: true, opacity: 0.35, depthWrite: false });
-    ghostMats.set(k, m);
+    const f = FADE[kind];
+    m = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color(f.tint), f.mix), transparent: true, opacity: f.opacity, depthWrite: false });
+    fadedMats.set(k, m);
   }
   return m;
 }
@@ -610,6 +618,7 @@ class BikeModel {
   helmet = new THREE.Group();
   boots: THREE.Mesh[];
   tag: THREE.Sprite | null = null;
+  marker: THREE.Sprite | null = null;
 
   constructor(look: Look, isPlayer: boolean, ghost = false) {
     const b = this.body;
@@ -697,20 +706,23 @@ class BikeModel {
     b.add(...this.thighs, ...this.shins, ...this.uppers, ...this.fores, ...this.boots, this.torso, this.helmet);
 
     this.root.add(b, this.rear, this.front);
-    if (ghost) {
-      // See-through, no shadow: it is a memory of a run, not a bike on the track.
+    if (!isPlayer) {
+      // Ghost and rivals are see-through and cast no shadow, so they never hide the player.
+      const kind = ghost ? "ghost" : "rival";
       this.root.traverse((n) => {
         const mesh = n as THREE.Mesh;
-        if (mesh.isMesh) mesh.material = ghostMat((mesh.material as THREE.MeshLambertMaterial).color);
+        if (mesh.isMesh) mesh.material = fadedMat((mesh.material as THREE.MeshLambertMaterial).color, kind);
       });
-    } else shadowed(this.root);
-    if (!isPlayer) {
       this.tag = nameTag(look);
       this.root.add(this.tag);
+    } else {
+      shadowed(this.root);
+      this.marker = playerMarker();
+      this.root.add(this.marker);
     }
   }
 
-  update(bike: BikePose) {
+  update(bike: BikePose, time = 0) {
     const ch = bike.chassis;
     const p = ch.getPosition();
     this.body.position.set(p.x, p.y, 0);
@@ -755,7 +767,45 @@ class BikeModel {
       const head = ch.getWorldPoint({ x: pose.head[0], y: pose.head[1] });
       this.tag.position.set(head.x, head.y + 0.55, 0);
     }
+    if (this.marker) {
+      // Bobbing arrow over the player's helmet, upright whatever the bike does.
+      const head = ch.getWorldPoint({ x: pose.head[0], y: pose.head[1] });
+      this.marker.position.set(head.x, head.y + 0.85 + Math.sin(time * 5) * 0.06, 0);
+    }
   }
+}
+
+function playerMarker() {
+  const tex = texture(
+    canvas(128, 128, (ctx) => {
+      ctx.fillStyle = "#ffd21f";
+      ctx.strokeStyle = "#1a1a1a";
+      ctx.lineWidth = 6;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.roundRect(14, 6, 100, 54, 14);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(40, 58);
+      ctx.lineTo(64, 104);
+      ctx.lineTo(88, 58);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillRect(40, 50, 48, 12); // hide the seam between label and arrow
+      ctx.fillStyle = "#1a1a1a";
+      ctx.font = "900 38px system-ui, -apple-system, 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("ТЫ", 64, 35);
+    }),
+    false,
+  );
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  s.scale.set(1, 1, 1);
+  s.renderOrder = 11;
+  return s;
 }
 
 function nameTag(look: Look) {
@@ -865,7 +915,7 @@ export class Renderer3D {
     this.trackId = track.id;
   }
 
-  draw(cam: Camera, track: Track, riders: RiderView[], _time: number) {
+  draw(cam: Camera, track: Track, riders: RiderView[], time: number) {
     if (track.id !== this.trackId) this.load(track);
     const theme = THEMES[track.theme];
 
@@ -890,6 +940,7 @@ export class Renderer3D {
     if (stars) stars.position.set(cam.x, cam.y, -far + 20);
 
     const live = new Set<BikePose>();
+    const playerX = riders.find((r) => r.isPlayer)?.bike.chassis.getPosition().x ?? Infinity;
     riders.forEach((r, i) => {
       live.add(r.bike);
       let m = this.bikes.get(r.bike);
@@ -899,7 +950,9 @@ export class Renderer3D {
         this.bikes.set(r.bike, m);
         this.scene.add(m.root);
       }
-      m.update(r.bike);
+      m.update(r.bike, time);
+      // Rival name tags hide while they ride on top of the player, so only "ТЫ" shows there.
+      if (m.tag) m.tag.visible = Math.abs(r.bike.chassis.getPosition().x - playerX) > NEAR_PLAYER;
     });
     for (const [bike, m] of this.bikes)
       if (!live.has(bike)) {
