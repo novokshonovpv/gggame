@@ -1,37 +1,39 @@
-import { Chain, World } from "planck";
-import type { Body, Contact } from "planck";
 import { autopilot } from "./ai.ts";
-import { Bike, type FixtureTag } from "./bike.ts";
 import { Controls } from "./input.ts";
+import { MISSIONS, MissionTracker, missionText } from "./missions.ts";
+import { Race, type Racer } from "./race.ts";
 import { type Camera, Renderer } from "./render.ts";
 import { TRACKS, type Track, groundY } from "./track.ts";
 import "./style.css";
 
 const DT = 1 / 120;
-const GRAVITY = -11;
+const COUNTDOWN = 3;
 
-type State = "menu" | "riding" | "crashed" | "finished";
+type State = "menu" | "countdown" | "racing" | "finished";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+// localStorage can be missing or throw (private mode); the game works without it.
 const store = {
-  get(key: string): number | null {
+  get<T>(key: string): T | null {
     try {
       const v = localStorage.getItem(key);
-      return v === null ? null : Number(v);
+      return v === null ? null : (JSON.parse(v) as T);
     } catch {
       return null;
     }
   },
-  set(key: string, v: number) {
+  set(key: string, v: unknown) {
     try {
-      localStorage.setItem(key, String(v));
+      localStorage.setItem(key, JSON.stringify(v));
     } catch {
-      /* storage unavailable: best times just won't persist */
+      /* progress just won't persist */
     }
   },
 };
 const bestKey = (t: Track) => `best:${t.id}`;
+const missionsKey = (t: Track) => `missions:${t.id}`;
+const missionsDone = (t: Track) => store.get<boolean[]>(missionsKey(t)) ?? [];
 
 function fmt(t: number) {
   const m = Math.floor(t / 60);
@@ -39,19 +41,25 @@ function fmt(t: number) {
   return `${m}:${s.toFixed(2).padStart(5, "0")}`;
 }
 
+function stars(t: Track) {
+  const total = (MISSIONS[t.id] ?? []).length;
+  const done = missionsDone(t).filter(Boolean).length;
+  return "★".repeat(done) + "☆".repeat(Math.max(0, total - done));
+}
+
 class Game {
   renderer = new Renderer($<HTMLCanvasElement>("game"));
   controls = new Controls((code) => this.onKey(code));
-  world!: World;
-  bike!: Bike;
   track: Track = TRACKS[0];
+  race!: Race;
+  tracker!: MissionTracker;
   state: State = "menu";
   autopilot = false; // dev/testing: let the AI ride
-  time = 0;
-  timerOn = false;
-  crashTimer = 0;
+  countdown = 0;
   clock = 0;
   acc = 0;
+  toastTimer = 0;
+  frame = 0;
   cam: Camera = { x: 0, y: 0, ppm: 40 };
 
   constructor() {
@@ -73,6 +81,10 @@ class Game {
     requestAnimationFrame(frame);
   }
 
+  get player(): Racer {
+    return this.race.player!;
+  }
+
   onKey(code: string) {
     if (code === "KeyR" || code === "Enter") {
       if (this.state !== "menu") this.load(this.track);
@@ -86,10 +98,14 @@ class Game {
     const list = $("track-list");
     list.innerHTML = "";
     TRACKS.forEach((t, i) => {
-      const best = store.get(bestKey(t));
+      const best = store.get<number>(bestKey(t));
       const b = document.createElement("button");
       b.className = "track";
-      b.innerHTML = `<span class="num">${i + 1}</span><span class="name">${t.name}</span><span class="best">${best ? fmt(best) : "—"}</span>`;
+      b.innerHTML =
+        `<span class="num">${i + 1}</span>` +
+        `<span class="name">${t.name}<small>${t.laps} ${t.laps === 1 ? "круг" : "круга"}</small></span>` +
+        `<span class="stars">${stars(t)}</span>` +
+        `<span class="best">${best ? fmt(best) : "—"}</span>`;
       b.addEventListener("click", () => this.load(t));
       list.appendChild(b);
     });
@@ -98,85 +114,115 @@ class Game {
 
   load(track: Track) {
     this.track = track;
-    this.world = new World({ gravity: { x: 0, y: GRAVITY } });
-    const ground: Body = this.world.createBody();
-    ground.createFixture(new Chain(track.points, false), {
-      friction: 0.9,
-      userData: "ground" satisfies FixtureTag,
-    });
-    this.bike = new Bike(this.world, { x: track.startX, y: groundY(track, track.startX) });
-    this.world.on("begin-contact", (c) => this.contact(c, 1));
-    this.world.on("end-contact", (c) => this.contact(c, -1));
+    this.race = new Race(track, true, {
+      crash: (r) => {
+        if (r.isPlayer) this.tracker.crashed();
+      },
+      lap: (r, dx, dy) => {
+        if (!r.isPlayer) return;
+        this.cam.x += dx;
+        this.cam.y += dy;
+        this.toast(r.lap === track.laps ? "Последний круг!" : `Круг ${r.lap}`);
+      },
+      finish: (r) => {
+        if (r.isPlayer) this.finish();
+      },
+    }, Math.floor(Math.random() * 1e9));
 
-    this.state = "riding";
-    this.time = 0;
-    this.timerOn = false;
-    this.crashTimer = 0;
+    this.tracker = new MissionTracker(MISSIONS[track.id] ?? [], missionsDone(track), (i) => {
+      store.set(missionsKey(track), this.tracker.done);
+      this.toast(`✓ ${missionText(this.tracker.missions[i])}`);
+      this.renderMissions();
+    });
+
+    this.state = "countdown";
+    this.countdown = COUNTDOWN;
     this.acc = 0;
-    const p = this.bike.chassis.getPosition();
+    const p = this.player.bike.chassis.getPosition();
     const ppm = this.renderer.basePpm();
     this.cam = { x: p.x + (this.renderer.w * 0.12) / ppm, y: p.y + 1.2, ppm };
-    this.ui();
-  }
-
-  contact(c: Contact, delta: number) {
-    const a = c.getFixtureA().getUserData() as FixtureTag;
-    const b = c.getFixtureB().getUserData() as FixtureTag;
-    if (a !== "ground" && b !== "ground") return;
-    const other = a === "ground" ? b : a;
-    if (other === "wheel-rear") this.bike.rearContacts += delta;
-    else if (other === "wheel-front") this.bike.frontContacts += delta;
-    else if (other === "rider" && delta > 0 && this.state === "riding") this.crash();
-  }
-
-  crash() {
-    this.state = "crashed";
-    this.crashTimer = 1.3;
-    this.timerOn = false;
+    this.renderMissions();
+    $("toast").classList.add("hidden");
     this.ui();
   }
 
   finish() {
     this.state = "finished";
-    this.timerOn = false;
-    const key = bestKey(this.track);
-    const prev = store.get(key);
-    const record = prev === null || this.time < prev;
-    if (record) store.set(key, this.time);
-    $("res-time").textContent = fmt(this.time);
+    const time = this.player.finishTime;
+    const place = this.race.placeOf(this.player);
+    this.tracker.finished(place, time);
+    const prev = store.get<number>(bestKey(this.track));
+    const record = prev === null || time < prev;
+    if (record) store.set(bestKey(this.track), time);
+    $("res-place").textContent = `${place}-е место`;
+    $("res-place").classList.toggle("win", place === 1);
+    $("res-time").textContent = fmt(time);
     $("res-best").textContent = record ? "Новый рекорд!" : `Рекорд: ${fmt(prev!)}`;
     $("res-best").classList.toggle("record", record);
+    $("res-missions").innerHTML = this.tracker.missions
+      .map((m, i) => `<li class="${this.tracker.done[i] ? "done" : ""}">${missionText(m)}</li>`)
+      .join("");
+    this.renderStandings();
     this.ui();
+  }
+
+  renderStandings() {
+    $("res-table").innerHTML = this.race
+      .standings()
+      .map((r) => {
+        const t = r.finished ? fmt(r.finishTime) : "едет…";
+        return `<li class="${r.isPlayer ? "me" : ""}"><span class="dot" style="background:${r.look.plastic}"></span><span class="who">${r.look.name}</span><span class="t">${t}</span></li>`;
+      })
+      .join("");
+  }
+
+  renderMissions() {
+    $("missions").innerHTML = this.tracker.missions
+      .map((m, i) => `<li class="${this.tracker.done[i] ? "done" : ""}"><span class="txt">${missionText(m)}</span><span class="prog" id="mp-${i}"></span></li>`)
+      .join("");
+  }
+
+  toast(text: string) {
+    const el = $("toast");
+    el.textContent = text;
+    el.classList.remove("hidden");
+    el.style.animation = "none";
+    void el.offsetWidth; // restart the pop-in animation
+    el.style.animation = "";
+    this.toastTimer = 1.8;
   }
 
   update(dt: number) {
     this.clock += dt;
-    const input = this.autopilot ? autopilot(this.bike, this.track) : this.controls.read();
-    const active = this.state === "riding";
-    const effective = active ? input : { gas: false, brake: false, lean: 0 };
+    this.frame++;
+    const race = this.race;
+    const player = this.player;
 
-    if (active && !this.timerOn && (input.gas || input.lean !== 0)) this.timerOn = true;
+    if (this.state === "countdown") {
+      this.countdown -= dt;
+      if (this.countdown <= 0) {
+        this.state = "racing";
+        race.started = true;
+        this.toast("Старт!");
+      }
+    }
 
+    const input = this.autopilot ? autopilot(player.bike, this.track) : this.controls.read();
     this.acc += dt;
     while (this.acc >= DT) {
-      this.bike.apply(effective, DT);
-      this.world.step(DT, 8, 3);
-      if (this.timerOn) this.time += DT;
+      race.step(DT, input);
+      if (this.state === "racing" && !player.crashed && !player.finished) this.tracker.step(player.bike, DT);
       this.acc -= DT;
     }
 
-    const pos = this.bike.chassis.getPosition();
-    if (this.state === "riding") {
-      if (pos.x >= this.track.finishX) this.finish();
-      else if (pos.y < -40) this.crash();
+    if (this.toastTimer > 0) {
+      this.toastTimer -= dt;
+      if (this.toastTimer <= 0) $("toast").classList.add("hidden");
     }
-    if (this.state === "crashed") {
-      this.crashTimer -= dt;
-      if (this.crashTimer <= 0) this.load(this.track);
-    }
+    if (this.state === "finished" && this.frame % 15 === 0) this.renderStandings();
 
     this.updateCamera(dt);
-    this.renderer.draw(this.cam, this.track, this.bike, this.clock);
+    this.renderer.draw(this.cam, this.track, race.racers, this.clock);
     this.hud();
   }
 
@@ -184,8 +230,9 @@ class Game {
   // blends the rider with the terrain ahead and zooms out at speed and on big air.
   updateCamera(dt: number) {
     const r = this.renderer;
-    const p = this.bike.chassis.getPosition();
-    const v = this.bike.chassis.getLinearVelocity();
+    const bike = this.player.bike;
+    const p = bike.chassis.getPosition();
+    const v = bike.chassis.getLinearVelocity();
     const ahead = Math.max(-3, Math.min(9, v.x * 0.45));
     const terrain = groundY(this.track, p.x + 4 + ahead);
     const alt = p.y - groundY(this.track, p.x);
@@ -204,23 +251,35 @@ class Game {
   }
 
   hud() {
-    $("time").textContent = fmt(this.time);
     const t = this.track;
-    const p = Math.max(0, Math.min(1, (this.bike.chassis.getPosition().x - t.startX) / (t.finishX - t.startX)));
+    const race = this.race;
+    const player = this.player;
+    $("time").textContent = fmt(player.finished ? player.finishTime : race.time);
+    $("pos").textContent = `${race.placeOf(player)}/${race.racers.length}`;
+    $("lap").textContent = `${Math.min(player.lap, t.laps)}/${t.laps}`;
+    const total = t.laps * (t.finishX - t.startX);
+    const p = Math.max(0, Math.min(1, player.progress(t) / total));
     $("progress-fill").style.width = `${(p * 100).toFixed(1)}%`;
-    $("hint").classList.toggle("hidden", this.timerOn || this.state !== "riding");
+
+    const cd = $("countdown");
+    cd.classList.toggle("hidden", this.state !== "countdown");
+    if (this.state === "countdown") cd.textContent = String(Math.ceil(this.countdown));
+    $("crash").classList.toggle("hidden", !player.crashed);
+
+    if (this.frame % 6 === 0)
+      this.tracker.missions.forEach((_, i) => {
+        const el = document.getElementById(`mp-${i}`);
+        if (el) el.textContent = this.tracker.progress(i);
+      });
   }
 
   ui() {
     const s = this.state;
     $("menu").classList.toggle("hidden", s !== "menu");
     $("results").classList.toggle("hidden", s !== "finished");
-    $("crash").classList.toggle("hidden", s !== "crashed");
     $("hud").classList.toggle("hidden", s === "menu");
     $("controls").classList.toggle("hidden", s === "menu" || s === "finished");
     $("track-name").textContent = this.track.name;
-    const best = store.get(bestKey(this.track));
-    $("best").textContent = best ? `Рекорд ${fmt(best)}` : "";
   }
 }
 

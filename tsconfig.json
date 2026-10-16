@@ -11,6 +11,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
     "types": ["node", "vite/client"]
   },
   "include": ["src", "tools"]

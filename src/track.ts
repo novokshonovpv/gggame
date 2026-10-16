@@ -9,6 +9,7 @@ export interface Track {
   id: string;
   name: string;
   theme: ThemeId;
+  laps: number;
   points: Pt[];
   startX: number;
   finishX: number;
@@ -101,7 +102,8 @@ class Builder {
   rhythm(n: number, len: number, h: number) {
     for (let i = 0; i < n; i++) {
       const hh = h * (0.75 + this.rand() * 0.5);
-      const ll = len * (0.85 + this.rand() * 0.3);
+      // Faces no steeper than ~35°, so a slow bike can still roll out of the dip.
+      const ll = Math.max(len * (0.85 + this.rand() * 0.3), hh * 4.5);
       this.shape(ll, (t) => (hh * (1 - Math.cos(2 * Math.PI * t))) / 2);
     }
     return this;
@@ -120,7 +122,7 @@ class Builder {
   double(h: number, gap: number) {
     const base = this.y;
     const top = h * 0.95;
-    const face = (top + 0.8) * 2.2;
+    const face = (top + 0.8) * 2.6;
     this.lip(h * 2, h);
     this.slope(1.4, base - 0.8 - this.y);
     this.flat(Math.max(0.5, gap - face - 1.4));
@@ -132,7 +134,7 @@ class Builder {
   // Kicker onto a higher plateau; the plateau face is steep but rideable.
   stepUp(h: number, gap: number) {
     const base = this.y;
-    const face = (h + 0.8) * 1.6;
+    const face = (h + 0.8) * 2.6;
     this.lip(2.6, 1.3);
     this.slope(1.2, base - 0.8 - this.y);
     this.flat(Math.max(0.5, gap - face * 0.5));
@@ -147,12 +149,12 @@ class Builder {
     return this.landing(h * 3, h * 0.7 + 0.4);
   }
 
-  build(id: string, name: string, theme: ThemeId): Track {
+  build(id: string, name: string, theme: ThemeId, laps = 1): Track {
     this.flat(4);
     const finishX = this.x + 2;
     this.flat(70);
     this.add(this.x, this.y + 40);
-    return { id, name, theme, points: this.pts, startX: 2, finishX };
+    return { id, name, theme, laps, points: this.pts, startX: 2, finishX };
   }
 }
 
@@ -185,7 +187,7 @@ export const TRACKS: Track[] = [
     .flat(8)
     .tabletop(3.4, 10)
     .rough(16, 0.3)
-    .build("canyon", "Каньон", "canyon"),
+    .build("canyon", "Каньон", "canyon", 2),
 
   new Builder(27)
     .flat(16)
@@ -214,7 +216,7 @@ export const TRACKS: Track[] = [
     .flat(6)
     .double(3.4, 13)
     .rough(14, 0.3)
-    .build("forest", "Лесная тропа", "forest"),
+    .build("forest", "Лесная тропа", "forest", 2),
 
   new Builder(53)
     .flat(16)

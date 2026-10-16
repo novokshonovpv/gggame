@@ -1,5 +1,6 @@
 import type { Body } from "planck";
-import { BIKE, type Bike, RIDER_HEAD_R } from "./bike.ts";
+import { BIKE, type Bike, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
+import type { Look } from "./race.ts";
 import { THEMES, type Theme, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
 
@@ -14,16 +15,15 @@ export interface Camera {
 const C = {
   tire: "#1c1c1c",
   rim: "#9aa3ab",
-  plastic: "#f2a516",
-  plasticDark: "#c57f06",
   frame: "#2b2b2b",
-  jersey: "#1f5fbf",
-  jerseyDark: "#163f80",
-  pants: "#e9e9e9",
   boots: "#202020",
-  helmet: "#f2f2f2",
-  visor: "#f2a516",
 };
+
+export interface RiderView {
+  bike: Bike;
+  look: Look;
+  isPlayer: boolean;
+}
 
 export class Renderer {
   ctx: CanvasRenderingContext2D;
@@ -31,7 +31,10 @@ export class Renderer {
   h = 0;
   dpr = 1;
 
-  constructor(public canvas: HTMLCanvasElement) {
+  canvas: HTMLCanvasElement;
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
     this.resize();
   }
@@ -57,7 +60,7 @@ export class Renderer {
     return this.h * 0.5 - (y - cam.y) * cam.ppm;
   }
 
-  draw(cam: Camera, track: Track, bike: Bike, time: number) {
+  draw(cam: Camera, track: Track, riders: RiderView[], time: number) {
     const { ctx } = this;
     const theme = THEMES[track.theme];
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -65,7 +68,36 @@ export class Renderer {
     this.fence(cam, track, theme);
     this.flags(cam, track);
     this.ground(cam, track, theme);
-    this.bike(cam, bike);
+    // Rivals are slightly see-through and labelled; the player is drawn last, on top.
+    for (const r of riders) {
+      if (r.isPlayer) continue;
+      const x = this.sx(cam, r.bike.chassis.getPosition().x);
+      if (x < -100 || x > this.w + 100) continue;
+      ctx.globalAlpha = 0.82;
+      this.bike(cam, r.bike, r.look);
+      ctx.globalAlpha = 1;
+      this.nameTag(cam, r);
+    }
+    for (const r of riders) if (r.isPlayer) this.bike(cam, r.bike, r.look);
+  }
+
+  private nameTag(cam: Camera, r: RiderView) {
+    const { ctx } = this;
+    const head = r.bike.chassis.getWorldPoint(RIDER_HEAD);
+    const x = this.sx(cam, head.x);
+    const y = this.sy(cam, head.y) - RIDER_HEAD_R * cam.ppm - 8;
+    ctx.font = "600 12px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    const w = ctx.measureText(r.look.name).width + 18;
+    ctx.fillStyle = "rgba(10,16,28,0.6)";
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - 16, w, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = r.look.plastic;
+    ctx.fillRect(x - w / 2 + 4, y - 12, 3, 10);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(r.look.name, x + 3, y - 7);
   }
 
   private visibleRange(cam: Camera, pts: Pt[]) {
@@ -280,7 +312,7 @@ export class Renderer {
     ctx.fill();
   }
 
-  private bike(cam: Camera, bike: Bike) {
+  private bike(cam: Camera, bike: Bike, look: Look) {
     const { ctx } = this;
     const ch = bike.chassis;
     const s = cam.ppm;
@@ -309,17 +341,17 @@ export class Renderer {
     this.line(L(0.36, 0.3), L(0.48, 0.36), 0.12 * s, "#333");
 
     // Plastics.
-    this.poly(cam, ch, [-0.98, 0.42, -0.5, 0.34, -0.2, 0.3, -0.15, 0.22, -0.55, 0.22, -0.9, 0.34], C.plastic);
-    this.poly(cam, ch, [-0.15, 0.36, 0.3, 0.4, 0.34, 0.26, 0.05, 0.12, -0.12, 0.16], C.plastic);
+    this.poly(cam, ch, [-0.98, 0.42, -0.5, 0.34, -0.2, 0.3, -0.15, 0.22, -0.55, 0.22, -0.9, 0.34], look.plastic);
+    this.poly(cam, ch, [-0.15, 0.36, 0.3, 0.4, 0.34, 0.26, 0.05, 0.12, -0.12, 0.16], look.plastic);
     this.poly(cam, ch, [-0.55, 0.4, 0.02, 0.4, 0.04, 0.34, -0.55, 0.34], "#222");
-    this.poly(cam, ch, [0.36, 0.5, 0.48, 0.48, 0.5, 0.26, 0.4, 0.24], C.plasticDark);
-    this.poly(cam, ch, [0.62, 0.16, 0.95, 0.12, 0.92, 0.07, 0.6, 0.1], C.plastic);
+    this.poly(cam, ch, [0.36, 0.5, 0.48, 0.48, 0.5, 0.26, 0.4, 0.24], look.plasticDark);
+    this.poly(cam, ch, [0.62, 0.16, 0.95, 0.12, 0.92, 0.07, 0.6, 0.1], look.plastic);
     this.line(L(0.3, 0.62), L(0.44, 0.56), 0.05 * s, "#222");
 
-    this.rider(cam, bike);
+    this.rider(cam, bike, look);
   }
 
-  private rider(cam: Camera, bike: Bike) {
+  private rider(cam: Camera, bike: Bike, look: Look) {
     const ch = bike.chassis;
     const s = cam.ppm;
     const l = bike.lean;
@@ -339,16 +371,16 @@ export class Renderer {
     const elbow = ik(shoulder, hand, 0.3, 0.3, -1);
     const knee = ik(hip, foot, 0.45, 0.45, 1);
 
-    this.line(L(hip), L(knee), 0.15 * s, C.pants);
+    this.line(L(hip), L(knee), 0.15 * s, look.pants);
     this.line(L(knee), L(foot), 0.13 * s, C.boots);
-    this.line(L(hip), L(shoulder), 0.24 * s, C.jersey);
-    this.line(L(shoulder), L(elbow), 0.11 * s, C.jerseyDark);
-    this.line(L(elbow), L(hand), 0.1 * s, C.jerseyDark);
+    this.line(L(hip), L(shoulder), 0.24 * s, look.jersey);
+    this.line(L(shoulder), L(elbow), 0.11 * s, look.jerseyDark);
+    this.line(L(elbow), L(hand), 0.1 * s, look.jerseyDark);
 
     const { ctx } = this;
     const [hx, hy] = L(head);
     const r = RIDER_HEAD_R * s;
-    ctx.fillStyle = C.helmet;
+    ctx.fillStyle = look.helmet;
     ctx.beginPath();
     ctx.arc(hx, hy, r, 0, Math.PI * 2);
     ctx.fill();
@@ -357,7 +389,7 @@ export class Renderer {
     ctx.save();
     ctx.translate(hx, hy);
     ctx.rotate(a);
-    ctx.fillStyle = C.visor;
+    ctx.fillStyle = look.visor;
     ctx.fillRect(r * 0.2, -r * 0.95, r * 1.1, r * 0.35);
     ctx.fillStyle = "#222";
     ctx.fillRect(r * 0.35, -r * 0.3, r * 0.7, r * 0.42);

@@ -42,6 +42,11 @@ export interface Input {
   lean: number; // +1 = back (nose up), -1 = forward
 }
 
+// Bikes share one world but never touch each other (same negative group).
+const NO_SELF_COLLIDE = -1;
+
+const spawnHeight = (groundY: number) => groundY + BIKE.wheelRadius - BIKE.rearAnchor.y + 0.05;
+
 export class Bike {
   chassis: Body;
   rear: Body;
@@ -51,17 +56,20 @@ export class Bike {
   rearContacts = 0;
   frontContacts = 0;
   lean = 0; // smoothed, used for rider animation
+  power = 1; // engine multiplier: AI skill, later bike upgrades
 
   constructor(world: World, start: Vec2Value) {
-    const cy = start.y + BIKE.wheelRadius - BIKE.rearAnchor.y + 0.05;
+    const cy = spawnHeight(start.y);
 
     this.chassis = world.createDynamicBody({
       position: { x: start.x, y: cy },
       angularDamping: 0.4,
+      userData: this,
     });
     this.chassis.createFixture(new Box(0.62, 0.16, { x: 0, y: 0.04 }), {
       density: BIKE.chassisDensity,
       friction: 0.5,
+      filterGroupIndex: NO_SELF_COLLIDE,
       userData: "chassis" satisfies FixtureTag,
     });
     // Rider torso and head: touching the ground with these means a crash.
@@ -72,11 +80,17 @@ export class Bike {
         { x: 0.1, y: 1.04 },
         { x: -0.12, y: 1.06 },
       ]),
-      { density: BIKE.riderDensity, friction: 0.6, userData: "rider" satisfies FixtureTag },
+      {
+        density: BIKE.riderDensity,
+        friction: 0.6,
+        filterGroupIndex: NO_SELF_COLLIDE,
+        userData: "rider" satisfies FixtureTag,
+      },
     );
     this.chassis.createFixture(new Circle(RIDER_HEAD, RIDER_HEAD_R), {
       density: BIKE.riderDensity,
       friction: 0.6,
+      filterGroupIndex: NO_SELF_COLLIDE,
       userData: "rider" satisfies FixtureTag,
     });
 
@@ -84,11 +98,13 @@ export class Bike {
       const body = world.createDynamicBody({
         position: { x: start.x + anchor.x, y: cy + anchor.y },
         angularDamping: 0.2,
+        userData: this,
       });
       body.createFixture(new Circle(BIKE.wheelRadius), {
         density: BIKE.wheelDensity,
         friction: BIKE.wheelFriction,
         restitution: 0.05,
+        filterGroupIndex: NO_SELF_COLLIDE,
         userData: tag,
       });
       return body;
@@ -121,6 +137,32 @@ export class Bike {
     return this.rearContacts > 0 || this.frontContacts > 0;
   }
 
+  get bodies() {
+    return [this.chassis, this.rear, this.front];
+  }
+
+  // Shifts the whole bike keeping its motion (seamless jump back to the start for the next lap).
+  translate(dx: number, dy: number) {
+    for (const b of this.bodies) {
+      const p = b.getPosition();
+      b.setTransform({ x: p.x + dx, y: p.y + dy }, b.getAngle());
+    }
+  }
+
+  // Puts the bike upright and at rest on the ground at x (respawn after a crash).
+  placeAt(x: number, groundY: number) {
+    const cy = spawnHeight(groundY);
+    this.chassis.setTransform({ x, y: cy }, 0);
+    this.rear.setTransform({ x: x + BIKE.rearAnchor.x, y: cy + BIKE.rearAnchor.y }, 0);
+    this.front.setTransform({ x: x + BIKE.frontAnchor.x, y: cy + BIKE.frontAnchor.y }, 0);
+    for (const b of this.bodies) {
+      b.setLinearVelocity({ x: 0, y: 0 });
+      b.setAngularVelocity(0);
+      b.setAwake(true);
+    }
+    this.lean = 0;
+  }
+
   get speed() {
     return this.chassis.getLinearVelocity().x;
   }
@@ -136,8 +178,8 @@ export class Bike {
     } else if (input.gas) {
       const wheelie = this.rearContacts > 0 && this.frontContacts === 0 && chassis.getAngularVelocity() > -0.3;
       const cut = wheelie && input.lean <= 0 ? BIKE.wheelieThrottleCut : 1;
-      rearJoint.setMotorSpeed(-BIKE.maxWheelSpeed);
-      rearJoint.setMaxMotorTorque(BIKE.engineTorque * cut);
+      rearJoint.setMotorSpeed(-BIKE.maxWheelSpeed * this.power);
+      rearJoint.setMaxMotorTorque(BIKE.engineTorque * this.power * cut);
       frontJoint.setMaxMotorTorque(0);
     } else {
       rearJoint.setMotorSpeed(0);

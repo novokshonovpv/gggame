@@ -14,13 +14,18 @@
         <button id="btn-menu" class="icon" aria-label="Меню">☰</button>
         <div class="center">
           <div id="track-name"></div>
-          <div id="time">0:00.00</div>
+          <div class="hud-bar">
+            <div class="cell"><span class="lbl">Поз</span><b id="pos">1/4</b></div>
+            <div class="cell main"><span class="lbl">Время</span><b id="time">0:00.00</b></div>
+            <div class="cell"><span class="lbl">Круг</span><b id="lap">1/1</b></div>
+          </div>
           <div id="progress"><div id="progress-fill"></div></div>
-          <div id="best"></div>
         </div>
         <button id="btn-restart" class="icon" aria-label="Заново">↻</button>
       </div>
-      <div id="hint">Газ — старт</div>
+      <ul id="missions"></ul>
+      <div id="toast" class="hidden"></div>
+      <div id="countdown" class="hidden"></div>
     </div>
 
     <div id="controls" class="hidden">
@@ -49,9 +54,11 @@
 
     <div id="results" class="overlay hidden">
       <div class="panel">
-        <h2>Финиш</h2>
+        <h2 id="res-place">Финиш</h2>
         <div id="res-time" class="big"></div>
         <div id="res-best"></div>
+        <ol id="res-table"></ol>
+        <ul id="res-missions"></ul>
         <div class="row">
           <button id="res-retry">Ещё раз</button>
           <button id="res-next" class="primary">Следующая</button>
