@@ -2,6 +2,8 @@
 
 2D мотокросс-игра с физикой в духе Mad Skills Motocross. Платформы: веб и Android (через Capacitor).
 
+Играть: https://novokshonovpv.github.io/gggame/ — обновляется автоматически при каждом пуше в `main` (`.github/workflows/pages.yml`).
+
 Стек: TypeScript + Vite, физика Planck.js (Box2D), рендер Canvas 2D.
 
 ## Команды
