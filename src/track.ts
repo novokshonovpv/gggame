@@ -3,9 +3,12 @@ export interface Pt {
   y: number;
 }
 
+export type ThemeId = "canyon" | "forest" | "city";
+
 export interface Track {
   id: string;
   name: string;
+  theme: ThemeId;
   points: Pt[];
   startX: number;
   finishX: number;
@@ -13,14 +16,29 @@ export interface Track {
 
 const STEP = 0.4;
 
-// Builds a continuous ground polyline from MX-style features.
+// Deterministic RNG so every track (and its decorations) is the same on every run.
+export function rng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Builds a continuous ground polyline from MX-style features. Heights are in meters;
+// the bike with rider is ~2 m tall, so MSM-sized hills are 3–8 m.
 class Builder {
   pts: Pt[] = [];
   x = 0;
   y = 0;
+  rand: () => number;
 
-  constructor() {
-    this.pts.push({ x: -40, y: 30 }, { x: -40, y: 0 }, { x: 0, y: 0 });
+  constructor(seed: number) {
+    this.rand = rng(seed);
+    this.pts.push({ x: -40, y: 40 }, { x: -40, y: 0 }, { x: 0, y: 0 });
   }
 
   private add(x: number, y: number) {
@@ -45,141 +63,190 @@ class Builder {
     return this.shape(len, () => 0);
   }
 
+  // Natural uneven ground: a few soft random undulations that start and end level.
+  rough(len: number, amp = 0.35) {
+    const waves = [0, 1, 2].map(() => ({
+      k: 1 + Math.floor(this.rand() * 4),
+      p: this.rand() * Math.PI * 2,
+      a: amp * (0.4 + this.rand() * 0.6),
+    }));
+    return this.shape(len, (t) => {
+      const w = Math.sin(Math.PI * t);
+      return w * waves.reduce((s, v) => s + v.a * Math.sin(v.k * Math.PI * t + v.p) * Math.sin(v.k * Math.PI * t), 0);
+    });
+  }
+
   // Smooth S-curve change of height (ease in and out).
   slope(len: number, dy: number) {
     return this.shape(len, (t) => (dy * (1 - Math.cos(Math.PI * t))) / 2);
   }
 
-  // Kicker: gets steeper towards the lip.
+  // Kicker face: gets steeper towards the lip.
   lip(len: number, h: number) {
     return this.shape(len, (t) => h * (1 - Math.cos((Math.PI / 2) * t)));
   }
 
-  // Landing: rounded knuckle, then eases to flat.
+  // Landing: rounded knuckle, steep middle, eases to flat.
   landing(len: number, h: number) {
     return this.slope(len, -h);
   }
 
-  bump(len: number, h: number) {
-    return this.shape(len, (t) => (h * (1 - Math.cos(2 * Math.PI * t))) / 2);
+  // The signature MSM shape: a steep face that kicks you up, a short crest,
+  // and a long downslope you can land anywhere on.
+  hill(h: number, up: number, down: number, crest = 1.2) {
+    return this.lip(up, h).flat(crest).landing(down, h);
   }
 
-  rollers(n: number, len: number, h: number) {
-    for (let i = 0; i < n; i++) this.bump(len, h);
+  // Rhythm section: rollers of slightly varying height you can jump, double or manual.
+  rhythm(n: number, len: number, h: number) {
+    for (let i = 0; i < n; i++) {
+      const hh = h * (0.75 + this.rand() * 0.5);
+      const ll = len * (0.85 + this.rand() * 0.3);
+      this.shape(ll, (t) => (hh * (1 - Math.cos(2 * Math.PI * t))) / 2);
+    }
     return this;
   }
 
-  whoops(n: number) {
-    return this.rollers(n, 2.6, 0.55);
+  whoops(n: number, h = 0.6) {
+    return this.rhythm(n, 2.8, h);
   }
 
   tabletop(h: number, top: number) {
-    return this.lip(h * 2.4, h).flat(top).landing(h * 3.2, h);
+    return this.lip(h * 2.2, h).flat(top).landing(h * 3.4, h);
   }
 
-  // Jump over a pit onto a landing ramp; base level is restored afterwards.
+  // Jump over a dip onto a landing ramp; base level is restored afterwards.
+  // The back face of the dip is rideable, so coming up short is a hard case, not a trap.
   double(h: number, gap: number) {
     const base = this.y;
-    this.lip(h * 2.2, h);
-    this.add(this.x + 0.6, base - 1.2);
-    this.add(this.x + gap, base - 1.2);
-    this.add(this.x + 0.6, base + h * 0.95);
+    const top = h * 0.95;
+    const face = (top + 0.8) * 2.2;
+    this.lip(h * 2, h);
+    this.slope(1.4, base - 0.8 - this.y);
+    this.flat(Math.max(0.5, gap - face - 1.4));
+    this.slope(face, base + top - this.y);
     this.flat(0.8);
-    return this.landing(h * 3.6, this.y - base);
+    return this.landing(h * 3.8, this.y - base);
   }
 
-  // Kicker onto a higher plateau.
+  // Kicker onto a higher plateau; the plateau face is steep but rideable.
   stepUp(h: number, gap: number) {
     const base = this.y;
-    this.lip(2.2, 1.0);
-    this.add(this.x + 0.5, base - 0.8);
-    this.add(this.x + gap, base - 0.8);
-    this.add(this.x + 0.5, base + h);
-    return this.flat(4);
+    const face = (h + 0.8) * 1.6;
+    this.lip(2.6, 1.3);
+    this.slope(1.2, base - 0.8 - this.y);
+    this.flat(Math.max(0.5, gap - face * 0.5));
+    this.slope(face, base + h - this.y);
+    return this.flat(5);
   }
 
+  // Off a ledge onto a long downslope.
   drop(h: number) {
-    return this.lip(1.4, 0.35).flat(0.6).add2(1.0, -h * 0.35).landing(h * 3, h * 0.65 + 0.35);
+    this.lip(1.6, 0.4).flat(0.6);
+    this.add(this.x + 1.2, this.y - h * 0.3);
+    return this.landing(h * 3, h * 0.7 + 0.4);
   }
 
-  private add2(dx: number, dy: number) {
-    this.add(this.x + dx, this.y + dy);
-    return this;
-  }
-
-  build(id: string, name: string): Track {
-    const finishX = this.x + 6;
-    this.flat(60);
-    this.add(this.x, this.y + 30);
-    return { id, name, points: this.pts, startX: 2, finishX };
+  build(id: string, name: string, theme: ThemeId): Track {
+    this.flat(4);
+    const finishX = this.x + 2;
+    this.flat(70);
+    this.add(this.x, this.y + 40);
+    return { id, name, theme, points: this.pts, startX: 2, finishX };
   }
 }
 
 export const TRACKS: Track[] = [
-  new Builder()
-    .flat(14)
-    .rollers(3, 7, 0.9)
+  new Builder(11)
+    .flat(16)
+    .rough(24, 0.3)
+    .hill(2.5, 7, 14)
     .flat(6)
-    .tabletop(1.6, 5)
-    .flat(8)
-    .whoops(6)
-    .flat(6)
-    .tabletop(2.2, 7)
+    .rhythm(4, 8, 1.4)
     .flat(5)
-    .slope(18, 4)
-    .flat(4)
-    .slope(16, -4)
-    .flat(8)
-    .double(1.8, 6)
+    .hill(4, 9, 20)
+    .rough(20, 0.4)
+    .tabletop(2.8, 6)
+    .flat(6)
+    .slope(30, 7)
     .flat(10)
-    .build("t1", "Разминка"),
-
-  new Builder()
-    .flat(12)
-    .tabletop(1.8, 4)
-    .flat(6)
-    .double(2.0, 7)
-    .flat(5)
-    .rollers(4, 6, 1.2)
-    .flat(4)
-    .stepUp(2.5, 4)
-    .flat(8)
-    .drop(2.5)
-    .flat(6)
+    .drop(3.5)
+    .rough(14, 0.3)
     .whoops(8)
-    .flat(6)
-    .double(2.6, 10)
-    .flat(4)
-    .slope(14, 3)
-    .tabletop(1.5, 3)
-    .slope(14, -3)
-    .flat(10)
-    .build("t2", "Карьер"),
-
-  new Builder()
-    .flat(14)
-    .double(2.4, 9)
-    .flat(4)
-    .double(2.8, 12)
-    .flat(5)
-    .stepUp(3, 5)
-    .flat(4)
-    .stepUp(3, 5)
-    .flat(6)
-    .drop(3)
-    .flat(2)
-    .drop(3)
     .flat(8)
-    .whoops(10)
+    .hill(5, 11, 24)
     .flat(5)
-    .tabletop(3.2, 9)
+    .double(2.6, 9)
+    .rough(18, 0.35)
+    .hill(3.5, 8, 16)
+    .rhythm(3, 9, 1.8)
+    .flat(6)
+    .slope(24, -7)
+    .flat(8)
+    .tabletop(3.4, 10)
+    .rough(16, 0.3)
+    .build("canyon", "Каньон", "canyon"),
+
+  new Builder(27)
+    .flat(16)
+    .rough(18, 0.4)
+    .slope(36, 9)
     .flat(4)
-    .double(3.2, 15)
-    .flat(12)
-    .build("t3", "Большие прыжки"),
+    .hill(3.5, 8, 18)
+    .rough(12, 0.4)
+    .drop(4)
+    .flat(5)
+    .double(3, 11)
+    .rough(16, 0.4)
+    .rhythm(5, 7, 1.5)
+    .flat(5)
+    .stepUp(3, 5)
+    .rough(14, 0.3)
+    .hill(6, 13, 28)
+    .flat(6)
+    .whoops(10, 0.7)
+    .flat(6)
+    .slope(30, 8)
+    .hill(4, 9, 20)
+    .rough(20, 0.4)
+    .drop(5)
+    .slope(26, -6)
+    .flat(6)
+    .double(3.4, 13)
+    .rough(14, 0.3)
+    .build("forest", "Лесная тропа", "forest"),
+
+  new Builder(53)
+    .flat(16)
+    .tabletop(2.4, 5)
+    .flat(5)
+    .double(3, 11)
+    .flat(4)
+    .rhythm(6, 6.5, 1.4)
+    .flat(4)
+    .hill(5, 10, 22)
+    .rough(14, 0.3)
+    .stepUp(3.5, 6)
+    .stepUp(3.5, 6)
+    .flat(5)
+    .drop(4)
+    .drop(4)
+    .rough(10, 0.3)
+    .whoops(12, 0.65)
+    .flat(5)
+    .double(3.6, 15)
+    .flat(4)
+    .hill(7, 14, 30)
+    .rhythm(4, 8, 2)
+    .flat(5)
+    .tabletop(4, 12)
+    .flat(4)
+    .double(4, 17)
+    .rough(12, 0.3)
+    .build("city", "Ночной город", "city"),
 ];
 
-// Ground height at x (linear interpolation between samples), used for decorations.
+// Ground height at x (linear interpolation between samples).
 export function groundY(track: Track, x: number): number {
   const p = track.points;
   let lo = 2;

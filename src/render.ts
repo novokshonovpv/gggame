@@ -1,6 +1,9 @@
 import type { Body } from "planck";
 import { BIKE, type Bike, RIDER_HEAD_R } from "./bike.ts";
+import { THEMES, type Theme, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
+
+const BAND = 1.0; // visual depth of the riding surface, meters
 
 export interface Camera {
   x: number;
@@ -9,13 +12,6 @@ export interface Camera {
 }
 
 const C = {
-  skyTop: "#5aa9e6",
-  skyBottom: "#cfe8f7",
-  far: "#9cc3d9",
-  mid: "#7fae8a",
-  dirt: "#8a5a35",
-  dirtDark: "#5e3b22",
-  topsoil: "#b07a4a",
   tire: "#1c1c1c",
   rim: "#9aa3ab",
   plastic: "#f2a516",
@@ -48,9 +44,10 @@ export class Renderer {
     this.canvas.height = Math.round(this.h * this.dpr);
   }
 
-  // Zoom so roughly the same slice of track is visible on any screen.
+  // Zoom so roughly the same slice of track is visible on any screen:
+  // MSM-like wide view, ~12 m tall and ~22 m wide on a 16:9 screen.
   basePpm() {
-    return Math.min(this.h / 8.5, this.w / 15);
+    return Math.min(this.h / 12, this.w / 22);
   }
 
   sx(cam: Camera, x: number) {
@@ -62,59 +59,13 @@ export class Renderer {
 
   draw(cam: Camera, track: Track, bike: Bike, time: number) {
     const { ctx } = this;
+    const theme = THEMES[track.theme];
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.sky(cam, time);
+    drawScenery(ctx, theme, { w: this.w, h: this.h, camX: cam.x, camY: cam.y, scale: this.basePpm(), time });
+    this.fence(cam, track, theme);
     this.flags(cam, track);
-    this.ground(cam, track);
+    this.ground(cam, track, theme);
     this.bike(cam, bike);
-  }
-
-  private sky(cam: Camera, time: number) {
-    const { ctx, w, h } = this;
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, C.skyTop);
-    g.addColorStop(1, C.skyBottom);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-
-    // Clouds drift slowly and parallax a little.
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    for (let i = 0; i < 6; i++) {
-      const span = w + 400;
-      const cx = ((((i * 397 - cam.x * cam.ppm * 0.05 + time * 8) % span) + span) % span) - 200;
-      const cy = 40 + ((i * 53) % 120);
-      const s = 0.7 + ((i * 31) % 10) / 15;
-      for (const [dx, dy, rx, ry] of [
-        [0, 0, 60, 18],
-        [35, -10, 40, 20],
-        [-30, -6, 34, 15],
-      ]) {
-        ctx.beginPath();
-        ctx.ellipse(cx + dx * s, cy + dy * s, rx * s, ry * s, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    this.hills(cam, 0.15, C.far, 0.35, 90, 0.004);
-    this.hills(cam, 0.35, C.mid, 0.48, 60, 0.009);
-  }
-
-  private hills(cam: Camera, parallax: number, color: string, base: number, amp: number, freq: number) {
-    const { ctx, w, h } = this;
-    const off = cam.x * cam.ppm * parallax;
-    const yOff = (cam.y * cam.ppm * parallax) / 2;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(0, h);
-    for (let px = 0; px <= w + 20; px += 20) {
-      const u = px + off;
-      const y =
-        h * base + yOff - amp * (0.6 * Math.sin(u * freq) + 0.4 * Math.sin(u * freq * 2.7 + 1.3));
-      ctx.lineTo(px, y);
-    }
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    ctx.fill();
   }
 
   private visibleRange(cam: Camera, pts: Pt[]) {
@@ -127,40 +78,113 @@ export class Renderer {
     return [i0, i1];
   }
 
-  private ground(cam: Camera, track: Track) {
-    const { ctx, h } = this;
-    const pts = track.points;
-    const [i0, i1] = this.visibleRange(cam, pts);
-
-    const path = new Path2D();
-    path.moveTo(this.sx(cam, pts[i0].x), h + 10);
-    for (let i = i0; i <= i1; i++) path.lineTo(this.sx(cam, pts[i].x), this.sy(cam, pts[i].y));
-    path.lineTo(this.sx(cam, pts[i1].x), h + 10);
-    path.closePath();
-
-    const g = ctx.createLinearGradient(0, this.sy(cam, cam.y + 2), 0, h);
-    g.addColorStop(0, C.dirt);
-    g.addColorStop(1, C.dirtDark);
-    ctx.fillStyle = g;
-    ctx.fill(path);
-
-    // Packed top layer of the track.
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = C.topsoil;
-    ctx.lineWidth = Math.max(4, cam.ppm * 0.22);
-    ctx.beginPath();
-    for (let i = i0; i <= i1; i++) {
-      const x = this.sx(cam, pts[i].x);
-      const y = this.sy(cam, pts[i].y) + ctx.lineWidth / 2;
-      if (i === i0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+  // Polyline along the profile, shifted vertically by `offset` meters.
+  private trace(cam: Camera, pts: Pt[], i0: number, i1: number, offset: number, path: Path2D | CanvasRenderingContext2D, reverse = false) {
+    for (let k = 0; k <= i1 - i0; k++) {
+      const i = reverse ? i1 - k : i0 + k;
+      path.lineTo(this.sx(cam, pts[i].x), this.sy(cam, pts[i].y + offset));
     }
+  }
+
+  private strokeAt(cam: Camera, pts: Pt[], i0: number, i1: number, offset: number, color: string, width: number) {
+    const { ctx } = this;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(this.sx(cam, pts[i0].x), this.sy(cam, pts[i0].y + offset));
+    this.trace(cam, pts, i0, i1, offset, ctx);
     ctx.stroke();
   }
 
+  // The track reads as a 3D dirt road: a lit riding surface BAND meters deep
+  // (wheels run along its middle) over a cross-section of layered dirt.
+  private ground(cam: Camera, track: Track, theme: Theme) {
+    const { ctx, h } = this;
+    const t = theme.track;
+    const pts = track.points;
+    const [i0, i1] = this.visibleRange(cam, pts);
+    const s = cam.ppm;
+    const half = BAND / 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    const face = new Path2D();
+    face.moveTo(this.sx(cam, pts[i0].x), h + 10);
+    this.trace(cam, pts, i0, i1, -half, face);
+    face.lineTo(this.sx(cam, pts[i1].x), h + 10);
+    face.closePath();
+    const g = ctx.createLinearGradient(0, h * 0.35, 0, h);
+    g.addColorStop(0, t.face[0]);
+    g.addColorStop(1, t.face[1]);
+    ctx.fillStyle = g;
+    ctx.fill(face);
+    for (const [o, wd] of [
+      [-1.4, 0.06],
+      [-2.6, 0.09],
+      [-4.2, 0.07],
+      [-6.3, 0.12],
+    ])
+      this.strokeAt(cam, pts, i0, i1, o, t.strata, Math.max(1, s * wd));
+
+    const top = new Path2D();
+    top.moveTo(this.sx(cam, pts[i0].x), this.sy(cam, pts[i0].y + half));
+    this.trace(cam, pts, i0, i1, half, top);
+    this.trace(cam, pts, i0, i1, -half, top, true);
+    top.closePath();
+    ctx.fillStyle = t.top;
+    ctx.fill(top);
+
+    for (const [o, wd] of [
+      [-0.3, 0.05],
+      [-0.13, 0.08],
+      [0.06, 0.06],
+      [0.27, 0.05],
+    ])
+      this.strokeAt(cam, pts, i0, i1, o, t.rut, Math.max(1, s * wd));
+    this.strokeAt(cam, pts, i0, i1, half, t.berm, Math.max(2, s * 0.14));
+    this.strokeAt(cam, pts, i0, i1, -half, t.lip, Math.max(1.5, s * 0.07));
+  }
+
+  // Posts and rails along the far edge of the track, skipped on steep faces.
+  private fence(cam: Camera, track: Track, theme: Theme) {
+    const { ctx } = this;
+    const step = 3.5;
+    const s = cam.ppm;
+    const x0 = Math.floor((cam.x - this.w / 2 / s) / step) * step;
+    const x1 = cam.x + this.w / 2 / s + step;
+    ctx.strokeStyle = theme.track.fence;
+    ctx.lineCap = "round";
+    let prev: [number, number] | null = null;
+    for (let x = x0; x <= x1; x += step) {
+      const y = groundY(track, x) + BAND / 2 - 0.05;
+      const steep = Math.abs(groundY(track, x + 0.6) - groundY(track, x - 0.6)) > 0.7;
+      if (steep || x < track.startX - 4 || x > track.finishX + 40) {
+        prev = null;
+        continue;
+      }
+      const px = this.sx(cam, x);
+      const base = this.sy(cam, y);
+      ctx.lineWidth = Math.max(1.5, s * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(px, base);
+      ctx.lineTo(px, base - 0.95 * s);
+      ctx.stroke();
+      if (prev) {
+        ctx.lineWidth = Math.max(1, s * 0.05);
+        ctx.beginPath();
+        for (const r of [0.45, 0.85]) {
+          ctx.moveTo(prev[0], prev[1] - r * s);
+          ctx.lineTo(px, base - r * s);
+        }
+        ctx.stroke();
+      }
+      prev = [px, base];
+    }
+  }
+
   private flags(cam: Camera, track: Track) {
-    this.gate(cam, track.startX - 1, groundY(track, track.startX - 1), false);
-    this.gate(cam, track.finishX, groundY(track, track.finishX), true);
+    this.gate(cam, track.startX - 1, groundY(track, track.startX - 1) + BAND / 2, false);
+    this.gate(cam, track.finishX, groundY(track, track.finishX) + BAND / 2, true);
   }
 
   private gate(cam: Camera, x: number, y: number, finish: boolean) {

@@ -114,7 +114,8 @@ class Game {
     this.crashTimer = 0;
     this.acc = 0;
     const p = this.bike.chassis.getPosition();
-    this.cam = { x: p.x + 3, y: p.y, ppm: this.renderer.basePpm() };
+    const ppm = this.renderer.basePpm();
+    this.cam = { x: p.x + (this.renderer.w * 0.12) / ppm, y: p.y + 1.2, ppm };
     this.ui();
   }
 
@@ -179,17 +180,27 @@ class Game {
     this.hud();
   }
 
+  // Rider sits left of center so the track ahead is visible; vertically the camera
+  // blends the rider with the terrain ahead and zooms out at speed and on big air.
   updateCamera(dt: number) {
+    const r = this.renderer;
     const p = this.bike.chassis.getPosition();
     const v = this.bike.chassis.getLinearVelocity();
-    const look = Math.max(-2, Math.min(6, v.x * 0.3));
-    const k = 1 - Math.exp(-dt * 5);
-    this.cam.x += (p.x + 2 + look - this.cam.x) * k;
-    this.cam.y += (p.y + 0.6 - this.cam.y) * (1 - Math.exp(-dt * 3.5));
-    // Zoom out a bit at speed and on big air.
+    const ahead = Math.max(-3, Math.min(9, v.x * 0.45));
+    const terrain = groundY(this.track, p.x + 4 + ahead);
+    const alt = p.y - groundY(this.track, p.x);
     const speed = Math.hypot(v.x, v.y);
-    const target = this.renderer.basePpm() / (1 + speed / 45);
-    this.cam.ppm += (target - this.cam.ppm) * (1 - Math.exp(-dt * 2));
+
+    const ppm = r.basePpm() / (1 + speed / 90 + Math.max(0, alt - 3) / 16);
+    this.cam.ppm += (ppm - this.cam.ppm) * (1 - Math.exp(-dt * 2));
+
+    const tx = p.x + (r.w * 0.12) / this.cam.ppm + ahead;
+    this.cam.x += (tx - this.cam.x) * (1 - Math.exp(-dt * 5));
+    let ty = p.y * 0.6 + terrain * 0.4 + 1.2;
+    // Keep the rider inside the middle 50% of the screen height.
+    const span = (r.h * 0.25) / this.cam.ppm;
+    ty = Math.max(p.y - span, Math.min(p.y + span, ty));
+    this.cam.y += (ty - this.cam.y) * (1 - Math.exp(-dt * 4));
   }
 
   hud() {
