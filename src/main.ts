@@ -1,5 +1,6 @@
 import { autopilot } from "./ai.ts";
 import { Sound } from "./audio.ts";
+import { Cloud } from "./cloud.ts";
 import { Controls } from "./input.ts";
 import {
   MAX_LEVEL,
@@ -92,6 +93,7 @@ class Game {
   profile = loadProfile();
   newMissions = 0; // missions completed for the first time in this race
   sound = new Sound();
+  cloud = new Cloud();
   recorder = new GhostRecorder();
   ghost: GhostBike | null = null;
   lastCount = 0; // countdown number last beeped
@@ -111,6 +113,23 @@ class Game {
         el.setAttribute("aria-pressed", String(get()));
       });
     };
+    // Cloud save: after a pull, re-read progress and refresh whatever screen is open.
+    this.cloud.onChange = (pulled) => {
+      if (pulled) {
+        this.profile = loadProfile();
+        if (this.state === "menu") this.showMenu();
+        if (this.state === "garage") this.renderGarage();
+      }
+      this.renderAccount();
+    };
+    $("acc-btn").addEventListener("click", () => {
+      const s = this.cloud.status;
+      if (s === "signed-out") void this.cloud.signIn();
+      else if (s === "synced") void this.cloud.signOut();
+      else if (s === "error") void (this.cloud.user ? this.cloud.sync() : this.cloud.signIn());
+    });
+    void this.cloud.init();
+    this.renderAccount();
     toggle("tgl-sfx", () => this.sound.sfxOn, (on) => this.sound.setSfx(on));
     toggle("tgl-music", () => this.sound.musicOn, (on) => this.sound.setMusic(on));
     $("btn-restart").addEventListener("click", () => this.load(this.track));
@@ -155,6 +174,24 @@ class Game {
   addCoins(n: number) {
     this.profile.coins += n;
     saveProfile(this.profile);
+    this.cloud.pushSoon();
+  }
+
+  renderAccount() {
+    const c = this.cloud;
+    $("account").classList.toggle("hidden", !c.configured);
+    const text: Record<string, [string, string]> = {
+      loading: ["Облако подключается…", ""],
+      "signed-out": ["Прогресс только на этом устройстве", "Войти через Google"],
+      syncing: ["Синхронизация…", ""],
+      synced: [`☁ ${c.user?.displayName ?? "Аккаунт"} · прогресс сохранён`, "Выйти"],
+      error: ["Нет связи с облаком", "Повторить"],
+      off: ["", ""],
+    };
+    const [status, button] = text[c.status];
+    $("acc-status").textContent = status;
+    $("acc-btn").textContent = button;
+    $("acc-btn").classList.toggle("hidden", !button);
   }
 
   showGarage() {
@@ -186,6 +223,7 @@ class Game {
         p.coins -= cost;
         p.levels[u.id]++;
         saveProfile(p);
+        this.cloud.pushSoon();
         this.sound.coin();
         this.renderGarage();
       });
@@ -212,6 +250,7 @@ class Game {
         }
         p.paint = paint.id;
         saveProfile(p);
+        this.cloud.pushSoon();
         // Rebuild the idle scene behind the garage so the new paint shows on the bike.
         this.load(this.track);
         this.state = "garage";

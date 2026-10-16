@@ -20,6 +20,22 @@ node tools/race.ts   # полная гонка с соперниками без 
 
 Управление: ↑ газ, ↓ тормоз, ← → наклон, R заново, Esc меню. На телефоне — экранные кнопки.
 
+## Облачное сохранение (Firebase)
+
+Прогресс (монеты, улучшения, раскраски, задания, рекорды, призраки) синхронизируется через
+Firebase после входа через Google. Пока в `src/cloud-config.ts` стоит `null`, облако скрыто.
+
+1. https://console.firebase.google.com → «Создать проект» (Google Analytics не нужен).
+2. Build → Authentication → Get started → Sign-in method → Google → Enable.
+3. Authentication → Settings → Authorized domains → добавить `novokshonovpv.github.io`.
+4. Build → Firestore Database → Create database (production mode, регион `eur3`).
+5. Firestore → Rules → вставить содержимое `firestore.rules` → Publish.
+6. Project settings → Your apps → Web (`</>`) → зарегистрировать приложение и скопировать `firebaseConfig`
+   в `src/cloud-config.ts`.
+
+Данные: `users/{uid}` — прогресс, `users/{uid}/ghosts/{trackId}` — призраки. Объединение прогресса
+с разных устройств — `src/progress.ts` (проверка: `node tools/merge-test.ts`).
+
 ## Структура
 
 - `src/bike.ts` — физика байка, все параметры «ощущения» в объекте `BIKE`
@@ -28,6 +44,7 @@ node tools/race.ts   # полная гонка с соперниками без 
 - `src/render.ts` — 2D-отрисовка (запасной вариант) трассы (объёмная полоса, срез грунта, забор), байка и гонщика
 - `src/scenery.ts` — темы трасс и параллакс-фоны (каньон, лес, ночной город)
 - `src/race.ts` — гонка: соперники, круги, респавн после падения, позиции
+- `src/cloud.ts`, `src/progress.ts` — облачное сохранение: вход через Google, Firestore, объединение прогресса
 - `src/ghost.ts` — призрак рекорда: запись позы байка 30 раз в секунду, сохранение и воспроизведение
 - `src/audio.ts` — весь звук синтезом (Web Audio): моторы с передачами, приземления, падения, сигналы, музыка
 - `src/garage.ts` — прокачка: монеты, улучшения байка (двигатель, резина, подвеска, баланс), раскраски, награды за гонку

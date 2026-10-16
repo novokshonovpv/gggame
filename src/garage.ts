@@ -91,6 +91,7 @@ export interface Profile {
   levels: Record<UpgradeId, number>;
   paint: string;
   owned: string[];
+  updatedAt?: number;
 }
 
 const KEY = "profile";
@@ -107,7 +108,9 @@ export function loadProfile(): Profile {
   }
 }
 
-export function saveProfile(p: Profile) {
+// `updatedAt` decides which device's coin balance wins when cloud save merges profiles.
+export function saveProfile(p: Profile, updatedAt = Date.now()) {
+  p.updatedAt = updatedAt;
   try {
     localStorage.setItem(KEY, JSON.stringify(p));
   } catch {

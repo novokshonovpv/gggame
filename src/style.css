@@ -588,6 +588,22 @@ h1 {
   color: var(--muted);
 }
 
+.account {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.account .garage-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 .panel.wide {
   width: min(560px, 100%);
   text-align: left;
