@@ -25,6 +25,26 @@ export const MISSIONS: Record<string, Mission[]> = {
     { kind: "backflips", count: 2 },
     { kind: "place", place: 1 },
   ],
+  snow: [
+    { kind: "air", seconds: 2.5 },
+    { kind: "clean" },
+    { kind: "place", place: 3 },
+  ],
+  dunes: [
+    { kind: "air", seconds: 3 },
+    { kind: "wheelie", seconds: 4 },
+    { kind: "time", seconds: 65 },
+  ],
+  stadium: [
+    { kind: "backflips", count: 2 },
+    { kind: "clean" },
+    { kind: "place", place: 1 },
+  ],
+  volcano: [
+    { kind: "place", place: 3 },
+    { kind: "backflips", count: 3 },
+    { kind: "time", seconds: 58 },
+  ],
 };
 
 export function missionText(m: Mission): string {
@@ -34,7 +54,7 @@ export function missionText(m: Mission): string {
     case "backflips":
       return m.count === 1 ? "Сделай бэкфлип" : `Сделай ${m.count} бэкфлипа`;
     case "air":
-      return `Пролети ${m.seconds} секунды в одном прыжке`;
+      return `Пролети ${String(m.seconds).replace(".", ",")} секунды в одном прыжке`;
     case "place":
       return m.place === 1 ? "Выиграй гонку" : `Финишируй в тройке`;
     case "time":

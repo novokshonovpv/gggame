@@ -3,13 +3,15 @@ export interface Pt {
   y: number;
 }
 
-export type ThemeId = "canyon" | "forest" | "city";
+export type ThemeId = "canyon" | "forest" | "city" | "snow" | "dunes" | "stadium" | "volcano";
 
 export interface Track {
   id: string;
   name: string;
   theme: ThemeId;
   laps: number;
+  grip: number; // ground friction: dirt 0.9, sand and snow less
+  stars: number; // mission stars needed to unlock
   points: Pt[];
   startX: number;
   finishX: number;
@@ -149,12 +151,13 @@ class Builder {
     return this.landing(h * 3, h * 0.7 + 0.4);
   }
 
-  build(id: string, name: string, theme: ThemeId, laps = 1): Track {
+  build(id: string, name: string, theme: ThemeId, opts: { laps?: number; grip?: number; stars?: number } = {}): Track {
     this.flat(4);
     const finishX = this.x + 2;
     this.flat(70);
     this.add(this.x, this.y + 40);
-    return { id, name, theme, laps, points: this.pts, startX: 2, finishX };
+    const { laps = 1, grip = 0.9, stars = 0 } = opts;
+    return { id, name, theme, laps, grip, stars, points: this.pts, startX: 2, finishX };
   }
 }
 
@@ -187,7 +190,7 @@ export const TRACKS: Track[] = [
     .flat(8)
     .tabletop(3.4, 10)
     .rough(16, 0.3)
-    .build("canyon", "Каньон", "canyon", 2),
+    .build("canyon", "Каньон", "canyon", { laps: 2 }),
 
   new Builder(27)
     .flat(16)
@@ -216,7 +219,7 @@ export const TRACKS: Track[] = [
     .flat(6)
     .double(3.4, 13)
     .rough(14, 0.3)
-    .build("forest", "Лесная тропа", "forest", 2),
+    .build("forest", "Лесная тропа", "forest", { laps: 2 }),
 
   new Builder(53)
     .flat(16)
@@ -246,6 +249,92 @@ export const TRACKS: Track[] = [
     .double(4, 17)
     .rough(12, 0.3)
     .build("city", "Ночной город", "city"),
+
+  // Snow: slippery, long climbs and descents, step-downs.
+  new Builder(71)
+    .flat(16)
+    .rough(20, 0.3)
+    .slope(40, 9)
+    .hill(4, 9, 22)
+    .flat(6)
+    .drop(5)
+    .slope(30, -5)
+    .rhythm(4, 8, 1.5)
+    .flat(5)
+    .double(3, 11)
+    .rough(16, 0.35)
+    .hill(6, 12, 26)
+    .whoops(8, 0.6)
+    .flat(6)
+    .stepUp(3, 5)
+    .flat(4)
+    .drop(4)
+    .slope(26, -6)
+    .tabletop(3, 8)
+    .rough(14, 0.3)
+    .build("snow", "Снежный перевал", "snow", { laps: 2, grip: 0.72, stars: 3 }),
+
+  // Dunes: huge smooth sand waves, long airtime, soft sand.
+  new Builder(83)
+    .flat(16)
+    .rough(14, 0.3)
+    .rhythm(3, 40, 4.5)
+    .flat(6)
+    .hill(7, 14, 30)
+    .flat(5)
+    .rhythm(5, 12, 2.4)
+    .flat(5)
+    .double(3.5, 14)
+    .rough(14, 0.4)
+    .rhythm(3, 44, 5)
+    .flat(6)
+    .tabletop(4, 12)
+    .rough(12, 0.3)
+    .hill(6, 13, 28)
+    .rhythm(4, 10, 2)
+    .rough(12, 0.3)
+    .build("dunes", "Дюны", "dunes", { grip: 0.8, stars: 5 }),
+
+  // Stadium supercross: short, technical, three laps.
+  new Builder(97)
+    .flat(14)
+    .tabletop(2, 4)
+    .flat(3)
+    .rhythm(6, 5.5, 1.2)
+    .flat(3)
+    .double(2.6, 8)
+    .flat(3)
+    .whoops(14, 0.55)
+    .flat(3)
+    .double(3, 10)
+    .flat(3)
+    .stepUp(2.5, 4)
+    .drop(2.5)
+    .rhythm(4, 6, 1.4)
+    .flat(3)
+    .tabletop(2.4, 6)
+    .flat(6)
+    .build("stadium", "Стадион", "stadium", { laps: 3, stars: 7 }),
+
+  // Volcano: the hardest — big gaps, ledges and rough ash.
+  new Builder(113)
+    .flat(16)
+    .double(3.4, 13)
+    .rough(10, 0.4)
+    .stepUp(4, 6)
+    .stepUp(4, 6)
+    .hill(8, 15, 32)
+    .drop(5)
+    .rough(10, 0.4)
+    .double(4, 16)
+    .rhythm(5, 9, 2.2)
+    .drop(6)
+    .whoops(10, 0.7)
+    .flat(5)
+    .hill(7, 14, 30)
+    .double(4.2, 18)
+    .rough(12, 0.4)
+    .build("volcano", "Вулкан", "volcano", { stars: 10 }),
 ];
 
 // Ground height at x (linear interpolation between samples).

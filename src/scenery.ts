@@ -3,7 +3,7 @@ import type { ThemeId } from "./track.ts";
 // Procedural parallax backgrounds, one theme per track (after MSM3's locations:
 // desert canyon, mountain forest with a river, neon night city).
 
-type LayerKind = "ridge" | "hills" | "mesa" | "pines" | "buildings" | "puffs" | "rocks" | "water";
+type LayerKind = "ridge" | "hills" | "mesa" | "pines" | "buildings" | "puffs" | "rocks" | "water" | "stands";
 
 interface Layer {
   kind: LayerKind;
@@ -37,7 +37,7 @@ export interface Theme {
     sun: string;
     sunI: number;
     apron: string; // ground between the track and the backdrop
-    props: "rocks" | "pines" | "trees";
+    props: "rocks" | "pines" | "trees" | "cacti" | "lamps";
     propColor: string;
     propColor2: string;
     fogNear: number;
@@ -141,7 +141,173 @@ export const THEMES: Record<ThemeId, Theme> = {
       fogFar: 420,
     },
   },
+  snow: {
+    sky: ["#6ea6dc", "#bcd8f0", "#eef5fb"],
+    sun: { x: 0.74, y: 0.17, r: 0.05, color: "#fffdf5", glow: "rgba(255,255,240,0.45)" },
+    layers: [
+      { kind: "ridge", parallax: 0.06, base: 0.5, amp: 0.3, color: "#b4c8dc", color2: "#ffffff", seed: 31 },
+      { kind: "ridge", parallax: 0.14, base: 0.58, amp: 0.2, color: "#8ea6be", color2: "#f4f8fb", seed: 37 },
+      { kind: "pines", parallax: 0.3, base: 0.7, amp: 0.15, color: "#56766f", color2: "#e4edf0", seed: 41 },
+      { kind: "pines", parallax: 0.55, base: 0.84, amp: 0.22, color: "#3c5a54", color2: "#d6e3e6", seed: 43 },
+    ],
+    track: {
+      top: "#86674d",
+      rut: "rgba(60,40,25,0.45)",
+      lip: "#b09073",
+      berm: "#f2f6f8",
+      face: ["#6b503e", "#30231a"],
+      strata: "rgba(30,20,12,0.35)",
+      fence: "#d23c3c",
+    },
+    world: {
+      hemiSky: "#e6f2ff",
+      hemiGround: "#c4d2dc",
+      hemi: 1.6,
+      sun: "#ffffff",
+      sunI: 2.2,
+      apron: "#eef3f6",
+      props: "pines",
+      propColor: "#3d6858",
+      propColor2: "#e3ecee",
+      fogNear: 70,
+      fogFar: 420,
+    },
+  },
+  dunes: {
+    sky: ["#3c8ad4", "#8cc4ec", "#f3dfb9"],
+    sun: { x: 0.8, y: 0.14, r: 0.06, color: "#fffbe8", glow: "rgba(255,240,200,0.5)" },
+    layers: [
+      { kind: "hills", parallax: 0.07, base: 0.55, amp: 0.14, color: "#e5c995", seed: 3 },
+      { kind: "hills", parallax: 0.18, base: 0.64, amp: 0.18, color: "#d8af72", seed: 5 },
+      { kind: "hills", parallax: 0.4, base: 0.78, amp: 0.16, color: "#c7985d", seed: 9 },
+    ],
+    track: {
+      top: "#dfba7f",
+      rut: "rgba(150,105,55,0.45)",
+      lip: "#f3d6a3",
+      berm: "#c99b62",
+      face: ["#c48f55", "#7a5230"],
+      strata: "rgba(110,70,35,0.3)",
+      fence: "#5a4330",
+    },
+    world: {
+      hemiSky: "#fff3d9",
+      hemiGround: "#c99b62",
+      hemi: 1.6,
+      sun: "#fff6e0",
+      sunI: 2.6,
+      apron: "#d9b277",
+      props: "cacti",
+      propColor: "#4f8a4a",
+      propColor2: "#5f9c55",
+      fogNear: 100,
+      fogFar: 560,
+    },
+  },
+  stadium: {
+    sky: ["#04060d", "#121833", "#283058"],
+    stars: true,
+    layers: [
+      { kind: "buildings", parallax: 0.07, base: 0.55, amp: 0.25, color: "#1a1e38", color2: "rgba(255,220,150,0.55)", seed: 61 },
+      { kind: "stands", parallax: 0.2, base: 0.66, amp: 0.32, color: "#252a40", color2: "#3a4060", seed: 67 },
+      { kind: "stands", parallax: 0.35, base: 0.78, amp: 0.26, color: "#2e334c", color2: "#454c70", seed: 71 },
+    ],
+    track: {
+      top: "#7a5a44",
+      rut: "rgba(40,25,15,0.55)",
+      lip: "#a07b5e",
+      berm: "#3d4566",
+      face: ["#5c4232", "#241812"],
+      strata: "rgba(20,10,5,0.4)",
+      fence: "#f2f2f2",
+    },
+    world: {
+      hemiSky: "#9fb0ff",
+      hemiGround: "#2a2236",
+      hemi: 1.2,
+      sun: "#f4f6ff",
+      sunI: 2.6,
+      apron: "#2a2a36",
+      props: "lamps",
+      propColor: "#9aa0b5",
+      propColor2: "#fffbe0",
+      fogNear: 90,
+      fogFar: 460,
+    },
+  },
+  volcano: {
+    sky: ["#1d0b0b", "#5a1c12", "#c2471f"],
+    sun: { x: 0.68, y: 0.24, r: 0.05, color: "#ffb070", glow: "rgba(255,120,40,0.45)" },
+    layers: [
+      { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.34, color: "#3a1a17", color2: "#ff7a2a", seed: 83 },
+      { kind: "ridge", parallax: 0.15, base: 0.6, amp: 0.22, color: "#2a1412", color2: "#a8341a", seed: 89 },
+      { kind: "rocks", parallax: 0.45, base: 0.8, amp: 0.14, color: "#1f1110", color2: "#2c1715", seed: 97 },
+    ],
+    track: {
+      top: "#5a4a44",
+      rut: "rgba(20,10,10,0.5)",
+      lip: "#7d6a62",
+      berm: "#ff6a2a",
+      face: ["#3a2a26", "#120a09"],
+      strata: "rgba(255,90,30,0.28)",
+      fence: "#2a2a2a",
+    },
+    world: {
+      hemiSky: "#ffb08a",
+      hemiGround: "#3a1a12",
+      hemi: 1.3,
+      sun: "#ffb27a",
+      sunI: 2.0,
+      apron: "#2a1b18",
+      props: "rocks",
+      propColor: "#2a1a17",
+      propColor2: "#3a2420",
+      fogNear: 70,
+      fogFar: 380,
+    },
+  },
 };
+
+// Grandstands packed with a crowd, with floodlight masts (stadium backdrop).
+function drawStands(
+  ctx: CanvasRenderingContext2D,
+  L: Layer,
+  cells: (cw: number, fn: (i: number, x0: number) => void) => void,
+  base: number,
+  amp: number,
+  S: number,
+  width: number,
+  height: number,
+) {
+  ctx.fillStyle = L.color;
+  ctx.fillRect(0, base - amp * 0.75, width, height);
+  // Tiers with crowd dots.
+  const tiers = 6;
+  for (let t = 0; t < tiers; t++) {
+    const y = base - amp * 0.75 + (t * amp * 0.75) / tiers;
+    ctx.fillStyle = L.color2 ?? L.color;
+    ctx.fillRect(0, y, width, Math.max(1, amp * 0.012));
+  }
+  const crowd = ["#e8e2d0", "#d94a3a", "#3a7bd9", "#f2c94c", "#5bbf6a", "#ffffff", "#9b59b6"];
+  cells(S * 0.012, (i, x0) => {
+    for (let t = 0; t < tiers; t++) {
+      if (hash(i * 13 + t, L.seed) < 0.3) continue;
+      const y = base - amp * 0.75 + ((t + 0.55) * amp * 0.75) / tiers;
+      ctx.fillStyle = crowd[Math.floor(hash(i * 7 + t, L.seed + 1) * crowd.length)];
+      ctx.fillRect(x0, y - amp * 0.03, Math.max(1.5, S * 0.006), amp * 0.04);
+    }
+  });
+  // Roof edge and floodlight masts.
+  ctx.fillStyle = L.color;
+  ctx.fillRect(0, base - amp * 0.8, width, amp * 0.06);
+  cells(S * 0.5, (i, x0) => {
+    const x = x0 + hash(i, L.seed + 2) * S * 0.2;
+    ctx.fillStyle = L.color;
+    ctx.fillRect(x, base - amp, Math.max(2, S * 0.006), amp * 0.3);
+    ctx.fillStyle = "#fffbe0";
+    ctx.fillRect(x - S * 0.02, base - amp, S * 0.045, amp * 0.06);
+  });
+}
 
 export type { Layer };
 
@@ -295,6 +461,10 @@ export function paintLayer(L: Layer, w: number, h: number, base: number, amp: nu
           for (let wx = x + ww; wx < x + bw - ww; wx += ww * 2.2)
             if (hash(i * 997 + k++, L.seed + 4) < 0.45) ctx.fillRect(wx, wy, ww, wh);
       });
+      break;
+    }
+    case "stands": {
+      drawStands(ctx, L, cells, base, amp, S, w, h);
       break;
     }
     case "puffs": {
@@ -535,6 +705,10 @@ function drawLayer(ctx: CanvasRenderingContext2D, L: Layer, v: View) {
           for (let wx = x + ww; wx < x + bw - ww; wx += ww * 2.2)
             if (hash(Math.floor(wx * 7 + wy * 13), L.seed + 4) < 0.45) ctx.fillRect(wx, wy, ww, wh);
       });
+      break;
+    }
+    case "stands": {
+      drawStands(ctx, L, cells, baseY, amp, h, w, h);
       break;
     }
     case "puffs": {

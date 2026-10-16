@@ -383,6 +383,32 @@ h1 {
   letter-spacing: 0.08em;
 }
 
+.track.locked {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.track.locked .num {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text);
+}
+
+.track .need {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.star-count {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+#track-list {
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+
 .track .best {
   min-width: 4.2em;
   text-align: right;

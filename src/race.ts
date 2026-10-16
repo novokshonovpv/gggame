@@ -134,7 +134,7 @@ export class Race {
     this.events = events;
     this.world = new World({ gravity: { x: 0, y: GRAVITY } });
     this.world.createBody().createFixture(new Chain(track.points, false), {
-      friction: 0.9,
+      friction: track.grip,
       userData: "ground" satisfies FixtureTag,
     });
     const rand = rng(seed);

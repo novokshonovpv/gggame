@@ -257,9 +257,27 @@ function addFence(track: Track, theme: Theme, group: THREE.Group) {
   add(new THREE.BoxGeometry(1, 0.05, 0.05), rails);
 }
 
+// Stadium floodlight masts along the far side of the track.
+function addLamps(track: Track, theme: Theme, group: THREE.Group) {
+  const poleMat = new THREE.MeshLambertMaterial({ color: theme.world.propColor });
+  const lampMat = new THREE.MeshBasicMaterial({ color: theme.world.propColor2 });
+  const z = -TRACK_W / 2 - 8;
+  for (let x = track.startX + 10; x <= track.finishX + 60; x += 32) {
+    const y = smoothY(track, x) - 1;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.22, 13, 8), poleMat);
+    pole.position.set(x, y + 6.5, z);
+    pole.castShadow = true;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1, 0.3), lampMat);
+    head.position.set(x, y + 13.2, z + 0.2);
+    head.rotation.x = 0.35;
+    group.add(pole, head);
+  }
+}
+
 function addProps(track: Track, theme: Theme, group: THREE.Group, depth: number) {
   const rand = rng(track.id.length * 101 + 7);
   const w = theme.world;
+  if (w.props === "lamps") return addLamps(track, theme, group);
   const placements: { x: number; z: number; y: number; s: number }[] = [];
   const density = w.props === "rocks" ? 0.5 : 0.3;
   const near = w.props === "rocks" ? 0.1 : 0.3; // tall props stay away from the fence
@@ -296,6 +314,24 @@ function addProps(track: Track, theme: Theme, group: THREE.Group, depth: number)
       const hgt = 2.4 + p.s * 2.6;
       target.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 0.6 + hgt / 2, p.z), q, new THREE.Vector3(hgt * 0.32, hgt, hgt * 0.32)));
       trunks.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 0.4, p.z), q, new THREE.Vector3(0.25, 1.2, 0.25)));
+    } else if (w.props === "cacti") {
+      // Saguaro: a trunk plus up to two elbowed arms, all from one cylinder.
+      const hgt = 1.6 + p.s * 1.6;
+      const seg = (x: number, y: number, r: number, len: number, rotZ: number) =>
+        target.push(
+          new THREE.Matrix4().compose(
+            new THREE.Vector3(x, y, p.z),
+            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rotZ),
+            new THREE.Vector3(r, len, r),
+          ),
+        );
+      seg(p.x, p.y + hgt / 2, 0.28, hgt, 0);
+      for (const side of [-1, 1]) {
+        if (rand() > 0.7) continue;
+        const ah = hgt * (0.4 + rand() * 0.2);
+        seg(p.x + side * 0.32, p.y + ah, 0.15, 0.5, Math.PI / 2);
+        seg(p.x + side * 0.55, p.y + ah + 0.38, 0.17, 0.8, 0);
+      }
     } else {
       const r = 1.1 + p.s * 0.9;
       target.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 1.6 + r, p.z), q, new THREE.Vector3(r, r * 0.85, r)));
@@ -307,7 +343,9 @@ function addProps(track: Track, theme: Theme, group: THREE.Group, depth: number)
       ? new THREE.DodecahedronGeometry(1, 0)
       : w.props === "pines"
         ? new THREE.ConeGeometry(1, 1, 7)
-        : new THREE.IcosahedronGeometry(1, 1);
+        : w.props === "cacti"
+          ? new THREE.CylinderGeometry(1, 1, 1, 8)
+          : new THREE.IcosahedronGeometry(1, 1);
   inst(geo, mA, listA);
   inst(geo, mB, listB);
   inst(new THREE.CylinderGeometry(0.5, 0.5, 1, 6), trunkMat, trunks);

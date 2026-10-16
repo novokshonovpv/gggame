@@ -17,7 +17,7 @@ const policies: Record<string, Policy> = {
 
 function run(track: Track, policy: Policy) {
   const world = new World({ gravity: { x: 0, y: GRAVITY } });
-  world.createBody().createFixture(new Chain(track.points, false), { friction: 0.9, userData: "ground" });
+  world.createBody().createFixture(new Chain(track.points, false), { friction: track.grip, userData: "ground" });
   const bike = new Bike(world, { x: track.startX, y: groundY(track, track.startX) });
   let crashed = false;
   const onContact = (delta: number) => (c: any) => {

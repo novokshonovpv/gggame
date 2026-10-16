@@ -113,7 +113,15 @@ class Game {
     $("btn-restart").addEventListener("click", () => this.load(this.track));
     $("btn-menu").addEventListener("click", () => this.showMenu());
     $("res-retry").addEventListener("click", () => this.load(this.track));
-    $("res-next").addEventListener("click", () => this.load(TRACKS[(TRACKS.indexOf(this.track) + 1) % TRACKS.length]));
+    $("res-next").addEventListener("click", () => {
+      // Next track that is already unlocked (wraps around to the first).
+      const earned = TRACKS.reduce((n, t) => n + missionsDone(t).filter(Boolean).length, 0);
+      const i = TRACKS.indexOf(this.track);
+      for (let k = 1; k <= TRACKS.length; k++) {
+        const t = TRACKS[(i + k) % TRACKS.length];
+        if (earned >= t.stars) return this.load(t);
+      }
+    });
     $("res-menu").addEventListener("click", () => this.showMenu());
     $("btn-garage").addEventListener("click", () => this.showGarage());
     $("garage-close").addEventListener("click", () => this.showMenu());
@@ -216,15 +224,21 @@ class Game {
     $("menu-coins").textContent = String(this.profile.coins);
     const list = $("track-list");
     list.innerHTML = "";
+    // New tracks open with mission stars earned anywhere.
+    const earned = TRACKS.reduce((n, t) => n + missionsDone(t).filter(Boolean).length, 0);
+    $("menu-stars").textContent = `${earned} ★`;
     TRACKS.forEach((t, i) => {
       const best = store.get<number>(bestKey(t));
+      const locked = earned < t.stars;
       const b = document.createElement("button");
-      b.className = "track";
+      b.className = "track" + (locked ? " locked" : "");
+      b.disabled = locked;
       b.innerHTML =
         `<span class="num">${i + 1}</span>` +
-        `<span class="name">${t.name}<small>${t.laps} ${t.laps === 1 ? "круг" : "круга"}</small></span>` +
-        `<span class="stars">${stars(t)}</span>` +
-        `<span class="best">${best ? fmt(best) : "—"}</span>`;
+        `<span class="name">${t.name}<small>${t.laps} ${t.laps === 1 ? "круг" : t.laps < 5 ? "круга" : "кругов"}</small></span>` +
+        (locked
+          ? `<span class="need">Нужно ${t.stars} ★</span>`
+          : `<span class="stars">${stars(t)}</span><span class="best">${best ? fmt(best) : "—"}</span>`);
       b.addEventListener("click", () => this.load(t));
       list.appendChild(b);
     });
@@ -440,4 +454,4 @@ class Game {
 }
 
 const game = new Game();
-if (import.meta.env.DEV) Object.assign(window, { game });
+if (import.meta.env.DEV) Object.assign(window, { game, TRACKS });
