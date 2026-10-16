@@ -1,4 +1,5 @@
 import { autopilot } from "./ai.ts";
+import { Sound } from "./audio.ts";
 import { Controls } from "./input.ts";
 import {
   MAX_LEVEL,
@@ -89,9 +90,26 @@ class Game {
   cam: Camera = { x: 0, y: 0, ppm: 40 };
   profile = loadProfile();
   newMissions = 0; // missions completed for the first time in this race
+  sound = new Sound();
+  lastCount = 0; // countdown number last beeped
 
   constructor() {
     window.addEventListener("resize", () => this.renderer.resize());
+    // Every UI button ticks; toggles flip sound and music.
+    document.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest("button");
+      if (b && !b.dataset.action) this.sound.click(); // not the touch pad
+    });
+    const toggle = (id: string, get: () => boolean, set: (on: boolean) => void) => {
+      const el = $(id);
+      el.setAttribute("aria-pressed", String(get()));
+      el.addEventListener("click", () => {
+        set(!get());
+        el.setAttribute("aria-pressed", String(get()));
+      });
+    };
+    toggle("tgl-sfx", () => this.sound.sfxOn, (on) => this.sound.setSfx(on));
+    toggle("tgl-music", () => this.sound.musicOn, (on) => this.sound.setMusic(on));
     $("btn-restart").addEventListener("click", () => this.load(this.track));
     $("btn-menu").addEventListener("click", () => this.showMenu());
     $("res-retry").addEventListener("click", () => this.load(this.track));
@@ -157,6 +175,7 @@ class Game {
         p.coins -= cost;
         p.levels[u.id]++;
         saveProfile(p);
+        this.sound.coin();
         this.renderGarage();
       });
       row.appendChild(btn);
@@ -178,6 +197,7 @@ class Game {
           if (p.coins < paint.price) return;
           p.coins -= paint.price;
           p.owned.push(paint.id);
+          this.sound.coin();
         }
         p.paint = paint.id;
         saveProfile(p);
@@ -215,13 +235,16 @@ class Game {
     this.track = track;
     this.race = new Race(track, { look: lookFor(this.profile), stats: statsFor(this.profile) }, {
       crash: (r) => {
-        if (r.isPlayer) this.tracker.crashed();
+        if (!r.isPlayer) return;
+        this.tracker.crashed();
+        this.sound.crash();
       },
       lap: (r, dx, dy) => {
         if (!r.isPlayer) return;
         this.cam.x += dx;
         this.cam.y += dy;
         this.toast(r.lap === track.laps ? "Последний круг!" : `Круг ${r.lap}`);
+        this.sound.lap();
       },
       finish: (r) => {
         if (r.isPlayer) this.finish();
@@ -233,6 +256,7 @@ class Game {
       // Mission coins are paid at once, so they count even if the race is abandoned.
       this.newMissions++;
       this.addCoins(MISSION_REWARD);
+      this.sound.chime();
       this.toast(`✓ ${missionText(this.tracker.missions[i])}  +${MISSION_REWARD}`);
       this.renderMissions();
     });
@@ -241,6 +265,7 @@ class Game {
     this.countdown = COUNTDOWN;
     this.acc = 0;
     this.newMissions = 0;
+    this.lastCount = 0;
     const p = this.player.bike.chassis.getPosition();
     const ppm = this.renderer.basePpm();
     this.cam = { x: p.x + (this.renderer.w * 0.12) / ppm, y: p.y + 1.2, ppm };
@@ -259,6 +284,7 @@ class Game {
     if (record) store.set(bestKey(this.track), time);
     $("res-place").textContent = `${place}-е место`;
     $("res-place").classList.toggle("win", place === 1);
+    this.sound.finish(place === 1);
     $("res-time").textContent = fmt(time);
     $("res-best").textContent = record ? "Новый рекорд!" : `Рекорд: ${fmt(prev!)}`;
     $("res-best").classList.toggle("record", record);
@@ -313,6 +339,10 @@ class Game {
         this.state = "racing";
         race.started = true;
         this.toast("Старт!");
+        this.sound.beep(true);
+      } else if (Math.ceil(this.countdown) !== this.lastCount) {
+        this.lastCount = Math.ceil(this.countdown);
+        this.sound.beep();
       }
     }
 
@@ -333,6 +363,20 @@ class Game {
     this.updateCamera(dt);
     this.renderer.draw(this.cam, this.track, race.racers, this.clock);
     this.hud();
+
+    const inRace = this.state === "countdown" || this.state === "racing" || this.state === "finished";
+    this.sound.updateEngines(
+      race.racers.map((r) => ({
+        bike: r.bike,
+        isPlayer: r.isPlayer,
+        gas: r.isPlayer ? input.gas : true,
+        active: race.started && !r.crashed && !r.finished,
+      })),
+      player.x,
+      inRace,
+      dt,
+    );
+    if (this.state === "racing" && !player.crashed) this.sound.watchLanding(player.bike, dt);
   }
 
   // Rider sits left of center so the track ahead is visible; vertically the camera
@@ -385,6 +429,7 @@ class Game {
   ui() {
     const s = this.state;
     const overlay = s === "menu" || s === "garage";
+    this.sound.setMusicLevel(overlay || s === "finished" ? 0.35 : 0.14);
     $("menu").classList.toggle("hidden", s !== "menu");
     $("garage").classList.toggle("hidden", s !== "garage");
     $("results").classList.toggle("hidden", s !== "finished");

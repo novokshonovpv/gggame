@@ -531,6 +531,37 @@ h1 {
   background: rgba(255, 255, 255, 0.16);
 }
 
+.toggles {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tgl {
+  padding: 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tgl::before {
+  content: "● ";
+  color: #4cd37a;
+}
+
+.tgl[aria-pressed="false"] {
+  color: var(--muted);
+}
+
+.tgl[aria-pressed="false"]::before {
+  content: "○ ";
+  color: var(--muted);
+}
+
 .panel.wide {
   width: min(560px, 100%);
   text-align: left;
