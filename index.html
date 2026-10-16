@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#5aa9e6" />
+    <title>Moto Trials</title>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-top">
+        <button id="btn-menu" class="icon" aria-label="Меню">☰</button>
+        <div class="center">
+          <div id="track-name"></div>
+          <div id="time">0:00.00</div>
+          <div id="progress"><div id="progress-fill"></div></div>
+          <div id="best"></div>
+        </div>
+        <button id="btn-restart" class="icon" aria-label="Заново">↻</button>
+      </div>
+      <div id="hint">Газ — старт</div>
+    </div>
+
+    <div id="controls" class="hidden">
+      <div class="pad left">
+        <button data-action="back" aria-label="Наклон назад">◀</button>
+        <button data-action="fwd" aria-label="Наклон вперёд">▶</button>
+      </div>
+      <div class="pad right">
+        <button data-action="brake" class="brake" aria-label="Тормоз">■</button>
+        <button data-action="gas" class="gas" aria-label="Газ">▲</button>
+      </div>
+    </div>
+
+    <div id="crash" class="hidden"><span>Падение!</span></div>
+
+    <div id="menu" class="overlay">
+      <div class="panel">
+        <h1>Moto Trials</h1>
+        <p class="sub">Выбери трассу</p>
+        <div id="track-list"></div>
+        <p class="keys">
+          Клавиатура: <b>↑</b> газ · <b>↓</b> тормоз · <b>← →</b> наклон · <b>R</b> заново · <b>Esc</b> меню
+        </p>
+      </div>
+    </div>
+
+    <div id="results" class="overlay hidden">
+      <div class="panel">
+        <h2>Финиш</h2>
+        <div id="res-time" class="big"></div>
+        <div id="res-best"></div>
+        <div class="row">
+          <button id="res-retry">Ещё раз</button>
+          <button id="res-next" class="primary">Следующая</button>
+        </div>
+        <button id="res-menu" class="link">Все трассы</button>
+      </div>
+    </div>
+
+    <div id="rotate"><span>⟳</span>Поверни телефон горизонтально</div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

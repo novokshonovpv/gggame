@@ -1,0 +1,350 @@
+:root {
+  --accent: #f2a516;
+  --panel: rgba(18, 22, 28, 0.88);
+  --text: #f4f4f4;
+  --muted: #a9b1ba;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #5aa9e6;
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hud-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0
+    max(12px, env(safe-area-inset-left));
+}
+
+.hud-top .center {
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+}
+
+#track-name {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+
+#time {
+  font-size: 34px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+#best {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+#progress {
+  width: 180px;
+  height: 5px;
+  margin: 6px auto 0;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+#progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+.icon {
+  pointer-events: auto;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 22px;
+}
+
+#hint {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.45);
+  font-weight: 600;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+#controls {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+
+.pad {
+  display: flex;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.pad button {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 26px;
+  touch-action: none;
+  transition: transform 0.05s, background 0.05s;
+}
+
+.pad button.down {
+  transform: scale(0.92);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.pad .gas {
+  width: 92px;
+  height: 92px;
+  border-color: var(--accent);
+}
+
+.pad.right {
+  align-items: flex-end;
+}
+
+/* Keyboard users on desktop don't need the touch pad. */
+@media (hover: hover) and (pointer: fine) {
+  #controls {
+    opacity: 0.35;
+  }
+}
+
+#crash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+#crash span {
+  font-size: 42px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
+  animation: pop 0.25s ease-out;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 14, 20, 0.35);
+}
+
+.panel {
+  width: min(420px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 22px;
+  border-radius: 18px;
+  background: var(--panel);
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+h1,
+h2 {
+  margin: 0 0 4px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+h1 {
+  color: var(--accent);
+  font-size: 32px;
+}
+
+.sub {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+#track-list {
+  display: grid;
+  gap: 8px;
+}
+
+.track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+
+.track:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.track .num {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #111;
+  font-weight: 800;
+}
+
+.track .name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.track .best {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.keys {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.big {
+  font-size: 48px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+#res-best {
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+#res-best.record {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.row button {
+  flex: 1;
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: 700;
+}
+
+.row button.primary {
+  background: var(--accent);
+  color: #111;
+}
+
+#rotate {
+  display: none;
+}
+
+/* Phones in portrait: the game is landscape-only. */
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: grid;
+    place-content: center;
+    gap: 12px;
+    padding: 24px;
+    background: #12161c;
+    text-align: center;
+    font-weight: 700;
+  }
+  #rotate span {
+    font-size: 56px;
+    color: var(--accent);
+  }
+}
+
+.link {
+  margin-top: 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+}
