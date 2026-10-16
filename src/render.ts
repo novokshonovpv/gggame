@@ -1,4 +1,5 @@
-import { BIKE, type BikePose, type BodyPose, type ChassisPose, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
+import { type BikePose, type BodyPose, type ChassisPose, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
+import { PANELS, POINTS, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
 import { THEMES, type Theme, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
@@ -261,12 +262,12 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private wheel(cam: Camera, wheel: BodyPose) {
+  private wheel(cam: Camera, wheel: BodyPose, radius: number) {
     const { ctx } = this;
     const p = wheel.getPosition();
     const x = this.sx(cam, p.x);
     const y = this.sy(cam, p.y);
-    const r = BIKE.wheelRadius * cam.ppm;
+    const r = radius * cam.ppm;
     const a = -wheel.getAngle();
     ctx.fillStyle = C.tire;
     ctx.beginPath();
@@ -324,29 +325,37 @@ export class Renderer {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Swingarm and wheels.
-    this.line(L(-0.08, -0.06), W(bike.rear), 0.09 * s, "#3a3a3a");
-    this.wheel(cam, bike.rear);
-    this.wheel(cam, bike.front);
+    // BSE T5 (bikeShape.ts): swingarm and wheels first, then frame and body on top.
+    this.line(L(...POINTS.pivot), W(bike.rear), 0.08 * s, "#1f1f22");
+    this.wheel(cam, bike.rear, WHEEL_R.rear);
+    this.wheel(cam, bike.front, WHEEL_R.front);
 
-    // Engine, frame, exhaust.
-    this.poly(cam, ch, [-0.22, 0.12, 0.2, 0.12, 0.22, -0.16, -0.12, -0.2], "#4a4a4a");
-    this.line(L(0.38, 0.3), L(-0.1, 0.12), 0.07 * s, C.frame);
-    this.line(L(0.36, 0.26), L(0.16, -0.14), 0.06 * s, C.frame);
-    this.line(L(0.1, -0.02), L(-0.45, 0.12), 0.07 * s, "#777");
-    this.line(L(-0.45, 0.12), L(-0.82, 0.28), 0.08 * s, "#999");
+    const tubeColor: Record<string, string> = { frame: look.frame ?? "#202022", chrome: "#c9cdd2", muffler: "#b4b9bf", shock: "#d9a514" };
+    for (const t of TUBES) this.line(L(...t.a), L(...t.b), t.r * 2 * s, tubeColor[t.role]);
 
-    // Fork (telescopic, follows front suspension).
-    this.line(L(0.42, 0.42), W(bike.front), 0.075 * s, "#c9c9c9");
-    this.line(L(0.36, 0.3), L(0.48, 0.36), 0.12 * s, "#333");
+    // Upside-down fork: dark outer tubes from the crown, gold inner tubes to the axle.
+    const fl = ch.getLocalPoint(bike.front.getPosition());
+    const c = POINTS.crown;
+    const len = Math.hypot(c[0] - fl.x, c[1] - fl.y);
+    const [dx, dy] = [(c[0] - fl.x) / len, (c[1] - fl.y) / len];
+    this.line(L(fl.x, fl.y), L(fl.x + dx * 0.44, fl.y + dy * 0.44), 0.045 * s, "#d6c48a");
+    this.line(L(...c), L(c[0] - dx * 0.46, c[1] - dy * 0.46), 0.07 * s, "#1c1c20");
+    this.line(L(fl.x + dx * 0.06, fl.y + dy * 0.06), L(fl.x + dx * 0.32, fl.y + dy * 0.32), 0.07 * s, look.plasticDark);
 
-    // Plastics.
-    this.poly(cam, ch, [-0.98, 0.42, -0.5, 0.34, -0.2, 0.3, -0.15, 0.22, -0.55, 0.22, -0.9, 0.34], look.plastic);
-    this.poly(cam, ch, [-0.15, 0.36, 0.3, 0.4, 0.34, 0.26, 0.05, 0.12, -0.12, 0.16], look.plastic);
-    this.poly(cam, ch, [-0.55, 0.4, 0.02, 0.4, 0.04, 0.34, -0.55, 0.34], "#222");
-    this.poly(cam, ch, [0.36, 0.5, 0.48, 0.48, 0.5, 0.26, 0.4, 0.24], look.plasticDark);
-    this.poly(cam, ch, [0.62, 0.16, 0.95, 0.12, 0.92, 0.07, 0.6, 0.1], look.plastic);
-    this.line(L(0.3, 0.62), L(0.44, 0.56), 0.05 * s, "#222");
+    const color = (role: string) =>
+      ({
+        plastic: look.plastic,
+        plasticDark: look.plasticDark,
+        mask: look.plasticDark,
+        accent: look.accent ?? look.plasticDark,
+        seat: "#18181a",
+        engine: "#232326",
+        fins: "#45474c",
+        skid: "#141416",
+        light: "#f4f8ff",
+      })[role] ?? look.plastic;
+    for (const p of PANELS) this.poly(cam, ch, p.pts, color(p.role));
+    this.line(L(POINTS.bar[0] - 0.03, POINTS.bar[1] - 0.05), L(POINTS.bar[0] + 0.05, POINTS.bar[1] + 0.03), 0.04 * s, "#26262a");
 
     this.rider(cam, bike, look);
   }
@@ -394,13 +403,14 @@ type P2 = [number, number];
 // Rider pose in chassis space (shared by the 2D and 3D renderers): lean shifts the
 // hips back/forward and tilts the torso; knees and elbows come from two-bone IK.
 export function riderPose(l: number) {
-  const hip: P2 = [-0.24 - 0.16 * l, 0.62 - 0.06 * Math.abs(l)];
-  const tilt = 0.5 - 0.45 * l;
+  // Attack position on the T5: standing on the pegs, hands on the grips (bikeShape.ts).
+  const hip: P2 = [-0.2 - 0.16 * l, 0.62 - 0.06 * Math.abs(l)];
+  const tilt = 0.62 - 0.45 * l;
   const shoulder: P2 = [hip[0] + Math.sin(tilt) * 0.48, hip[1] + Math.cos(tilt) * 0.48];
   const head: P2 = [shoulder[0] + Math.sin(tilt - 0.15) * 0.22, shoulder[1] + Math.cos(tilt - 0.15) * 0.22];
-  const hand: P2 = [0.32, 0.62];
-  const foot: P2 = [-0.12, 0.02];
-  return { hip, shoulder, head, hand, foot, tilt, elbow: ik(shoulder, hand, 0.3, 0.3, -1), knee: ik(hip, foot, 0.45, 0.45, 1) };
+  const hand: P2 = [...POINTS.grip];
+  const foot: P2 = [...POINTS.peg];
+  return { hip, shoulder, head, hand, foot, tilt, elbow: ik(shoulder, hand, 0.32, 0.32, -1), knee: ik(hip, foot, 0.45, 0.45, 1) };
 }
 
 // Two-bone IK: joint position between a and b with given bone lengths.

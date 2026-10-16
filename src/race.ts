@@ -19,17 +19,22 @@ export interface Look {
   pants: string;
   helmet: string;
   visor: string;
+  accent?: string; // graphics on the shrouds and side panels
+  frame?: string;
 }
 
+// Stock bike: BSE T5 in yellow with black graphics and a black frame.
 export const PLAYER_LOOK: Look = {
   name: "Ты",
-  plastic: "#f2a516",
-  plasticDark: "#c57f06",
+  plastic: "#f4d10f",
+  plasticDark: "#1b1b1d",
+  accent: "#1b1b1d",
+  frame: "#202022",
   jersey: "#1f5fbf",
   jerseyDark: "#163f80",
   pants: "#e9e9e9",
   helmet: "#f2f2f2",
-  visor: "#f2a516",
+  visor: "#f4d10f",
 };
 
 interface RivalSpec {
@@ -42,17 +47,17 @@ export const RIVALS: RivalSpec[] = [
   {
     power: 0.97,
     wobble: 0.3,
-    look: { name: "Шторм", plastic: "#e23b3b", plasticDark: "#a82424", jersey: "#26262b", jerseyDark: "#141417", pants: "#2c2c30", helmet: "#e23b3b", visor: "#f2f2f2" },
+    look: { name: "Шторм", plastic: "#e23b3b", plasticDark: "#1d1d20", accent: "#f2f2f2", frame: "#1d1d20", jersey: "#26262b", jerseyDark: "#141417", pants: "#2c2c30", helmet: "#e23b3b", visor: "#f2f2f2" },
   },
   {
     power: 0.9,
     wobble: 0.4,
-    look: { name: "Кобра", plastic: "#30b85a", plasticDark: "#1f7f3d", jersey: "#1d6b3a", jerseyDark: "#124827", pants: "#f0f0f0", helmet: "#f4f4f4", visor: "#30b85a" },
+    look: { name: "Кобра", plastic: "#30b85a", plasticDark: "#1d1d20", accent: "#1d1d20", frame: "#2a2a2c", jersey: "#1d6b3a", jerseyDark: "#124827", pants: "#f0f0f0", helmet: "#f4f4f4", visor: "#30b85a" },
   },
   {
     power: 0.8,
     wobble: 0.5,
-    look: { name: "Ледок", plastic: "#3a9cff", plasticDark: "#1e6fc4", jersey: "#f2f2f2", jerseyDark: "#c9d3dd", pants: "#2b4f7a", helmet: "#3a9cff", visor: "#f2f2f2" },
+    look: { name: "Ледок", plastic: "#f2f4f7", plasticDark: "#1e6fc4", accent: "#3a9cff", frame: "#3a9cff", jersey: "#f2f2f2", jerseyDark: "#c9d3dd", pants: "#2b4f7a", helmet: "#3a9cff", visor: "#f2f2f2" },
   },
 ];
 
@@ -204,7 +209,7 @@ export class Race {
       if (progress > r.bestProgress + 0.5) {
         r.bestProgress = progress;
         r.stuckTime = 0;
-      } else if (this.started) r.stuckTime += dt;
+      } else if (this.started && !r.isPlayer) r.stuckTime += dt; // a player may simply stop
       if (p.y < groundY(track, p.x) - 6 || r.stuckTime > STUCK_LIMIT) {
         r.stuckTime = 0;
         this.crash(r);

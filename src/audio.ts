@@ -22,9 +22,123 @@ function distortion(amount: number) {
   return curve;
 }
 
-// One two-stroke engine: buzzy saw + sub square, pulsed at the firing rate, through
-// distortion and a throttle-opened lowpass, plus filtered intake noise.
-class EngineVoice {
+// Gear and rpm from wheel speed, shared by both engine voices.
+abstract class EngineBase {
+  abstract out: GainNode;
+  rpm = 0.15; // 0..1 inside the current gear
+  gear = 0;
+
+  abstract set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan?: number): void;
+
+  // Wheel speed -> gear and rpm, with throttle flaring the revs.
+  drive(bike: Bike, gas: boolean, dt: number) {
+    const max = BIKE.maxWheelSpeed * bike.power;
+    const w = Math.min(1.05, Math.abs(bike.rear.getAngularVelocity()) / max);
+    while (this.gear < GEARS.length - 1 && w > GEARS[this.gear]) this.gear++;
+    while (this.gear > 0 && w < GEARS[this.gear - 1] * 0.85) this.gear--;
+    const lo = this.gear ? GEARS[this.gear - 1] * 0.7 : 0;
+    let target = 0.15 + 0.85 * Math.max(0, (w - lo) / (GEARS[this.gear] - lo));
+    if (gas && !bike.grounded) target = Math.max(target, 0.95); // free-revving in the air
+    if (gas) target = Math.min(1, target + 0.08);
+    this.rpm += (target - this.rpm) * Math.min(1, dt * (target > this.rpm ? 9 : 4));
+  }
+}
+
+// The BSE T5 runs a 300cc four-stroke single: it fires once every two revolutions, so
+// the sound is a train of separate exhaust pulses ("thump"), not a steady buzz. This
+// worklet makes each combustion an event of its own: a short damped pipe resonance plus
+// a noisy blast, with random spread in timing and strength (rougher at idle and off
+// throttle), and occasional off-throttle misfires that crackle in the pipe.
+const THUMPER_SOURCE = `
+class Thumper extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: "freq", defaultValue: 12, minValue: 4, maxValue: 120, automationRate: "k-rate" },
+      { name: "load", defaultValue: 0, minValue: 0, maxValue: 1, automationRate: "k-rate" },
+    ];
+  }
+  constructor() {
+    super();
+    this.t = 1; this.period = 0.08; this.amp = 1; this.tone = 110; this.pop = 0; this.lp = 0;
+    this.seed = (Math.random() * 4294967295) >>> 0;
+  }
+  rnd() { this.seed = (this.seed * 1664525 + 1013904223) >>> 0; return this.seed / 4294967296; }
+  process(inputs, outputs, params) {
+    const out = outputs[0][0];
+    const f = params.freq[0];
+    const load = params.load[0];
+    const dt = 1 / sampleRate;
+    for (let i = 0; i < out.length; i++) {
+      if (this.t >= this.period) {
+        this.t -= this.period;
+        const rough = 0.03 + (1 - load) * 0.09;
+        this.period = (1 / f) * (1 + (this.rnd() - 0.5) * rough);
+        this.amp = (0.5 + load * 0.5) * (1 + (this.rnd() - 0.5) * (0.25 + (1 - load) * 0.25));
+        if (load < 0.2 && f > 28 && this.rnd() < 0.07) { this.amp *= 0.2; this.pop = 0.6 + this.rnd() * 0.4; }
+        this.tone = 80 + f * 1.15 + (this.rnd() - 0.5) * 14;
+      }
+      const t = this.t;
+      const env = Math.exp(-t * (150 - load * 50));
+      const body = Math.sin(6.2831853 * this.tone * t) * env + 0.5 * Math.sin(6.2831853 * this.tone * 2.03 * t) * env * env;
+      const blast = (this.rnd() * 2 - 1) * Math.exp(-t * 700) * (0.25 + load * 0.45);
+      let s = this.amp * (body + blast);
+      if (this.pop > 0) { s += (this.rnd() * 2 - 1) * this.pop; this.pop *= 0.995; if (this.pop < 0.01) this.pop = 0; }
+      this.lp += (s - this.lp) * 0.3;
+      out[i] = this.lp;
+      this.t += dt;
+    }
+    return true;
+  }
+}
+registerProcessor("thumper", Thumper);
+`;
+
+class ThumperVoice extends EngineBase {
+  out: GainNode;
+  private node: AudioWorkletNode;
+  private tone: BiquadFilterNode;
+  private pan: StereoPannerNode;
+
+  constructor(ctx: AudioContext, dest: AudioNode) {
+    super();
+    this.node = new AudioWorkletNode(ctx, "thumper");
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = distortion(1.5); // a little grit, no fuzz
+    const chest = ctx.createBiquadFilter(); // the low "thump" of a big single
+    chest.type = "peaking";
+    chest.frequency.value = 130;
+    chest.gain.value = 5;
+    chest.Q.value = 0.9;
+    this.tone = ctx.createBiquadFilter();
+    this.tone.type = "lowpass";
+    this.tone.Q.value = 0.7;
+    const hiss = ctx.createBiquadFilter();
+    hiss.type = "highshelf";
+    hiss.frequency.value = 3500;
+    hiss.gain.value = -9;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 35;
+    this.out = ctx.createGain();
+    this.out.gain.value = 0;
+    this.pan = ctx.createStereoPanner();
+    this.node.connect(shaper).connect(chest).connect(this.tone).connect(hiss).connect(hp).connect(this.out);
+    this.out.connect(this.pan).connect(dest);
+  }
+
+  set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan = 0) {
+    const t = ctx.currentTime;
+    const engineRpm = 1500 + rpm * 8000; // idle to redline of the TYX300
+    this.node.parameters.get("freq")!.setTargetAtTime(engineRpm / 120, t, 0.04); // fires every 2 revs
+    this.node.parameters.get("load")!.setTargetAtTime(throttle, t, 0.06);
+    this.tone.frequency.setTargetAtTime(650 + throttle * 1800 + rpm * 700, t, 0.08);
+    this.out.gain.setTargetAtTime(volume * (0.55 + throttle * 0.45), t, 0.08);
+    this.pan.pan.setTargetAtTime(pan, t, 0.1);
+  }
+}
+
+// Fallback for browsers without AudioWorklet: oscillators pulsed at the firing rate.
+class EngineVoice extends EngineBase {
   out: GainNode;
   private saw: OscillatorNode;
   private sub: OscillatorNode;
@@ -33,10 +147,9 @@ class EngineVoice {
   private intake: BiquadFilterNode;
   private intakeGain: GainNode;
   private pan: StereoPannerNode;
-  rpm = 0.15;
-  gear = 0;
 
   constructor(ctx: AudioContext, dest: AudioNode, noise: AudioBuffer) {
+    super();
     this.saw = ctx.createOscillator();
     this.saw.type = "sawtooth";
     this.sub = ctx.createOscillator();
@@ -54,7 +167,7 @@ class EngineVoice {
     this.pulse.connect(pulseDepth).connect(body.gain);
 
     const shaper = ctx.createWaveShaper();
-    shaper.curve = distortion(6);
+    shaper.curve = distortion(2);
     this.filter = ctx.createBiquadFilter();
     this.filter.type = "lowpass";
     this.filter.Q.value = 2;
@@ -83,28 +196,15 @@ class EngineVoice {
   // rpm: 0..1 inside the current gear; throttle: 0..1; volume: 0..1.
   set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan = 0) {
     const t = ctx.currentTime;
-    const f = 32 + rpm * 165; // firing frequency, Hz
-    this.saw.frequency.setTargetAtTime(f, t, 0.03);
-    this.sub.frequency.setTargetAtTime(f / 2, t, 0.03);
+    const f = (1500 + rpm * 8000) / 120; // four-stroke firing frequency, Hz
+    this.saw.frequency.setTargetAtTime(f * 2, t, 0.03);
+    this.sub.frequency.setTargetAtTime(f, t, 0.03);
     this.pulse.frequency.setTargetAtTime(f, t, 0.03);
-    this.filter.frequency.setTargetAtTime(500 + throttle * 2200 + rpm * 900, t, 0.05);
-    this.intake.frequency.setTargetAtTime(800 + rpm * 2500, t, 0.05);
-    this.intakeGain.gain.setTargetAtTime(0.05 + throttle * 0.12, t, 0.05);
-    this.out.gain.setTargetAtTime(volume * (0.5 + throttle * 0.5), t, 0.06);
+    this.filter.frequency.setTargetAtTime(400 + throttle * 1500 + rpm * 600, t, 0.05);
+    this.intake.frequency.setTargetAtTime(800 + rpm * 2000, t, 0.05);
+    this.intakeGain.gain.setTargetAtTime(0.02 + throttle * 0.05, t, 0.05);
+    this.out.gain.setTargetAtTime(volume * 0.6 * (0.5 + throttle * 0.5), t, 0.06);
     this.pan.pan.setTargetAtTime(pan, t, 0.1);
-  }
-
-  // Wheel speed -> gear and rpm, with throttle flaring the revs.
-  drive(bike: Bike, gas: boolean, dt: number) {
-    const max = BIKE.maxWheelSpeed * bike.power;
-    const w = Math.min(1.05, Math.abs(bike.rear.getAngularVelocity()) / max);
-    while (this.gear < GEARS.length - 1 && w > GEARS[this.gear]) this.gear++;
-    while (this.gear > 0 && w < GEARS[this.gear - 1] * 0.85) this.gear--;
-    const lo = this.gear ? GEARS[this.gear - 1] * 0.7 : 0;
-    let target = 0.15 + 0.85 * Math.max(0, (w - lo) / (GEARS[this.gear] - lo));
-    if (gas && !bike.grounded) target = Math.max(target, 0.95); // free-revving in the air
-    if (gas) target = Math.min(1, target + 0.08);
-    this.rpm += (target - this.rpm) * Math.min(1, dt * (target > this.rpm ? 9 : 5));
   }
 }
 
@@ -116,7 +216,8 @@ export class Sound {
   private sfx!: GainNode;
   private music!: GainNode;
   private noise!: AudioBuffer;
-  private engines = new Map<Bike, EngineVoice>();
+  private engines = new Map<Bike, EngineBase>();
+  private engineKind: "pending" | "thumper" | "fallback" = "pending";
   private nextStep = 0;
   private step = 0;
   private musicLevel = 0.35;
@@ -171,6 +272,13 @@ export class Sound {
       this.music.connect(this.master);
       this.applyToggles();
       window.setInterval(() => this.scheduleMusic(), 25);
+      // The four-stroke engine runs in an AudioWorklet loaded from an inline module.
+      const url = URL.createObjectURL(new Blob([THUMPER_SOURCE], { type: "text/javascript" }));
+      ctx.audioWorklet
+        ?.addModule(url)
+        .then(() => (this.engineKind = "thumper"))
+        .catch(() => (this.engineKind = "fallback"));
+      if (!ctx.audioWorklet) this.engineKind = "fallback";
       this.nextStep = ctx.currentTime + 0.1;
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
@@ -212,13 +320,14 @@ export class Sound {
       live.add(b.bike);
       let v = this.engines.get(b.bike);
       if (!v) {
-        v = new EngineVoice(ctx, this.sfx, this.noise);
+        if (this.engineKind === "pending") continue;
+        v = this.engineKind === "thumper" ? new ThumperVoice(ctx, this.sfx) : new EngineVoice(ctx, this.sfx, this.noise);
         this.engines.set(b.bike, v);
       }
       v.drive(b.bike, b.gas && b.active, dt);
       const dx = b.bike.chassis.getPosition().x - playerX;
-      const near = b.isPlayer ? 1 : Math.max(0, 1 - Math.abs(dx) / 45) * 0.35;
-      const vol = racing && b.active ? 0.22 * near : racing ? 0.08 * near : 0;
+      const near = b.isPlayer ? 1 : Math.max(0, 1 - Math.abs(dx) / 45) * 0.3;
+      const vol = racing && b.active ? 0.14 * near : racing ? 0.06 * near : 0;
       v.set(ctx, v.rpm, b.gas && b.active ? 1 : 0.1, vol, b.isPlayer ? 0 : Math.max(-0.8, Math.min(0.8, dx / 25)));
     }
     for (const [bike, v] of this.engines)
@@ -282,8 +391,8 @@ export class Sound {
   land(intensity: number) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.tone(t, "sine", 110, 45, 0.35 + intensity * 0.5, 0.18);
-    this.noiseBurst(t, "lowpass", 600 + intensity * 900, 0.15 + intensity * 0.35, 0.16);
+    this.tone(t, "sine", 110, 45, 0.25 + intensity * 0.35, 0.18);
+    this.noiseBurst(t, "lowpass", 600 + intensity * 900, 0.1 + intensity * 0.25, 0.16);
   }
 
   crash() {

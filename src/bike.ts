@@ -31,7 +31,7 @@ export const BIKE = {
 };
 
 // Local-space points (relative to chassis origin) shared by physics and rendering.
-export const RIDER_HEAD = { x: 0.06, y: 1.22 };
+export const RIDER_HEAD = { x: 0.17, y: 1.2 }; // matches riderPose() at rest
 export const RIDER_HEAD_R = 0.17;
 
 export type FixtureTag = "ground" | "wheel-rear" | "wheel-front" | "rider" | "chassis";

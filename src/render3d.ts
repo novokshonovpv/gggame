@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { BIKE, type BikePose } from "./bike.ts";
+import type { BikePose } from "./bike.ts";
+import { POINTS, PANELS, type Role, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
 import { type Camera, type RiderView, riderPose } from "./render.ts";
 import { type Layer, THEMES, type Theme, paintLayer } from "./scenery.ts";
@@ -524,37 +525,83 @@ function span(m: THREE.Object3D, a: P2, b: P2, z: number, stretch = true) {
   if (stretch) m.scale.y = Math.hypot(dx, dy);
 }
 
-function wheelModel() {
+// Spoked wheel with a knobby tyre: black rim, 16 spokes, wave brake disc on the camera side.
+const knobGeo = new THREE.BoxGeometry(0.05, 0.028, 0.12);
+const spokeGeo = new THREE.CylinderGeometry(0.0035, 0.0035, 1, 4);
+function wheelModel(r: number) {
   const g = new THREE.Group();
-  const r = BIKE.wheelRadius;
-  const tire = new THREE.Mesh(new THREE.TorusGeometry(r - 0.06, 0.065, 8, 26), mat("#1b1b1b"));
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(r - 0.11, 0.016, 6, 26), mat("#b8c0c8"));
-  g.add(tire, rim);
-  for (let i = 0; i < 6; i++) {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(0.008, (r - 0.11) * 2, 0.008), mat("#9aa3ab"));
-    s.rotation.z = (i / 6) * Math.PI;
+  const tire = new THREE.Mesh(new THREE.TorusGeometry(r - 0.07, 0.066, 10, 32), mat("#1a1a1a"));
+  const knobs = new THREE.InstancedMesh(knobGeo, mat("#222222"), 30);
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < 30; i++) {
+    const a = (i / 30) * Math.PI * 2;
+    m.compose(
+      new THREE.Vector3(Math.cos(a) * (r - 0.012), Math.sin(a) * (r - 0.012), 0),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a + Math.PI / 2),
+      new THREE.Vector3(1, 1, 1),
+    );
+    knobs.setMatrixAt(i, m);
+  }
+  const rimR = r - 0.13;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(rimR, 0.016, 6, 32), mat("#1f1f22"));
+  g.add(tire, knobs, rim);
+  for (let i = 0; i < 16; i++) {
+    const s = new THREE.Mesh(spokeGeo, mat("#b8bec6"));
+    const a = (i / 16) * Math.PI * 2;
+    // Alternate sides of the hub, like a real laced wheel.
+    s.position.set((Math.cos(a) * rimR) / 2, (Math.sin(a) * rimR) / 2, i % 2 ? 0.035 : -0.035);
+    s.rotation.z = a - Math.PI / 2;
+    s.scale.y = rimR;
     g.add(s);
   }
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.22, 10), mat("#555"));
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 12), mat("#9a9ea4"));
   hub.rotation.x = Math.PI / 2;
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.01, 16), mat("#888"));
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.006, 10), mat("#c8ccd2"));
   disc.rotation.x = Math.PI / 2;
-  disc.position.z = 0.1;
+  disc.position.z = 0.085;
   g.add(hub, disc);
   return shadowed(g);
 }
+
+function partColor(role: Role, look: Look) {
+  switch (role) {
+    case "plastic":
+      return look.plastic;
+    case "plasticDark":
+    case "mask":
+      return look.plasticDark;
+    case "accent":
+      return look.accent ?? look.plasticDark;
+    case "seat":
+      return "#18181a";
+    case "engine":
+      return "#232326";
+    case "fins":
+      return "#45474c";
+    case "skid":
+      return "#141416";
+    case "light":
+      return "#f4f8ff";
+  }
+}
+
+const TUBE_COLORS = { chrome: "#c9cdd2", muffler: "#b4b9bf", shock: "#d9a514" } as const;
 
 function capsule(radius: number, length: number, color: string) {
   return new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 8), mat(color));
 }
 
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+
 class BikeModel {
   root = new THREE.Group();
   body = new THREE.Group();
-  rear = wheelModel();
-  front = wheelModel();
-  forks = [rod(0.035, "#c9c9c9"), rod(0.035, "#c9c9c9")];
-  swing = [rod(0.035, "#3a3a3a"), rod(0.035, "#3a3a3a")];
+  rear = wheelModel(WHEEL_R.rear);
+  front = wheelModel(WHEEL_R.front);
+  forkUpper: THREE.Mesh[] = [];
+  forkLower: THREE.Mesh[] = [];
+  forkGuard: THREE.Mesh[] = [];
+  swing: THREE.Mesh[] = [];
   thighs: THREE.Mesh[];
   shins: THREE.Mesh[];
   uppers: THREE.Mesh[];
@@ -566,39 +613,75 @@ class BikeModel {
 
   constructor(look: Look, isPlayer: boolean, ghost = false) {
     const b = this.body;
-    b.add(extrude([-0.22, 0.12, 0.2, 0.12, 0.22, -0.16, -0.12, -0.2], 0.28, "#4a4a4a"));
-    for (const z of [-0.09, 0.09]) {
-      const t1 = rod(0.03, "#2b2b2b");
-      span(t1, [0.38, 0.3], [-0.1, 0.12], z);
-      const t2 = rod(0.03, "#2b2b2b");
-      span(t2, [0.36, 0.26], [0.16, -0.14], z);
-      b.add(t1, t2);
+    // BSE T5 body: plastics, seat, air-cooled engine, frame, exhaust (see bikeShape.ts).
+    for (const p of PANELS) {
+      const mesh = extrude(p.pts, p.depth, partColor(p.role, look));
+      if (p.role === "light") (mesh as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: "#f4f8ff" });
+      b.add(mesh);
     }
-    const ex1 = rod(0.04, "#777");
-    span(ex1, [0.1, -0.02], [-0.45, 0.12], 0.17);
-    const ex2 = rod(0.055, "#a0a0a0");
-    span(ex2, [-0.45, 0.12], [-0.84, 0.28], 0.17);
-    b.add(ex1, ex2);
-    b.add(extrude([-0.98, 0.42, -0.5, 0.34, -0.2, 0.3, -0.15, 0.22, -0.55, 0.22, -0.9, 0.34], 0.26, look.plastic));
-    b.add(extrude([-0.15, 0.36, 0.3, 0.4, 0.34, 0.26, 0.05, 0.12, -0.12, 0.16], 0.42, look.plastic));
-    b.add(extrude([-0.55, 0.4, 0.02, 0.4, 0.04, 0.34, -0.55, 0.34], 0.26, "#202020"));
-    b.add(extrude([0.36, 0.5, 0.48, 0.48, 0.5, 0.26, 0.4, 0.24], 0.22, look.plasticDark));
-    b.add(extrude([0.62, 0.16, 0.95, 0.12, 0.92, 0.07, 0.6, 0.1], 0.18, look.plastic));
-    const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.3), mat("#333"));
-    clamp.position.set(0.42, 0.38, 0);
-    clamp.rotation.z = -0.4;
-    const bar = rod(0.018, "#222");
+    // Cooling fins across the cylinder.
+    const [c0, c1] = [T(840, 490), T(1000, 600)];
+    for (let k = 0; k < 6; k++) {
+      const fin = new THREE.Mesh(boxGeo, mat("#2a2b2e"));
+      const y = c0[1] + ((c1[1] - c0[1]) * k) / 5;
+      fin.position.set((c0[0] + c1[0]) / 2 + (k - 2.5) * 0.008, y, 0);
+      fin.scale.set(0.2, 0.008, 0.27);
+      fin.rotation.z = -0.12;
+      b.add(fin);
+    }
+    for (const t of TUBES) {
+      for (const z of t.z) {
+        const color = t.role === "frame" ? (look.frame ?? "#202022") : TUBE_COLORS[t.role];
+        const m = rod(t.r, color);
+        span(m, t.a, t.b, z);
+        b.add(m);
+      }
+    }
+    // Triple clamps, handlebar with hand guards.
+    for (const [pt, w] of [
+      [POINTS.crown, 0.09],
+      [POINTS.lowerClamp, 0.07],
+    ] as const) {
+      const clamp = new THREE.Mesh(boxGeo, mat("#b8bcc2"));
+      clamp.position.set(pt[0], pt[1], 0);
+      clamp.scale.set(w, 0.045, 0.3);
+      clamp.rotation.z = -0.44;
+      b.add(clamp);
+    }
+    const bar = rod(0.017, "#26262a");
     bar.rotation.x = Math.PI / 2;
-    bar.scale.y = 0.72;
-    bar.position.set(0.34, 0.62, 0);
-    b.add(clamp, bar, ...this.forks, ...this.swing);
+    bar.scale.y = 0.8;
+    bar.position.set(POINTS.bar[0], POINTS.bar[1], 0);
+    b.add(bar);
+    for (const z of [-0.36, 0.36]) {
+      const guard = new THREE.Mesh(boxGeo, mat("#b8bcc2"));
+      guard.position.set(POINTS.bar[0] + 0.07, POINTS.bar[1] + 0.02, z);
+      guard.scale.set(0.16, 0.02, 0.05);
+      guard.rotation.z = -0.25;
+      b.add(guard);
+    }
+    // Upside-down fork (thick outer tubes on top), fork guards and the swingarm move
+    // with the suspension, see update().
+    for (let side = 0; side < 2; side++) {
+      const up = rod(0.034, "#1c1c20");
+      const low = rod(0.022, "#d6c48a");
+      const guard = new THREE.Mesh(boxGeo, mat(look.plasticDark));
+      guard.scale.set(0.07, 0.26, 0.03);
+      const sw = new THREE.Mesh(boxGeo, mat("#1f1f22"));
+      sw.scale.set(0.075, 1, 0.035);
+      this.forkUpper.push(up);
+      this.forkLower.push(low);
+      this.forkGuard.push(guard);
+      this.swing.push(sw);
+      b.add(up, low, guard, sw);
+    }
 
     // Rider: capsules with fixed bone lengths, posed by the same IK as in 2D.
     const pair = (r: number, len: number, color: string) => [capsule(r, len, color), capsule(r, len, color)];
     this.thighs = pair(0.085, 0.45, look.pants);
     this.shins = pair(0.07, 0.45, look.pants);
-    this.uppers = pair(0.06, 0.3, look.jersey);
-    this.fores = pair(0.055, 0.3, look.jerseyDark);
+    this.uppers = pair(0.06, 0.32, look.jersey);
+    this.fores = pair(0.055, 0.32, look.jerseyDark);
     this.boots = [0, 1].map(() => new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.13), mat("#1d1d1d")));
     this.torso = capsule(0.15, 0.4, look.jersey);
     this.torso.scale.z = 0.85;
@@ -642,8 +725,19 @@ class BikeModel {
     }
     const fl = ch.getLocalPoint(bike.front.getPosition());
     const rl = ch.getLocalPoint(bike.rear.getPosition());
-    this.forks.forEach((f, i) => span(f, [0.42, 0.44], [fl.x, fl.y], i ? 0.12 : -0.12));
-    this.swing.forEach((s, i) => span(s, [-0.08, -0.06], [rl.x, rl.y], i ? 0.13 : -0.13));
+    // Fork: outer tubes hang from the crown, inner tubes rise from the axle and slide inside.
+    const crown = POINTS.crown;
+    const fx = crown[0] - fl.x;
+    const fy = crown[1] - fl.y;
+    const flen = Math.hypot(fx, fy);
+    const [dx, dy] = [fx / flen, fy / flen];
+    const axle: P2 = [fl.x, fl.y];
+    [-0.12, 0.12].forEach((z, i) => {
+      span(this.forkUpper[i], crown, [crown[0] - dx * 0.46, crown[1] - dy * 0.46], z);
+      span(this.forkLower[i], axle, [fl.x + dx * 0.44, fl.y + dy * 0.44], z);
+      span(this.forkGuard[i], [fl.x + dx * 0.06, fl.y + dy * 0.06], [fl.x + dx * 0.32, fl.y + dy * 0.32], z * 1.15, false);
+      span(this.swing[i], POINTS.pivot, [rl.x, rl.y], z * 0.95);
+    });
 
     const pose = riderPose(bike.lean);
     [-0.16, 0.16].forEach((z, i) => {
