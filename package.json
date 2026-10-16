@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
+    "build:share": "npm run build && node tools/inline.ts",
     "preview": "vite preview"
   },
   "dependencies": {

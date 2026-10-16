@@ -10,6 +10,7 @@
 npm install
 npm run dev          # игра на http://localhost:5173
 npm run build        # проверка типов + сборка в dist/
+npm run build:share  # одна страница dist/share.html для публикации ссылкой
 node tools/sim.ts    # прогон трасс автопилотом без браузера
 node tools/feel.ts   # стандартные манёвры для настройки физики
 ```
