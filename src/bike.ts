@@ -42,6 +42,23 @@ export interface Input {
   lean: number; // +1 = back (nose up), -1 = forward
 }
 
+// What garage upgrades change on a particular bike.
+export interface BikeStats {
+  power: number; // engine multiplier: top speed and torque
+  grip: number; // tyre friction
+  suspensionHz: number; // lower = softer
+  suspensionDamping: number;
+  airSpin: number; // rad/s rotation when leaning in the air
+}
+
+export const BASE_STATS: BikeStats = {
+  power: 1,
+  grip: BIKE.wheelFriction,
+  suspensionHz: BIKE.suspensionHz,
+  suspensionDamping: BIKE.suspensionDamping,
+  airSpin: BIKE.airSpinRate,
+};
+
 // Bikes share one world but never touch each other (same negative group).
 const NO_SELF_COLLIDE = -1;
 
@@ -56,9 +73,12 @@ export class Bike {
   rearContacts = 0;
   frontContacts = 0;
   lean = 0; // smoothed, used for rider animation
-  power = 1; // engine multiplier: AI skill, later bike upgrades
+  power: number; // engine multiplier: AI skill or the player's engine upgrade
+  stats: BikeStats;
 
-  constructor(world: World, start: Vec2Value) {
+  constructor(world: World, start: Vec2Value, stats: BikeStats = BASE_STATS) {
+    this.stats = stats;
+    this.power = stats.power;
     const cy = spawnHeight(start.y);
 
     this.chassis = world.createDynamicBody({
@@ -102,7 +122,7 @@ export class Bike {
       });
       body.createFixture(new Circle(BIKE.wheelRadius), {
         density: BIKE.wheelDensity,
-        friction: BIKE.wheelFriction,
+        friction: stats.grip,
         restitution: 0.05,
         filterGroupIndex: NO_SELF_COLLIDE,
         userData: tag,
@@ -113,8 +133,8 @@ export class Bike {
     this.front = makeWheel(BIKE.frontAnchor, "wheel-front");
 
     const suspension = {
-      frequencyHz: BIKE.suspensionHz,
-      dampingRatio: BIKE.suspensionDamping,
+      frequencyHz: stats.suspensionHz,
+      dampingRatio: stats.suspensionDamping,
       enableMotor: true,
       maxMotorTorque: BIKE.coastTorque,
       motorSpeed: 0,
@@ -194,7 +214,7 @@ export class Bike {
       } else {
         // In the air steer angular velocity directly: crisp, predictable flips.
         const w = chassis.getAngularVelocity();
-        const target = input.lean * BIKE.airSpinRate;
+        const target = input.lean * this.stats.airSpin;
         const impulse = (target - w) * BIKE.airSpinResponse * chassis.getInertia();
         chassis.applyAngularImpulse(impulse, true);
       }

@@ -1,7 +1,7 @@
 import { Chain, World } from "planck";
 import type { Contact } from "planck";
 import { autopilot } from "./ai.ts";
-import { Bike, type FixtureTag, type Input } from "./bike.ts";
+import { BASE_STATS, Bike, type BikeStats, type FixtureTag, type Input } from "./bike.ts";
 import { groundY, rng, type Track } from "./track.ts";
 
 export const GRAVITY = -11;
@@ -74,13 +74,21 @@ export class Racer {
   private airError = 0;
   private wasGrounded = true;
 
-  constructor(world: World, track: Track, look: Look, isPlayer: boolean, spec: RivalSpec | null, rand: () => number) {
+  constructor(
+    world: World,
+    track: Track,
+    look: Look,
+    isPlayer: boolean,
+    spec: RivalSpec | null,
+    rand: () => number,
+    stats: BikeStats = BASE_STATS,
+  ) {
     this.look = look;
     this.isPlayer = isPlayer;
     this.spec = spec;
     this.rand = rand;
-    this.bike = new Bike(world, { x: track.startX, y: groundY(track, track.startX) });
-    this.bike.power = spec?.power ?? 1;
+    this.bike = new Bike(world, { x: track.startX, y: groundY(track, track.startX) }, stats);
+    if (spec) this.bike.power = spec.power;
     this.checkpoint = track.startX;
   }
 
@@ -101,6 +109,11 @@ export class Racer {
   }
 }
 
+export interface PlayerSetup {
+  look: Look;
+  stats: BikeStats;
+}
+
 export interface RaceEvents {
   crash?(r: Racer): void;
   lap?(r: Racer, dx: number, dy: number): void;
@@ -116,7 +129,7 @@ export class Race {
   time = 0;
   started = false;
 
-  constructor(track: Track, withPlayer: boolean, events: RaceEvents = {}, seed = 1) {
+  constructor(track: Track, player: PlayerSetup | null, events: RaceEvents = {}, seed = 1) {
     this.track = track;
     this.events = events;
     this.world = new World({ gravity: { x: 0, y: GRAVITY } });
@@ -125,7 +138,7 @@ export class Race {
       userData: "ground" satisfies FixtureTag,
     });
     const rand = rng(seed);
-    if (withPlayer) this.racers.push(new Racer(this.world, track, PLAYER_LOOK, true, null, rand));
+    if (player) this.racers.push(new Racer(this.world, track, player.look, true, null, rand, player.stats));
     for (const spec of RIVALS) this.racers.push(new Racer(this.world, track, spec.look, false, spec, rand));
     this.world.on("begin-contact", (c) => this.contact(c, 1));
     this.world.on("end-contact", (c) => this.contact(c, -1));

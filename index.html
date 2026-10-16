@@ -44,6 +44,10 @@
     <div id="menu" class="overlay">
       <div class="panel">
         <h1>Moto Trials</h1>
+        <div class="menu-bar">
+          <span class="coins" id="menu-coins">0</span>
+          <button id="btn-garage" class="garage-btn">Гараж</button>
+        </div>
         <p class="sub">Выбери трассу</p>
         <div id="track-list"></div>
         <p class="keys">
@@ -57,6 +61,7 @@
         <h2 id="res-place">Финиш</h2>
         <div id="res-time" class="big"></div>
         <div id="res-best"></div>
+        <div id="res-reward"></div>
         <ol id="res-table"></ol>
         <ul id="res-missions"></ul>
         <div class="row">
@@ -64,6 +69,20 @@
           <button id="res-next" class="primary">Следующая</button>
         </div>
         <button id="res-menu" class="link">Все трассы</button>
+      </div>
+    </div>
+
+    <div id="garage" class="overlay hidden">
+      <div class="panel wide">
+        <div class="garage-head">
+          <h2>Гараж</h2>
+          <span class="coins" id="garage-coins">0</span>
+        </div>
+        <h3>Улучшения</h3>
+        <div id="upgrades"></div>
+        <h3>Раскраска</h3>
+        <div id="paints"></div>
+        <button id="garage-close" class="primary-wide">К трассам</button>
       </div>
     </div>
 

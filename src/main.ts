@@ -1,5 +1,17 @@
 import { autopilot } from "./ai.ts";
 import { Controls } from "./input.ts";
+import {
+  MAX_LEVEL,
+  MISSION_REWARD,
+  PAINTS,
+  UPGRADES,
+  loadProfile,
+  lookFor,
+  raceReward,
+  saveProfile,
+  statsFor,
+  upgradeCost,
+} from "./garage.ts";
 import { MISSIONS, MissionTracker, missionText } from "./missions.ts";
 import { Race, type Racer } from "./race.ts";
 import { type Camera, Renderer } from "./render.ts";
@@ -10,7 +22,7 @@ import "./style.css";
 const DT = 1 / 120;
 const COUNTDOWN = 3;
 
-type State = "menu" | "countdown" | "racing" | "finished";
+type State = "menu" | "garage" | "countdown" | "racing" | "finished";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -75,6 +87,8 @@ class Game {
   toastTimer = 0;
   frame = 0;
   cam: Camera = { x: 0, y: 0, ppm: 40 };
+  profile = loadProfile();
+  newMissions = 0; // missions completed for the first time in this race
 
   constructor() {
     window.addEventListener("resize", () => this.renderer.resize());
@@ -83,6 +97,8 @@ class Game {
     $("res-retry").addEventListener("click", () => this.load(this.track));
     $("res-next").addEventListener("click", () => this.load(TRACKS[(TRACKS.indexOf(this.track) + 1) % TRACKS.length]));
     $("res-menu").addEventListener("click", () => this.showMenu());
+    $("btn-garage").addEventListener("click", () => this.showGarage());
+    $("garage-close").addEventListener("click", () => this.showMenu());
     this.load(this.track);
     this.showMenu();
     let last = performance.now();
@@ -101,14 +117,83 @@ class Game {
 
   onKey(code: string) {
     if (code === "KeyR" || code === "Enter") {
-      if (this.state !== "menu") this.load(this.track);
+      if (this.state !== "menu" && this.state !== "garage") this.load(this.track);
     } else if (code === "Escape") {
       this.showMenu();
     }
   }
 
+  addCoins(n: number) {
+    this.profile.coins += n;
+    saveProfile(this.profile);
+  }
+
+  showGarage() {
+    this.state = "garage";
+    this.renderGarage();
+    this.ui();
+  }
+
+  renderGarage() {
+    const p = this.profile;
+    $("garage-coins").textContent = String(p.coins);
+
+    const ups = $("upgrades");
+    ups.innerHTML = "";
+    for (const u of UPGRADES) {
+      const level = p.levels[u.id];
+      const cost = upgradeCost(level);
+      const row = document.createElement("div");
+      row.className = "upg";
+      const pips = Array.from({ length: MAX_LEVEL }, (_, i) => `<i class="${i < level ? "on" : ""}"></i>`).join("");
+      row.innerHTML = `<span class="info"><b>${u.name}</b><small>${u.desc}</small></span><span class="pips">${pips}</span>`;
+      const btn = document.createElement("button");
+      btn.className = "buy";
+      btn.textContent = cost === null ? "Максимум" : `${cost}`;
+      if (cost !== null) btn.classList.add("coins");
+      btn.disabled = cost === null || p.coins < cost;
+      btn.addEventListener("click", () => {
+        if (cost === null || p.coins < cost) return;
+        p.coins -= cost;
+        p.levels[u.id]++;
+        saveProfile(p);
+        this.renderGarage();
+      });
+      row.appendChild(btn);
+      ups.appendChild(row);
+    }
+
+    const paints = $("paints");
+    paints.innerHTML = "";
+    for (const paint of PAINTS) {
+      const owned = p.owned.includes(paint.id);
+      const b = document.createElement("button");
+      b.className = "paint" + (p.paint === paint.id ? " sel" : "");
+      const sw = `background: linear-gradient(135deg, ${paint.look.plastic} 0 50%, ${paint.look.jersey} 50% 100%)`;
+      const status = p.paint === paint.id ? "Выбрана" : owned ? "Выбрать" : `<span class="coins">${paint.price}</span>`;
+      b.innerHTML = `<span class="sw" style="${sw}"></span><span>${paint.name}</span><span class="price">${status}</span>`;
+      b.disabled = !owned && p.coins < paint.price;
+      b.addEventListener("click", () => {
+        if (!owned) {
+          if (p.coins < paint.price) return;
+          p.coins -= paint.price;
+          p.owned.push(paint.id);
+        }
+        p.paint = paint.id;
+        saveProfile(p);
+        // Rebuild the idle scene behind the garage so the new paint shows on the bike.
+        this.load(this.track);
+        this.state = "garage";
+        this.renderGarage();
+        this.ui();
+      });
+      paints.appendChild(b);
+    }
+  }
+
   showMenu() {
     this.state = "menu";
+    $("menu-coins").textContent = String(this.profile.coins);
     const list = $("track-list");
     list.innerHTML = "";
     TRACKS.forEach((t, i) => {
@@ -128,7 +213,7 @@ class Game {
 
   load(track: Track) {
     this.track = track;
-    this.race = new Race(track, true, {
+    this.race = new Race(track, { look: lookFor(this.profile), stats: statsFor(this.profile) }, {
       crash: (r) => {
         if (r.isPlayer) this.tracker.crashed();
       },
@@ -145,13 +230,17 @@ class Game {
 
     this.tracker = new MissionTracker(MISSIONS[track.id] ?? [], missionsDone(track), (i) => {
       store.set(missionsKey(track), this.tracker.done);
-      this.toast(`✓ ${missionText(this.tracker.missions[i])}`);
+      // Mission coins are paid at once, so they count even if the race is abandoned.
+      this.newMissions++;
+      this.addCoins(MISSION_REWARD);
+      this.toast(`✓ ${missionText(this.tracker.missions[i])}  +${MISSION_REWARD}`);
       this.renderMissions();
     });
 
     this.state = "countdown";
     this.countdown = COUNTDOWN;
     this.acc = 0;
+    this.newMissions = 0;
     const p = this.player.bike.chassis.getPosition();
     const ppm = this.renderer.basePpm();
     this.cam = { x: p.x + (this.renderer.w * 0.12) / ppm, y: p.y + 1.2, ppm };
@@ -173,6 +262,12 @@ class Game {
     $("res-time").textContent = fmt(time);
     $("res-best").textContent = record ? "Новый рекорд!" : `Рекорд: ${fmt(prev!)}`;
     $("res-best").classList.toggle("record", record);
+    // Mission coins were already paid during the race; place and record are paid now.
+    const reward = raceReward(place, this.newMissions, record);
+    this.addCoins(reward.total - this.newMissions * MISSION_REWARD);
+    $("res-reward").innerHTML =
+      reward.parts.map(([label, v]) => `<span>${label} +${v}</span>`).join("") +
+      `<span class="coins">+${reward.total}</span>`;
     $("res-missions").innerHTML = this.tracker.missions
       .map((m, i) => `<li class="${this.tracker.done[i] ? "done" : ""}">${missionText(m)}</li>`)
       .join("");
@@ -289,10 +384,12 @@ class Game {
 
   ui() {
     const s = this.state;
+    const overlay = s === "menu" || s === "garage";
     $("menu").classList.toggle("hidden", s !== "menu");
+    $("garage").classList.toggle("hidden", s !== "garage");
     $("results").classList.toggle("hidden", s !== "finished");
-    $("hud").classList.toggle("hidden", s === "menu");
-    $("controls").classList.toggle("hidden", s === "menu" || s === "finished");
+    $("hud").classList.toggle("hidden", overlay);
+    $("controls").classList.toggle("hidden", overlay || s === "finished");
     $("track-name").textContent = this.track.name;
   }
 }
