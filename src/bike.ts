@@ -1,4 +1,4 @@
-﻿import { Box, Circle, Polygon, WheelJoint } from "planck";
+import { Box, Circle, Polygon, WheelJoint } from "planck";
 import type { Body, Vec2Value, World } from "planck";
 
 // All tunables in one place: physics feel is the core of the game.
@@ -12,22 +12,31 @@ export const BIKE = {
   frontAnchor: { x: 0.72, y: -0.3 },
   rearAxis: { x: 0, y: 1 },
   frontAxis: { x: -0.42, y: 0.91 }, // ~25° fork rake
-  suspensionHz: 4.2,
-  suspensionDamping: 0.75,
+  suspensionHz: 5.4,
+  suspensionDamping: 0.9,
+  suspensionTravel: 0.2, // m: past this the bump stop takes over (wheel joints have no limits)
   maxWheelSpeed: 62, // rad/s → ~21 m/s (~76 km/h)
   engineTorque: 340,
   brakeTorque: 420,
   coastTorque: 6,
-  groundLeanTorque: 300,
+  groundLeanTorque: 260,
+  wheelieLift: 600, // N·m extra when leaning back on the gas: lets you pull a wheelie at speed
+  leanRamp: 6, // 1/s: how fast lean input builds up (taps are gentle, holding is full)
   groundSpinCap: 1.4, // rad/s: lean on the ground stops pushing past this (controllable wheelies)
   // Share of engine reaction torque removed on the ground. Leaning back keeps more of it,
   // so the rider's weight shift is what pops a wheelie.
   reactionCancelSeated: 0.6,
   reactionCancelLeanBack: 0.3,
   wheelieDamping: 160, // N·m per rad/s while on one wheel: arcade-forgiving balance
-  wheelieThrottleCut: 0.3, // engine share on the rear wheel alone unless the rider leans back
-  airSpinRate: 5.2, // rad/s target when leaning in the air
-  airSpinResponse: 0.12, // fraction of the gap closed per physics step
+  // Wheelie assist: on the rear wheel the bike is steered toward a pitch above the ground —
+  // ~30° while leaning back on the gas, level otherwise. Past the loop-out angle it lets go.
+  wheelieAngle: 0.52,
+  wheelieKp: 3200, // N·m per rad of pitch error
+  wheelieKd: 450, // N·m per rad/s
+  wheelieMaxTorque: 1500,
+  wheelieLoopOut: 0.95, // rad above the ground: beyond this you're on your own
+  airSpinRate: 4.3, // rad/s target when leaning in the air
+  airSpinResponse: 0.06, // fraction of the gap closed per physics step
 };
 
 // Local-space points (relative to chassis origin) shared by physics and rendering.
@@ -79,6 +88,8 @@ export const BASE_STATS: BikeStats = {
   airSpin: BIKE.airSpinRate,
 };
 
+const AIR_GRACE = 0.12; // s a wheel may lose contact before the bike counts as airborne
+
 // Bikes share one world but never touch each other (same negative group).
 const NO_SELF_COLLIDE = -1;
 
@@ -93,6 +104,10 @@ export class Bike {
   rearContacts = 0;
   frontContacts = 0;
   lean = 0; // smoothed, used for rider animation
+  leanCmd = 0; // ramped lean input actually applied to the physics
+  groundAngle = 0; // slope under the bike, tracked while both wheels touch
+  sinceRear = 0; // seconds since the rear wheel last touched
+  sinceGround = 0; // seconds since any wheel last touched
   power: number; // engine multiplier: AI skill or the player's engine upgrade
   stats: BikeStats;
 
@@ -201,6 +216,7 @@ export class Bike {
       b.setAwake(true);
     }
     this.lean = 0;
+    this.leanCmd = 0;
   }
 
   get speed() {
@@ -210,14 +226,36 @@ export class Bike {
   apply(input: Input, dt: number) {
     const { rearJoint, frontJoint, chassis } = this;
 
+    // Wheels skip off bumps for a few milliseconds; count the bike as airborne only after
+    // a short grace time so ground lean and wheelie control don't flip to air spin.
+    this.sinceRear = this.rearContacts > 0 ? 0 : this.sinceRear + dt;
+    this.sinceGround = this.grounded ? 0 : this.sinceGround + dt;
+    const onGround = this.sinceGround < AIR_GRACE;
+    const angle = chassis.getAngle();
+    const w = chassis.getAngularVelocity();
+
+    // Lean builds up over ~0.15 s instead of snapping to full, so a quick tap is a small
+    // correction and only holding the button gives the full rotation.
+    const step = BIKE.leanRamp * dt;
+    this.leanCmd += Math.max(-step, Math.min(step, input.lean - this.leanCmd));
+    const lean = this.leanCmd;
+
+    // Wheelie: pitch is measured from the slope remembered while both wheels were down.
+    // On the back wheel an assist steers toward ~30° while leaning back on the gas and
+    // back to level otherwise; past the loop-out angle the rider is on their own.
+    if (this.rearContacts > 0 && this.frontContacts > 0) this.groundAngle += (angle - this.groundAngle) * Math.min(1, dt * 10);
+    const pitch = angle - this.groundAngle;
+    const wheelie = this.sinceRear < AIR_GRACE && this.frontContacts === 0 && pitch > 0 && pitch < BIKE.wheelieLoopOut;
+    const want = input.gas && lean > 0.2 ? BIKE.wheelieAngle : 0;
+
     if (input.brake) {
       rearJoint.setMotorSpeed(0);
       rearJoint.setMaxMotorTorque(BIKE.brakeTorque);
       frontJoint.setMotorSpeed(0);
       frontJoint.setMaxMotorTorque(BIKE.brakeTorque * 0.4); // soft front: no endos
     } else if (input.gas) {
-      const wheelie = this.rearContacts > 0 && this.frontContacts === 0 && chassis.getAngularVelocity() > -0.3;
-      const cut = wheelie && input.lean <= 0 ? BIKE.wheelieThrottleCut : 1;
+      // Like a rider feathering the clutch: drive fades as the nose rises past the target.
+      const cut = wheelie ? Math.max(0.15, Math.min(1, 1 - (pitch - want) / 0.2)) : 1;
       rearJoint.setMotorSpeed(-BIKE.maxWheelSpeed * this.power);
       rearJoint.setMaxMotorTorque(BIKE.engineTorque * this.power * cut);
       frontJoint.setMaxMotorTorque(0);
@@ -227,26 +265,52 @@ export class Bike {
       frontJoint.setMaxMotorTorque(0);
     }
 
-    if (input.lean !== 0) {
-      if (this.grounded) {
-        if (input.lean * chassis.getAngularVelocity() < BIKE.groundSpinCap)
-          chassis.applyTorque(input.lean * BIKE.groundLeanTorque, true);
+    if (wheelie) {
+      const tq = BIKE.wheelieKp * (want - pitch) - BIKE.wheelieKd * w;
+      chassis.applyTorque(Math.max(-BIKE.wheelieMaxTorque, Math.min(BIKE.wheelieMaxTorque, tq)), true);
+    } else if (Math.abs(lean) > 0.01) {
+      if (onGround) {
+        if (lean * w < BIKE.groundSpinCap) {
+          // Popping the front up from two wheels; once it's up the wheelie assist takes over.
+          const lift = lean > 0 && input.gas && this.rearContacts > 0 && this.frontContacts > 0 ? BIKE.wheelieLift * lean : 0;
+          chassis.applyTorque(lean * BIKE.groundLeanTorque + lift, true);
+        }
       } else {
-        // In the air steer angular velocity directly: crisp, predictable flips.
-        const w = chassis.getAngularVelocity();
-        const target = input.lean * this.stats.airSpin;
-        const impulse = (target - w) * BIKE.airSpinResponse * chassis.getInertia();
+        // In the air steer angular velocity directly: predictable flips.
+        const impulse = (lean * this.stats.airSpin - w) * BIKE.airSpinResponse * chassis.getInertia();
         chassis.applyAngularImpulse(impulse, true);
       }
     }
+    if (!wheelie && this.rearContacts > 0 !== this.frontContacts > 0) chassis.applyTorque(-w * BIKE.wheelieDamping, true);
 
     if (this.rearContacts > 0) {
       const cancel = input.lean > 0 ? BIKE.reactionCancelLeanBack : BIKE.reactionCancelSeated;
       chassis.applyTorque(rearJoint.getMotorTorque(1 / dt) * cancel, true);
     }
 
-    if (this.rearContacts > 0 !== this.frontContacts > 0)
-      chassis.applyTorque(-chassis.getAngularVelocity() * BIKE.wheelieDamping, true);
+    // Progressive spring and bump stop: wheel joints have no travel limit, so stiffen the
+    // spring as it compresses and stop the wheel at the end of its travel.
+    for (const [joint, wheel] of [
+      [rearJoint, this.rear],
+      [frontJoint, this.front],
+    ] as const) {
+      const t = joint.getJointTranslation();
+      const k = Math.min(1, Math.max(0, (t - 0.08) / (BIKE.suspensionTravel - 0.08)));
+      const hz = this.stats.suspensionHz * (1 + 2 * k);
+      if (hz !== joint.getSpringFrequencyHz()) {
+        joint.setSpringFrequencyHz(hz);
+        joint.setSpringDampingRatio(Math.min(1, this.stats.suspensionDamping + 0.1 * k));
+      }
+      const over = t - BIKE.suspensionTravel;
+      if (over <= 0) continue;
+      const axis = chassis.getWorldVector(joint.getLocalAxisA());
+      const mW = wheel.getMass();
+      const mC = chassis.getMass();
+      const j = ((mW * mC) / (mW + mC)) * (Math.max(0, joint.getJointSpeed()) + over * 30);
+      const at = wheel.getWorldCenter();
+      wheel.applyLinearImpulse({ x: -axis.x * j, y: -axis.y * j }, at, true);
+      chassis.applyLinearImpulse({ x: axis.x * j, y: axis.y * j }, at, true);
+    }
 
     this.lean += (input.lean - this.lean) * Math.min(1, dt * 10);
   }

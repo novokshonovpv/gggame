@@ -31,11 +31,8 @@ export const UPGRADES: Upgrade[] = [
   {
     id: "suspension",
     name: "Подвеска",
-    desc: "Мягче приземления, меньше отскок",
-    apply: (s, l) => {
-      s.suspensionHz = BASE_STATS.suspensionHz - 0.14 * l;
-      s.suspensionDamping = BASE_STATS.suspensionDamping + 0.04 * l;
-    },
+    desc: "Меньше отскок и раскачка после прыжков",
+    apply: (s, l) => (s.suspensionDamping = Math.min(1, BASE_STATS.suspensionDamping + 0.02 * l)),
   },
   {
     id: "air",

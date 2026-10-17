@@ -40,7 +40,10 @@ function maneuver(name: string, steps: Step[]) {
 }
 
 console.log(`groundLeanTorque=${BIKE.groundLeanTorque} engine=${BIKE.engineTorque} brake=${BIKE.brakeTorque}`);
+// Start from a settled bike at speed: the first frames after spawning are airborne.
 maneuver("accel", [[3, { gas: true }]]);
+maneuver("wheelie hold from riding", [[1, {}], [1, { gas: true }], [5, { gas: true, lean: 1 }]]);
+maneuver("wheelie release from riding", [[1, {}], [1, { gas: true }], [1.5, { gas: true, lean: 1 }], [1.5, { gas: true }]]);
 maneuver("brake from speed", [[2, { gas: true }], [1.6, { brake: true }]]);
 maneuver("wheelie (gas+back)", [[2, { gas: true, lean: 1 }]]);
 maneuver("wheelie then release", [[0.9, { gas: true, lean: 1 }], [1.5, { gas: true }]]);

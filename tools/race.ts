@@ -7,7 +7,7 @@ import { TRACKS } from "../src/track.ts";
 const DT = 1 / 120;
 const seed = Number(process.argv[2] ?? 1);
 // `node tools/race.ts <seed> max` races the autopilot on a fully upgraded bike.
-const maxed: BikeStats = { power: 1.175, grip: 1.9, suspensionHz: 3.5, suspensionDamping: 0.95, airSpin: 6.7 };
+const maxed: BikeStats = { ...BASE_STATS, power: 1.175, grip: 1.9, suspensionDamping: 1, airSpin: BASE_STATS.airSpin + 1.5 };
 const stats = process.argv[3] === "max" ? maxed : BASE_STATS;
 
 for (const track of TRACKS) {
