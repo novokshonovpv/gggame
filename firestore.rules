@@ -1,14 +1,61 @@
 rules_version = '2';
 
-// Each player can read and write only their own progress and ghosts.
+// Progress and ghosts are private; nicknames, points and best times are public, and each
+// player writes only their own. Moderators (documents in /admins, added by hand) can take a
+// nickname away.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function validNick(n) {
+      return n is string && n.size() >= 3 && n.size() <= 16;
+    }
+
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if signedIn() && request.auth.uid == uid;
 
       match /ghosts/{trackId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if signedIn() && request.auth.uid == uid;
       }
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /players/{uid} {
+      allow read: if true;
+      // The owner may set a nickname only if they hold it in /nicks (in the same batch),
+      // and may not hand themselves a nickname a moderator blocked.
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.get('points', 0) is number
+        && request.resource.data.get('points', 0) <= 10000000
+        && (request.resource.data.get('nick', null) == null
+            || (validNick(request.resource.data.nick)
+                && getAfter(/databases/$(database)/documents/nicks/$(request.resource.data.nickLower)).data.uid == uid
+                && getAfter(/databases/$(database)/documents/nicks/$(request.resource.data.nickLower)).data.get('blocked', false) == false))
+        && (resource == null || resource.data.get('nickRemoved', false) == false
+            || request.resource.data.get('nick', null) != resource.data.get('nick', null));
+      allow update, delete: if isAdmin();
+    }
+
+    match /nicks/{name} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.get('blocked', false) == false && validNick(name);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid && resource.data.get('blocked', false) == false;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /boards/{board}/times/{uid} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.time is number && request.resource.data.time > 10;
+      allow delete: if isAdmin();
     }
   }
 }

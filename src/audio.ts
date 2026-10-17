@@ -28,7 +28,7 @@ abstract class EngineBase {
   rpm = 0.15; // 0..1 inside the current gear
   gear = 0;
 
-  abstract set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan?: number): void;
+  abstract set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan?: number, twoStroke?: boolean): void;
 
   // Wheel speed -> gear and rpm, with throttle flaring the revs.
   drive(bike: Bike, gas: boolean, dt: number) {
@@ -126,12 +126,13 @@ class ThumperVoice extends EngineBase {
     this.out.connect(this.pan).connect(dest);
   }
 
-  set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan = 0) {
+  set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan = 0, twoStroke = false) {
     const t = ctx.currentTime;
-    const engineRpm = 1500 + rpm * 8000; // idle to redline of the TYX300
-    this.node.parameters.get("freq")!.setTargetAtTime(engineRpm / 120, t, 0.04); // fires every 2 revs
+    // A four-stroke fires every 2 revs; a two-stroke every rev, revving higher and brighter.
+    const engineRpm = twoStroke ? 2500 + rpm * 10500 : 1500 + rpm * 8000;
+    this.node.parameters.get("freq")!.setTargetAtTime(engineRpm / (twoStroke ? 60 : 120), t, 0.04);
     this.node.parameters.get("load")!.setTargetAtTime(throttle, t, 0.06);
-    this.tone.frequency.setTargetAtTime(650 + throttle * 1800 + rpm * 700, t, 0.08);
+    this.tone.frequency.setTargetAtTime((twoStroke ? 1300 : 650) + throttle * 1800 + rpm * 700, t, 0.08);
     this.out.gain.setTargetAtTime(volume * (0.55 + throttle * 0.45), t, 0.08);
     this.pan.pan.setTargetAtTime(pan, t, 0.1);
   }
@@ -194,9 +195,9 @@ class EngineVoice extends EngineBase {
   }
 
   // rpm: 0..1 inside the current gear; throttle: 0..1; volume: 0..1.
-  set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan = 0) {
+  set(ctx: AudioContext, rpm: number, throttle: number, volume: number, pan = 0, twoStroke = false) {
     const t = ctx.currentTime;
-    const f = (1500 + rpm * 8000) / 120; // four-stroke firing frequency, Hz
+    const f = twoStroke ? (2500 + rpm * 10500) / 60 : (1500 + rpm * 8000) / 120; // firing frequency, Hz
     this.saw.frequency.setTargetAtTime(f * 2, t, 0.03);
     this.sub.frequency.setTargetAtTime(f, t, 0.03);
     this.pulse.frequency.setTargetAtTime(f, t, 0.03);
@@ -328,7 +329,7 @@ export class Sound {
       const dx = b.bike.chassis.getPosition().x - playerX;
       const near = b.isPlayer ? 1 : Math.max(0, 1 - Math.abs(dx) / 45) * 0.3;
       const vol = racing && b.active ? 0.14 * near : racing ? 0.06 * near : 0;
-      v.set(ctx, v.rpm, b.gas && b.active ? 1 : 0.1, vol, b.isPlayer ? 0 : Math.max(-0.8, Math.min(0.8, dx / 25)));
+      v.set(ctx, v.rpm, b.gas && b.active ? 1 : 0.1, vol, b.isPlayer ? 0 : Math.max(-0.8, Math.min(0.8, dx / 25)), b.bike.twoStroke);
     }
     for (const [bike, v] of this.engines)
       if (!live.has(bike)) {

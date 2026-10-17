@@ -1,92 +1,89 @@
 import type { Bike } from "./bike.ts";
+import { type BikeClass, DIFFICULTIES, bikeSpec } from "./catalog.ts";
 
-// Per-track challenges, MSM3 style: three per track, each earns a star once.
+// Five challenges per race, MSM3 style: a place, a time and three tricks picked per track.
+// Each earns a star once per difficulty level; the targets grow with the level.
 export type Mission =
   | { kind: "wheelie"; seconds: number }
   | { kind: "backflips"; count: number }
+  | { kind: "frontflips"; count: number }
   | { kind: "air"; seconds: number }
+  | { kind: "speed"; kmh: number }
   | { kind: "place"; place: number }
   | { kind: "time"; seconds: number }
   | { kind: "clean" };
 
-export const MISSIONS: Record<string, Mission[]> = {
-  forest: [
-    { kind: "backflips", count: 1 },
-    { kind: "clean" },
-    { kind: "time", seconds: 110 },
-  ],
-  city: [
-    { kind: "wheelie", seconds: 5 },
-    { kind: "backflips", count: 2 },
-    { kind: "place", place: 1 },
-  ],
-  snow: [
-    { kind: "air", seconds: 2.5 },
-    { kind: "clean" },
-    { kind: "place", place: 3 },
-  ],
-  dunes: [
-    { kind: "air", seconds: 3 },
-    { kind: "wheelie", seconds: 4 },
-    { kind: "time", seconds: 65 },
-  ],
-  stadium: [
-    { kind: "backflips", count: 2 },
-    { kind: "clean" },
-    { kind: "place", place: 1 },
-  ],
-  volcano: [
-    { kind: "place", place: 3 },
-    { kind: "backflips", count: 3 },
-    { kind: "time", seconds: 58 },
-  ],
-  smolensk: [
-    { kind: "wheelie", seconds: 3 },
-    { kind: "clean" },
-    { kind: "place", place: 3 },
-  ],
-  minsk: [
-    { kind: "backflips", count: 1 },
-    { kind: "time", seconds: 75 },
-    { kind: "place", place: 1 },
-  ],
-  voronezh: [
-    { kind: "air", seconds: 2 },
-    { kind: "clean" },
-    { kind: "time", seconds: 40 },
-  ],
-  nizhny: [
-    { kind: "wheelie", seconds: 4 },
-    { kind: "backflips", count: 2 },
-    { kind: "place", place: 1 },
-  ],
-  novosibirsk: [
-    { kind: "air", seconds: 2.5 },
-    { kind: "clean" },
-    { kind: "time", seconds: 80 },
-  ],
-  grozny: [
-    { kind: "air", seconds: 2.8 },
-    { kind: "place", place: 1 },
-    { kind: "time", seconds: 41 },
-  ],
-  vladivostok: [
-    { kind: "backflips", count: 3 },
-    { kind: "clean" },
-    { kind: "place", place: 1 },
-  ],
+type Trick = "wheelie" | "backflips" | "frontflips" | "air" | "speed" | "clean";
+
+// Autopilot reference on the stock 250 (tools/pars.ts): race time, top speed, longest air.
+const REF: Record<string, { par: number; vmax: number; air: number; tricks: [Trick, Trick, Trick] }> = {
+  forest: { par: 90, vmax: 76, air: 2.46, tricks: ["backflips", "air", "wheelie"] },
+  smolensk: { par: 28, vmax: 73, air: 2.68, tricks: ["wheelie", "clean", "air"] },
+  city: { par: 55, vmax: 71, air: 2.62, tricks: ["wheelie", "backflips", "speed"] },
+  minsk: { par: 55, vmax: 75, air: 2.26, tricks: ["backflips", "speed", "clean"] },
+  snow: { par: 70, vmax: 75, air: 2.64, tricks: ["air", "clean", "frontflips"] },
+  voronezh: { par: 31.5, vmax: 66, air: 2.39, tricks: ["air", "wheelie", "clean"] },
+  dunes: { par: 44, vmax: 76, air: 2.31, tricks: ["air", "speed", "wheelie"] },
+  nizhny: { par: 35, vmax: 76, air: 2.53, tricks: ["wheelie", "backflips", "frontflips"] },
+  stadium: { par: 92, vmax: 76, air: 2.07, tricks: ["backflips", "clean", "frontflips"] },
+  novosibirsk: { par: 70, vmax: 76, air: 2.31, tricks: ["air", "clean", "speed"] },
+  volcano: { par: 39, vmax: 72, air: 2.34, tricks: ["backflips", "frontflips", "air"] },
+  grozny: { par: 35.5, vmax: 75, air: 2.82, tricks: ["air", "speed", "backflips"] },
+  vladivostok: { par: 35, vmax: 79, air: 2.97, tricks: ["backflips", "clean", "air"] },
+};
+
+const WHEELIE = [2, 3, 4, 6, 8];
+const BACKFLIPS = [1, 1, 2, 3, 4];
+const FRONTFLIPS = [1, 1, 1, 2, 3];
+const AIR = [0.55, 0.7, 0.82, 0.92, 1.02];
+const SPEED = [0.72, 0.8, 0.88, 0.95, 1.0];
+
+export function missionsFor(trackId: string, diff: number, cls: BikeClass): Mission[] {
+  const ref = REF[trackId];
+  if (!ref) return [];
+  const d = DIFFICULTIES[diff];
+  const bike = bikeSpec(cls);
+  const trick = (t: Trick): Mission => {
+    switch (t) {
+      case "wheelie":
+        return { kind: "wheelie", seconds: WHEELIE[diff] };
+      case "backflips":
+        return { kind: "backflips", count: BACKFLIPS[diff] };
+      case "frontflips":
+        return { kind: "frontflips", count: FRONTFLIPS[diff] };
+      case "air":
+        return { kind: "air", seconds: Math.round(ref.air * AIR[diff] * 10) / 10 };
+      case "speed":
+        return { kind: "speed", kmh: Math.round(ref.vmax * SPEED[diff] * bike.power ** 0.7) };
+      case "clean":
+        return { kind: "clean" };
+    }
+  };
+  return [{ kind: "place", place: d.place }, { kind: "time", seconds: Math.ceil(ref.par * d.time * bike.timeFactor) }, ...ref.tricks.map(trick)];
+}
+
+const plural = (n: number, one: string, few: string, many: string) => {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
 };
 
 export function missionText(m: Mission): string {
   switch (m.kind) {
     case "wheelie":
-      return `Вилли ${m.seconds} секунд${m.seconds === 1 ? "у" : m.seconds < 5 ? "ы" : ""}`;
+      return `Вилли ${m.seconds} ${plural(m.seconds, "секунду", "секунды", "секунд")}`;
     case "backflips":
-      return m.count === 1 ? "Сделай бэкфлип" : `Сделай ${m.count} бэкфлипа`;
+      return m.count === 1 ? "Сделай бэкфлип" : `Сделай ${m.count} ${plural(m.count, "бэкфлип", "бэкфлипа", "бэкфлипов")}`;
+    case "frontflips":
+      return m.count === 1 ? "Сделай фронтфлип" : `Сделай ${m.count} ${plural(m.count, "фронтфлип", "фронтфлипа", "фронтфлипов")}`;
     case "air":
-      return `Пролети ${String(m.seconds).replace(".", ",")} секунды в одном прыжке`;
+      return `Пролети ${String(m.seconds).replace(".", ",")} с в одном прыжке`;
+    case "speed":
+      return `Разгонись до ${m.kmh} км/ч`;
     case "place":
-      return m.place === 1 ? "Выиграй гонку" : `Финишируй в тройке`;
+      return m.place === 1 ? "Выиграй гонку" : m.place === 2 ? "Финишируй вторым или выше" : "Финишируй в тройке";
     case "time":
       return `Финишируй быстрее ${Math.floor(m.seconds / 60)}:${String(m.seconds % 60).padStart(2, "0")}`;
     case "clean":
@@ -103,6 +100,8 @@ export class MissionTracker {
   bestAir = 0;
   spin = 0; // rotation accumulated during the current jump, radians
   backflips = 0;
+  frontflips = 0;
+  topSpeed = 0; // km/h
   crashes = 0;
   missions: Mission[];
   private onDone: (i: number) => void;
@@ -124,14 +123,18 @@ export class MissionTracker {
     if (bike.rearContacts > 0 && bike.frontContacts === 0 && c.getAngle() > 0.15) this.wheelie += dt;
     else this.wheelie = 0;
     this.bestWheelie = Math.max(this.bestWheelie, this.wheelie);
+    this.topSpeed = Math.max(this.topSpeed, c.getLinearVelocity().x * 3.6);
 
     if (!bike.grounded) {
       this.air += dt;
       this.spin += c.getAngularVelocity() * dt;
     } else {
       // A flip counts once the bike is back on its wheels (a crash resets via crashed()).
-      const flips = Math.floor((this.spin + 0.6) / (Math.PI * 2));
-      if (flips > 0) this.backflips += flips;
+      // Rotating counterclockwise (nose up) is a backflip, clockwise a frontflip.
+      const back = Math.floor((this.spin + 0.6) / (Math.PI * 2));
+      const front = Math.floor((-this.spin + 0.6) / (Math.PI * 2));
+      if (back > 0) this.backflips += back;
+      if (front > 0) this.frontflips += front;
       this.spin = 0;
       this.air = 0;
     }
@@ -141,6 +144,8 @@ export class MissionTracker {
       if (m.kind === "wheelie" && this.bestWheelie >= m.seconds) this.complete(i);
       if (m.kind === "air" && this.bestAir >= m.seconds) this.complete(i);
       if (m.kind === "backflips" && this.backflips >= m.count) this.complete(i);
+      if (m.kind === "frontflips" && this.frontflips >= m.count) this.complete(i);
+      if (m.kind === "speed" && this.topSpeed >= m.kmh) this.complete(i);
     });
   }
 
@@ -170,6 +175,10 @@ export class MissionTracker {
         return `${this.bestAir.toFixed(1)} / ${m.seconds} с`;
       case "backflips":
         return `${this.backflips} / ${m.count}`;
+      case "frontflips":
+        return `${this.frontflips} / ${m.count}`;
+      case "speed":
+        return `${Math.round(this.topSpeed)} / ${m.kmh}`;
       case "clean":
         return this.crashes ? "не выполнено" : "";
       default:

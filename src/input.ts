@@ -19,7 +19,10 @@ export class Controls {
   private touches = new Map<number, Action>();
 
   constructor(onKey: (code: string) => void) {
+    // Typing a nickname must not ride the bike (or lose the letters W, A, S, D).
+    const typing = (e: KeyboardEvent) => (e.target as HTMLElement | null)?.closest?.("input, textarea") != null;
     window.addEventListener("keydown", (e) => {
+      if (typing(e)) return;
       const a = KEYS[e.code];
       if (a) {
         this.keys.add(a);

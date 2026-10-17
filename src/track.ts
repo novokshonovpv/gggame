@@ -275,7 +275,7 @@ export const TRACKS: Track[] = [
     .stepUp(3, 5)
     .drop(3)
     .rough(12, 0.3)
-    .build("minsk", "Минск", "minsk", { laps: 2, stars: 2 }),
+    .build("minsk", "Минск", "minsk", { laps: 2, stars: 3 }),
 
   // Snow: slippery, long climbs and descents, step-downs.
   new Builder(71)
@@ -299,7 +299,7 @@ export const TRACKS: Track[] = [
     .slope(26, -6)
     .tabletop(3, 8)
     .rough(14, 0.3)
-    .build("snow", "Сочи", "sochi", { laps: 2, grip: 0.72, stars: 3 }),
+    .build("snow", "Сочи", "sochi", { laps: 2, grip: 0.72, stars: 5 }),
 
   // Voronezh: heavy black earth on the steppe — long rhythm waves and big doubles.
   new Builder(163)
@@ -319,7 +319,7 @@ export const TRACKS: Track[] = [
     .rough(14, 0.4)
     .double(3.6, 14)
     .rough(12, 0.3)
-    .build("voronezh", "Воронеж", "voronezh", { grip: 0.85, stars: 4 }),
+    .build("voronezh", "Воронеж", "voronezh", { grip: 0.85, stars: 6 }),
 
   // Dunes: huge smooth sand waves, long airtime, soft sand.
   new Builder(83)
@@ -340,7 +340,7 @@ export const TRACKS: Track[] = [
     .hill(6, 13, 28)
     .rhythm(4, 10, 2)
     .rough(12, 0.3)
-    .build("dunes", "Махачкала", "makhachkala", { grip: 0.8, stars: 5 }),
+    .build("dunes", "Махачкала", "makhachkala", { grip: 0.8, stars: 8 }),
 
   // Nizhny Novgorod: up and down the steep Volga bank — step-ups, ledges and long climbs.
   new Builder(179)
@@ -363,7 +363,7 @@ export const TRACKS: Track[] = [
     .slope(26, -6)
     .tabletop(3, 8)
     .rough(12, 0.3)
-    .build("nizhny", "Нижний Новгород", "nizhny", { stars: 6 }),
+    .build("nizhny", "Нижний Новгород", "nizhny", { stars: 9 }),
 
   // Stadium supercross: short, technical, three laps.
   new Builder(97)
@@ -384,7 +384,7 @@ export const TRACKS: Track[] = [
     .flat(3)
     .tabletop(2.4, 6)
     .flat(6)
-    .build("stadium", "Казань", "kazan", { laps: 3, stars: 7 }),
+    .build("stadium", "Казань", "kazan", { laps: 3, stars: 11 }),
 
   // Novosibirsk: wet autumn leaves (less grip), a long two-lap mix of everything.
   new Builder(191)
@@ -406,7 +406,7 @@ export const TRACKS: Track[] = [
     .flat(4)
     .double(3.8, 15)
     .rough(12, 0.3)
-    .build("novosibirsk", "Новосибирск", "novosibirsk", { laps: 2, grip: 0.86, stars: 9 }),
+    .build("novosibirsk", "Новосибирск", "novosibirsk", { laps: 2, grip: 0.86, stars: 14 }),
 
   // St Petersburg: the hardest — big gaps, ledges and rough ground.
   new Builder(113)
@@ -426,7 +426,7 @@ export const TRACKS: Track[] = [
     .hill(7, 14, 30)
     .double(4.2, 18)
     .rough(12, 0.4)
-    .build("volcano", "Санкт-Петербург", "spb", { stars: 10 }),
+    .build("volcano", "Санкт-Петербург", "spb", { stars: 15 }),
 
   // Grozny: mountain track — big climbs, drops and gaps.
   new Builder(211)
@@ -446,7 +446,7 @@ export const TRACKS: Track[] = [
     .slope(28, -7)
     .double(4.2, 17)
     .rough(12, 0.4)
-    .build("grozny", "Грозный", "grozny", { stars: 12 }),
+    .build("grozny", "Грозный", "grozny", { stars: 18 }),
 
   // Vladivostok: the hardest — steep sopki, rocky ground and the longest gaps.
   new Builder(227)
@@ -466,7 +466,7 @@ export const TRACKS: Track[] = [
     .drop(6)
     .double(4.4, 18)
     .rough(12, 0.45)
-    .build("vladivostok", "Владивосток", "vladivostok", { grip: 0.88, stars: 14 }),
+    .build("vladivostok", "Владивосток", "vladivostok", { grip: 0.88, stars: 21 }),
 ];
 
 // Ground height at x (linear interpolation between samples).

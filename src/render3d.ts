@@ -914,10 +914,11 @@ class BikeModel {
 
     // Bike details: BSE / T5 decals, footpegs, levers, engine covers.
     const decalSide = 0.215;
-    const bse = decal(look, "BSE", 0.42, 0.11);
+    const bse = decal(look, look.brand ?? "BSE", 0.42, 0.11);
     bse.position.set(...T(925, 432), decalSide);
     bse.rotation.z = 0.06;
-    const t5 = decal(look, "T5", 0.12, 0.07);
+    const model = look.model ?? "T5";
+    const t5 = decal(look, model, 0.06 * Math.max(2, model.length), 0.07);
     t5.position.set(...T(1020, 478), decalSide);
     st.add(bse, t5);
     if (look.number) {
@@ -927,7 +928,7 @@ class BikeModel {
       plate.rotation.z = -0.2;
       st.add(plate);
     } else {
-      const side = decal(look, "BSE", 0.22, 0.06);
+      const side = decal(look, look.brand ?? "BSE", 0.22, 0.06);
       side.position.set(...T(470, 400), 0.155);
       side.rotation.z = 0.03;
       st.add(side);

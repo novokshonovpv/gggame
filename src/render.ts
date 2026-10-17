@@ -450,7 +450,7 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = look.accent ?? "#111";
-    ctx.fillText("BSE", 0, 0);
+    ctx.fillText(look.brand ?? "BSE", 0, 0);
     ctx.restore();
     this.line(L(POINTS.bar[0] - 0.03, POINTS.bar[1] - 0.05), L(POINTS.bar[0] + 0.05, POINTS.bar[1] + 0.03), 0.04 * s, "#26262a");
 

@@ -2,6 +2,7 @@ import { Chain, World } from "planck";
 import type { Contact } from "planck";
 import { autopilot } from "./ai.ts";
 import { BASE_STATS, Bike, type BikeStats, type FixtureTag, type Input } from "./bike.ts";
+import { type BikeClass, DIFFICULTIES, bikeSpec } from "./catalog.ts";
 import { groundY, rng, type Track } from "./track.ts";
 
 export const GRAVITY = -11;
@@ -24,6 +25,8 @@ export interface Look {
   frame?: string;
   boots?: string;
   number?: string; // race number on the side plates
+  brand?: string; // lettering on the shrouds
+  model?: string; // lettering on the radiator scoop
 }
 
 // Stock bike: BSE T5 in yellow with black graphics and a black frame.
@@ -45,24 +48,25 @@ export const PLAYER_LOOK: Look = {
 
 interface RivalSpec {
   look: Look;
-  power: number; // engine share: lower is slower
+  power: number; // engine multiplier (pulling power and top speed)
+  pace: number; // top speed share: slower rivals keep their pulling power for the climbs
   wobble: number; // max landing misjudgement, radians
 }
 
-export const RIVALS: RivalSpec[] = [
+export interface RaceOptions {
+  difficulty?: number; // index into DIFFICULTIES
+  cls?: BikeClass; // everyone rides this class
+}
+
+// The three rivals' colors and numbers; their speed comes from the difficulty level.
+export const RIVALS: { look: Look }[] = [
   {
-    power: 0.97,
-    wobble: 0.3,
     look: { name: "Шторм", number: "23", plastic: "#e23b3b", plasticDark: "#1d1d20", accent: "#f2f2f2", frame: "#1d1d20", jersey: "#26262b", jerseyDark: "#141417", pants: "#2c2c30", helmet: "#e23b3b", visor: "#f2f2f2" },
   },
   {
-    power: 0.9,
-    wobble: 0.4,
     look: { name: "Кобра", number: "44", plastic: "#30b85a", plasticDark: "#1d1d20", accent: "#1d1d20", frame: "#2a2a2c", jersey: "#1d6b3a", jerseyDark: "#124827", pants: "#f0f0f0", helmet: "#f4f4f4", visor: "#30b85a" },
   },
   {
-    power: 0.8,
-    wobble: 0.5,
     look: { name: "Ледок", number: "91", plastic: "#f2f4f7", plasticDark: "#1e6fc4", accent: "#3a9cff", frame: "#3a9cff", jersey: "#f2f2f2", jerseyDark: "#c9d3dd", pants: "#2b4f7a", helmet: "#3a9cff", visor: "#f2f2f2" },
   },
 ];
@@ -100,7 +104,10 @@ export class Racer {
     this.spec = spec;
     this.rand = rand;
     this.bike = new Bike(world, { x: startX, y: groundY(track, startX) }, stats);
-    if (spec) this.bike.power = spec.power;
+    if (spec) {
+      this.bike.power = spec.power;
+      this.bike.pace = spec.pace;
+    }
     this.checkpoint = startX;
   }
 
@@ -141,7 +148,7 @@ export class Race {
   time = 0;
   started = false;
 
-  constructor(track: Track, player: PlayerSetup | null, events: RaceEvents = {}, seed = 1) {
+  constructor(track: Track, player: PlayerSetup | null, events: RaceEvents = {}, seed = 1, opts: RaceOptions = {}) {
     this.track = track;
     this.events = events;
     this.world = new World({ gravity: { x: 0, y: GRAVITY } });
@@ -153,10 +160,16 @@ export class Race {
     if (player) this.racers.push(new Racer(this.world, track, player.look, true, null, rand, player.stats));
     // Start grid: the player on the line, rivals lined up behind one bike length apart,
     // so nobody starts on top of the player.
-    RIVALS.forEach((spec, i) => {
+    // Rivals ride the same class; the difficulty sets how fast and how clean they are.
+    const diff = DIFFICULTIES[opts.difficulty ?? 2];
+    const bike = bikeSpec(opts.cls ?? "250");
+    RIVALS.forEach((base, i) => {
       const x = track.startX - GRID_GAP * (i + 1);
-      this.racers.push(new Racer(this.world, track, spec.look, false, spec, rand, BASE_STATS, x));
+      const spec = { look: { ...base.look, brand: bike.brand, model: bike.model }, power: bike.power * Math.max(0.95, diff.rivals[i]), pace: Math.min(1, diff.rivals[i] / 0.95), wobble: diff.wobble * (0.8 + 0.2 * i) };
+      const stats = { ...BASE_STATS, airSpin: BASE_STATS.airSpin + bike.airSpin };
+      this.racers.push(new Racer(this.world, track, spec.look, false, spec, rand, stats, x));
     });
+    for (const r of this.racers) r.bike.twoStroke = bike.twoStroke;
     this.world.on("begin-contact", (c) => this.contact(c, 1));
     this.world.on("end-contact", (c) => this.contact(c, -1));
   }

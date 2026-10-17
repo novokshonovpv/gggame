@@ -1,23 +1,40 @@
 import { autopilot } from "./ai.ts";
 import { Sound } from "./audio.ts";
-import { Cloud } from "./cloud.ts";
-import { enterFullscreen, installHelp, isFullscreen, isInstalled, isTouch, onFullscreenChange } from "./fullscreen.ts";
-import { Controls } from "./input.ts";
 import {
-  MAX_LEVEL,
-  MISSION_REWARD,
+  BIKES,
+  DIFFICULTIES,
+  GEAR,
+  GEAR_SLOTS,
   PAINTS,
-  UPGRADES,
-  loadProfile,
-  lookFor,
-  raceReward,
-  saveProfile,
-  statsFor,
-  upgradeCost,
-} from "./garage.ts";
-import { MISSIONS, MissionTracker, missionText } from "./missions.ts";
-import { Race, type Racer } from "./race.ts";
+  PLACE_REWARD,
+  RECORD_REWARD,
+  STAR_REWARD,
+  WIN_BONUS,
+  boardId,
+  bikeSpec,
+  rewardScale,
+} from "./catalog.ts";
+import { Cloud, NICK_RE } from "./cloud.ts";
+import { enterFullscreen, installHelp, isFullscreen, isInstalled, isTouch, onFullscreenChange } from "./fullscreen.ts";
+import { MAX_LEVEL, UPGRADES, loadProfile, lookFor, saveProfile, statsFor, upgradeCost } from "./garage.ts";
 import { GHOST_LOOK, type GhostBike, GhostRecorder, loadGhost, saveGhost } from "./ghost.ts";
+import { Controls } from "./input.ts";
+import { MissionTracker, missionText, missionsFor } from "./missions.ts";
+import {
+  bestPlace,
+  bestTime,
+  levelOpen,
+  levelWon,
+  migrateOldProgress,
+  missionsDone,
+  setBestPlace,
+  setBestTime,
+  setLevelWon,
+  setMissionsDone,
+  totalPoints,
+  totalStars,
+} from "./progress.ts";
+import { Race, type Racer } from "./race.ts";
 import { type Camera, Renderer, type RiderView } from "./render.ts";
 import { Renderer3D } from "./render3d.ts";
 import { TRACKS, type Track, groundY } from "./track.ts";
@@ -26,31 +43,11 @@ import "./style.css";
 const DT = 1 / 120;
 const COUNTDOWN = 3;
 
-type State = "menu" | "garage" | "countdown" | "racing" | "finished";
+type State = "menu" | "garage" | "board" | "countdown" | "racing" | "finished";
+type GarageTab = "bikes" | "paint" | "gear" | "upgrades";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-
-// localStorage can be missing or throw (private mode); the game works without it.
-const store = {
-  get<T>(key: string): T | null {
-    try {
-      const v = localStorage.getItem(key);
-      return v === null ? null : (JSON.parse(v) as T);
-    } catch {
-      return null;
-    }
-  },
-  set(key: string, v: unknown) {
-    try {
-      localStorage.setItem(key, JSON.stringify(v));
-    } catch {
-      /* progress just won't persist */
-    }
-  },
-};
-const bestKey = (t: Track) => `best:${t.id}`;
-const missionsKey = (t: Track) => `missions:${t.id}`;
-const missionsDone = (t: Track) => store.get<boolean[]>(missionsKey(t)) ?? [];
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function fmt(t: number) {
   const m = Math.floor(t / 60);
@@ -58,9 +55,7 @@ function fmt(t: number) {
   return `${m}:${s.toFixed(2).padStart(5, "0")}`;
 }
 
-function stars(t: Track) {
-  const total = (MISSIONS[t.id] ?? []).length;
-  const done = missionsDone(t).filter(Boolean).length;
+function starsText(done: number, total = 5) {
   return "★".repeat(done) + "☆".repeat(Math.max(0, total - done));
 }
 
@@ -93,13 +88,19 @@ class Game {
   cam: Camera = { x: 0, y: 0, ppm: 40 };
   profile = loadProfile();
   newMissions = 0; // missions completed for the first time in this race
+  starCoins = 0; // coins already paid for them
   sound = new Sound();
   cloud = new Cloud();
   recorder = new GhostRecorder();
   ghost: GhostBike | null = null;
   lastCount = 0; // countdown number last beeped
+  garageTab: GarageTab = "bikes";
+  boardTab: "points" | "times" = "points";
+  raceLevel = 0; // difficulty of the race in progress
+  nickFirst = false; // the nickname prompt can't be skipped the first time
 
   constructor() {
+    migrateOldProgress();
     window.addEventListener("resize", () => this.renderer.resize());
     // Every UI button ticks; toggles flip sound and music.
     document.addEventListener("click", (e) => {
@@ -123,11 +124,12 @@ class Game {
       }
       this.renderAccount();
     };
+    this.cloud.onReady = () => void this.checkNick();
     $("acc-btn").addEventListener("click", () => {
-      const s = this.cloud.status;
-      if (s === "signed-out") void this.cloud.signIn();
-      else if (s === "synced") void this.cloud.signOut();
-      else if (s === "error") void (this.cloud.user ? this.cloud.sync() : this.cloud.signIn());
+      const c = this.cloud;
+      if (!c.linked && c.status !== "syncing") void c.signIn();
+      else if (c.status === "synced") void c.signOut();
+      else if (c.status === "error") void c.sync();
     });
     void this.cloud.init();
     this.renderAccount();
@@ -151,19 +153,46 @@ class Game {
     $("btn-menu").addEventListener("click", () => this.showMenu());
     $("res-retry").addEventListener("click", () => this.load(this.track));
     $("res-next").addEventListener("click", () => {
-      // Next track that is already unlocked (wraps around to the first).
-      const earned = TRACKS.reduce((n, t) => n + missionsDone(t).filter(Boolean).length, 0);
+      // Next track open on this level (wraps around to the first).
       const i = TRACKS.indexOf(this.track);
       for (let k = 1; k <= TRACKS.length; k++) {
         const t = TRACKS[(i + k) % TRACKS.length];
-        if (earned >= t.stars) return this.load(t);
+        if (this.trackOpen(t) && levelOpen(t, this.profile.difficulty)) return this.load(t);
       }
     });
     $("res-menu").addEventListener("click", () => this.showMenu());
     $("btn-garage").addEventListener("click", () => this.showGarage());
     $("garage-close").addEventListener("click", () => this.showMenu());
+    $("garage-tabs").addEventListener("click", (e) => {
+      const tab = (e.target as HTMLElement).closest("button")?.dataset.tab as GarageTab | undefined;
+      if (tab) {
+        this.garageTab = tab;
+        this.renderGarage();
+      }
+    });
+    $("btn-board").addEventListener("click", () => this.showBoard());
+    $("board-close").addEventListener("click", () => this.showMenu());
+    $("board-tabs").addEventListener("click", (e) => {
+      const tab = (e.target as HTMLElement).closest("button")?.dataset.tab as "points" | "times" | undefined;
+      if (tab) {
+        this.boardTab = tab;
+        void this.renderBoard();
+      }
+    });
+    for (const id of ["board-track", "board-level", "board-class"]) $(id).addEventListener("change", () => void this.renderBoard());
+    $("board-list").addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-uid]");
+      if (b) void this.removeNick(b.dataset.uid!, b.dataset.nick!);
+    });
+    $("btn-nick").addEventListener("click", () => this.showNick());
+    $("nick-save").addEventListener("click", () => void this.saveNick());
+    $("nick-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void this.saveNick();
+    });
+    $("nick-cancel").addEventListener("click", () => $("nick").classList.add("hidden"));
     this.load(this.track);
     this.showMenu();
+    if (!this.profile.nick) this.showNick(undefined, true);
     let last = performance.now();
     const frame = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
@@ -179,15 +208,24 @@ class Game {
   }
 
   onKey(code: string) {
+    if (!$("nick").classList.contains("hidden")) return;
     if (code === "KeyR" || code === "Enter") {
-      if (this.state !== "menu" && this.state !== "garage") this.load(this.track);
+      if (this.state === "countdown" || this.state === "racing" || this.state === "finished") this.load(this.track);
     } else if (code === "Escape") {
       this.showMenu();
     }
   }
 
+  trackOpen(t: Track) {
+    return totalStars() >= t.stars;
+  }
+
   addCoins(n: number) {
-    this.profile.coins += n;
+    this.profile.coins += Math.round(n);
+    this.saveProfile();
+  }
+
+  saveProfile() {
     saveProfile(this.profile);
     this.cloud.pushSoon();
   }
@@ -195,19 +233,73 @@ class Game {
   renderAccount() {
     const c = this.cloud;
     $("account").classList.toggle("hidden", !c.configured);
-    const text: Record<string, [string, string]> = {
-      loading: ["Облако подключается…", ""],
-      "signed-out": ["Прогресс только на этом устройстве", "Войти через Google"],
-      syncing: ["Синхронизация…", ""],
-      synced: [`☁ ${c.user?.displayName ?? "Аккаунт"} · прогресс сохранён`, "Выйти"],
-      error: ["Нет связи с облаком", "Повторить"],
-      off: ["", ""],
-    };
-    const [status, button] = text[c.status];
+    let status = "";
+    let button = "";
+    if (c.status === "loading") status = "Сервер подключается…";
+    else if (c.status === "error") [status, button] = ["Нет связи с сервером", "Повторить"];
+    else if (c.status === "syncing") status = "Синхронизация…";
+    else if (c.linked) [status, button] = [`☁ ${c.user?.displayName ?? "Аккаунт"} · прогресс сохранён`, "Выйти"];
+    else [status, button] = ["Прогресс только на этом устройстве", "Войти через Google"];
     $("acc-status").textContent = status;
     $("acc-btn").textContent = button;
     $("acc-btn").classList.toggle("hidden", !button);
   }
+
+  // ---------- Nickname ----------
+
+  showNick(message?: string, first = false) {
+    this.nickFirst = first;
+    $("nick-msg").textContent = message ?? "Под этим именем ты будешь в таблицах рекордов.";
+    $<HTMLInputElement>("nick-input").value = this.profile.nick ?? "";
+    $("nick-err").textContent = "";
+    $("nick-cancel").classList.toggle("hidden", first);
+    $("nick").classList.remove("hidden");
+    setTimeout(() => $<HTMLInputElement>("nick-input").focus(), 50);
+  }
+
+  async saveNick() {
+    const nick = $<HTMLInputElement>("nick-input").value.trim().replace(/\s+/g, " ");
+    if (!NICK_RE.test(nick)) {
+      $("nick-err").textContent = "От 3 до 16 символов: буквы, цифры, пробел, _ или -";
+      return;
+    }
+    $("nick-err").textContent = "";
+    if (this.cloud.online && nick !== this.profile.nick) {
+      $("nick-save").setAttribute("disabled", "");
+      const r = await this.cloud.claimNick(nick, totalPoints());
+      $("nick-save").removeAttribute("disabled");
+      if (r === "taken") {
+        $("nick-err").textContent = "Этот ник уже занят, придумай другой";
+        return;
+      }
+    }
+    this.profile.nick = nick;
+    this.saveProfile();
+    $("nick").classList.add("hidden");
+    $("menu-nick").textContent = nick;
+  }
+
+  // Once online: adopt the server's nickname, register the local one, or ask again if a
+  // moderator removed it.
+  async checkNick() {
+    const remote = await this.cloud.myNick();
+    if (remote === null) {
+      const old = this.profile.nick;
+      this.profile.nick = undefined;
+      this.saveProfile();
+      this.showNick(`Ник «${old ?? ""}» удалён модератором. Придумай другой.`, true);
+    } else if (remote === undefined && this.profile.nick) {
+      const r = await this.cloud.claimNick(this.profile.nick, totalPoints());
+      if (r === "taken") this.showNick(`Ник «${this.profile.nick}» уже занят другим игроком. Придумай другой.`, true);
+    } else if (typeof remote === "string" && remote !== this.profile.nick) {
+      this.profile.nick = remote;
+      this.saveProfile();
+    }
+    if (this.profile.nick) void this.cloud.submitPoints(totalPoints());
+    $("menu-nick").textContent = this.profile.nick ?? "Без ника";
+  }
+
+  // ---------- Garage ----------
 
   showGarage() {
     this.state = "garage";
@@ -215,123 +307,293 @@ class Game {
     this.ui();
   }
 
+  // Rebuild the idle scene behind the garage so changes show on the bike and rider.
+  private refreshBike() {
+    this.load(this.track);
+    this.state = "garage";
+    this.ui();
+  }
+
+  private buy(price: number) {
+    if (this.profile.coins < price) return false;
+    this.profile.coins -= price;
+    this.sound.coin();
+    return true;
+  }
+
   renderGarage() {
     const p = this.profile;
     $("garage-coins").textContent = String(p.coins);
+    document.querySelectorAll<HTMLButtonElement>("#garage-tabs button").forEach((b) => b.classList.toggle("sel", b.dataset.tab === this.garageTab));
+    const body = $("garage-body");
+    body.innerHTML = "";
+    const add = (html: string) => {
+      const el = document.createElement("div");
+      el.innerHTML = html;
+      body.appendChild(el.firstElementChild!);
+      return body.lastElementChild as HTMLElement;
+    };
+    const coinBtn = (owned: boolean, selected: boolean, price: number) =>
+      selected ? "Выбран" : owned ? "Выбрать" : `<span class="coins">${price}</span>`;
 
-    const ups = $("upgrades");
-    ups.innerHTML = "";
-    for (const u of UPGRADES) {
-      const level = p.levels[u.id];
-      const cost = upgradeCost(level);
-      const row = document.createElement("div");
-      row.className = "upg";
-      const pips = Array.from({ length: MAX_LEVEL }, (_, i) => `<i class="${i < level ? "on" : ""}"></i>`).join("");
-      row.innerHTML = `<span class="info"><b>${u.name}</b><small>${u.desc}</small></span><span class="pips">${pips}</span>`;
-      const btn = document.createElement("button");
-      btn.className = "buy";
-      btn.textContent = cost === null ? "Максимум" : `${cost}`;
-      if (cost !== null) btn.classList.add("coins");
-      btn.disabled = cost === null || p.coins < cost;
-      btn.addEventListener("click", () => {
-        if (cost === null || p.coins < cost) return;
-        p.coins -= cost;
-        p.levels[u.id]++;
-        saveProfile(p);
-        this.cloud.pushSoon();
-        this.sound.coin();
-        this.renderGarage();
-      });
-      row.appendChild(btn);
-      ups.appendChild(row);
-    }
-
-    const paints = $("paints");
-    paints.innerHTML = "";
-    for (const paint of PAINTS) {
-      const owned = p.owned.includes(paint.id);
-      const b = document.createElement("button");
-      b.className = "paint" + (p.paint === paint.id ? " sel" : "");
-      const sw = `background: linear-gradient(135deg, ${paint.look.plastic} 0 50%, ${paint.look.jersey} 50% 100%)`;
-      const status = p.paint === paint.id ? "Выбрана" : owned ? "Выбрать" : `<span class="coins">${paint.price}</span>`;
-      b.innerHTML = `<span class="sw" style="${sw}"></span><span>${paint.name}</span><span class="price">${status}</span>`;
-      b.disabled = !owned && p.coins < paint.price;
-      b.addEventListener("click", () => {
-        if (!owned) {
-          if (p.coins < paint.price) return;
-          p.coins -= paint.price;
-          p.owned.push(paint.id);
-          this.sound.coin();
+    if (this.garageTab === "bikes") {
+      const grid = add(`<div class="bikes"></div>`);
+      const maxPower = Math.max(...BIKES.map((b) => b.power));
+      for (const b of BIKES) {
+        const owned = p.bikes.includes(b.id);
+        const sel = p.bike === b.id;
+        const bar = (v: number) => `<span class="bar"><i style="width:${Math.round(v * 100)}%"></i></span>`;
+        const card = document.createElement("button");
+        card.className = "bike-card" + (sel ? " sel" : "");
+        card.disabled = !owned && p.coins < b.price;
+        card.innerHTML =
+          `<span class="cls">${b.id}</span><b>${b.name}</b><small>${b.desc}</small>` +
+          `<span class="stat">Мощность ${bar(b.power / maxPower)}</span>` +
+          `<span class="stat">Вращение ${bar((4.3 + b.airSpin) / 4.9)}</span>` +
+          `<span class="stat">Очки ×${b.points} · монеты ×${b.reward}</span>` +
+          `<span class="price">${coinBtn(owned, sel, b.price)}</span>`;
+        card.addEventListener("click", () => {
+          if (!owned && !this.buy(b.price)) return;
+          if (!owned) p.bikes.push(b.id);
+          p.bike = b.id;
+          this.saveProfile();
+          this.refreshBike();
+          this.renderGarage();
+        });
+        grid.appendChild(card);
+      }
+    } else if (this.garageTab === "paint") {
+      const grid = add(`<div class="swatches"></div>`);
+      for (const paint of PAINTS) {
+        const owned = p.owned.includes(paint.id);
+        const sel = p.paint === paint.id;
+        const b = document.createElement("button");
+        b.className = "paint" + (sel ? " sel" : "");
+        const sw = `background: linear-gradient(135deg, ${paint.plastic} 0 55%, ${paint.plasticDark} 55% 100%)`;
+        b.innerHTML = `<span class="sw" style="${sw}"></span><span>${paint.name}</span><span class="price">${coinBtn(owned, sel, paint.price)}</span>`;
+        b.disabled = !owned && p.coins < paint.price;
+        b.addEventListener("click", () => {
+          if (!owned && !this.buy(paint.price)) return;
+          if (!owned) p.owned.push(paint.id);
+          p.paint = paint.id;
+          this.saveProfile();
+          this.refreshBike();
+          this.renderGarage();
+        });
+        grid.appendChild(b);
+      }
+    } else if (this.garageTab === "gear") {
+      for (const { slot, name } of GEAR_SLOTS) {
+        add(`<h3>${name}</h3>`);
+        const grid = add(`<div class="swatches"></div>`);
+        for (const item of GEAR.filter((x) => x.slot === slot)) {
+          const owned = p.owned.includes(item.id);
+          const sel = p.gear[slot] === item.id;
+          const b = document.createElement("button");
+          b.className = "paint" + (sel ? " sel" : "");
+          const sw = `background: linear-gradient(135deg, ${item.color} 0 60%, ${item.color2} 60% 100%)`;
+          b.innerHTML = `<span class="sw ${slot}" style="${sw}"></span><span>${item.name}</span><span class="price">${coinBtn(owned, sel, item.price)}</span>`;
+          b.disabled = !owned && p.coins < item.price;
+          b.addEventListener("click", () => {
+            if (!owned && !this.buy(item.price)) return;
+            if (!owned) p.owned.push(item.id);
+            p.gear[slot] = item.id;
+            this.saveProfile();
+            this.refreshBike();
+            this.renderGarage();
+          });
+          grid.appendChild(b);
         }
-        p.paint = paint.id;
-        saveProfile(p);
-        this.cloud.pushSoon();
-        // Rebuild the idle scene behind the garage so the new paint shows on the bike.
-        this.load(this.track);
-        this.state = "garage";
-        this.renderGarage();
-        this.ui();
-      });
-      paints.appendChild(b);
+      }
+    } else {
+      add(`<p class="note">Прокачка остаётся с тобой на любом мотоцикле.</p>`);
+      const ups = add(`<div class="upgrades"></div>`);
+      for (const u of UPGRADES) {
+        const level = p.levels[u.id];
+        const cost = upgradeCost(level);
+        const row = document.createElement("div");
+        row.className = "upg";
+        const pips = Array.from({ length: MAX_LEVEL }, (_, i) => `<i class="${i < level ? "on" : ""}"></i>`).join("");
+        row.innerHTML = `<span class="info"><b>${u.name}</b><small>${u.desc}</small></span><span class="pips">${pips}</span>`;
+        const btn = document.createElement("button");
+        btn.className = "buy";
+        btn.innerHTML = cost === null ? "Максимум" : `<span class="coins">${cost}</span>`;
+        btn.disabled = cost === null || p.coins < cost;
+        btn.addEventListener("click", () => {
+          if (cost === null || !this.buy(cost)) return;
+          p.levels[u.id]++;
+          this.saveProfile();
+          this.refreshBike();
+          this.renderGarage();
+        });
+        row.appendChild(btn);
+        ups.appendChild(row);
+      }
     }
   }
 
+  // ---------- Leaderboards ----------
+
+  showBoard() {
+    this.state = "board";
+    const fill = (id: string, items: [string, string][], value: string) => {
+      const sel = $<HTMLSelectElement>(id);
+      sel.innerHTML = items.map(([v, label]) => `<option value="${v}">${esc(label)}</option>`).join("");
+      sel.value = value;
+    };
+    fill("board-track", TRACKS.map((t) => [t.id, t.name]), this.track.id);
+    fill("board-level", DIFFICULTIES.map((d) => [String(d.id), d.name]), String(this.profile.difficulty));
+    fill("board-class", BIKES.map((b) => [b.id, `Класс ${b.id}`]), this.profile.bike);
+    this.ui();
+    void this.renderBoard();
+  }
+
+  async renderBoard() {
+    document.querySelectorAll<HTMLButtonElement>("#board-tabs button").forEach((b) => b.classList.toggle("sel", b.dataset.tab === this.boardTab));
+    $("board-filters").classList.toggle("hidden", this.boardTab !== "times");
+    $("board-mine").textContent = `${totalPoints()} очк.`;
+    const list = $("board-list");
+    const note = $("board-note");
+    const me = this.cloud.user?.uid;
+    const nick = this.profile.nick ?? "Ты";
+    const del = (uid: string, n: string) => (this.cloud.admin && uid !== me ? `<button class="del" data-uid="${uid}" data-nick="${esc(n)}" title="Удалить ник">✕</button>` : "");
+    const row = (who: string, value: string, mine: boolean, extra = "") => `<li class="${mine ? "me" : ""}"><span class="who">${esc(who)}</span><span class="t">${value}</span>${extra}</li>`;
+    note.textContent = "";
+
+    if (this.boardTab === "points") {
+      list.innerHTML = `<li class="loading">Загрузка…</li>`;
+      const rows = this.cloud.online ? await this.cloud.topPoints() : null;
+      if (this.state !== "board" || this.boardTab !== "points") return;
+      if (!rows) {
+        list.innerHTML = row(nick, `${totalPoints()} очк.`, true);
+        note.textContent = this.cloud.configured ? "Нет связи с сервером: показаны только твои очки." : "Общая таблица заработает, когда игра будет подключена к серверу. Пока видны только твои очки.";
+        return;
+      }
+      list.innerHTML = rows.length ? rows.map((r) => row(r.nick, `${r.points} очк.`, r.uid === me, del(r.uid, r.nick))).join("") : `<li class="loading">Пока пусто — стань первым!</li>`;
+      note.textContent = "Очки: лучшее место на каждой трассе, уровне и классе плюс звёзды. Выше уровень и класс — больше очков.";
+    } else {
+      const track = $<HTMLSelectElement>("board-track").value;
+      const level = Number($<HTMLSelectElement>("board-level").value);
+      const cls = $<HTMLSelectElement>("board-class").value as (typeof BIKES)[number]["id"];
+      const board = boardId(track, level, cls);
+      list.innerHTML = `<li class="loading">Загрузка…</li>`;
+      const rows = this.cloud.online ? await this.cloud.topTimes(board) : null;
+      if (this.state !== "board" || this.boardTab !== "times") return;
+      const mine = bestTime(board);
+      if (!rows) {
+        list.innerHTML = mine ? row(nick, fmt(mine), true) : `<li class="loading">Ты ещё не проезжал эту трассу на этом уровне и классе.</li>`;
+        note.textContent = this.cloud.configured ? "Нет связи с сервером: показан только твой рекорд." : "Общая таблица заработает, когда игра будет подключена к серверу. Пока виден только твой рекорд.";
+        return;
+      }
+      list.innerHTML = rows.length ? rows.map((r) => row(r.nick, fmt(r.time), r.uid === me, del(r.uid, r.nick))).join("") : `<li class="loading">Пока никто не проехал — стань первым!</li>`;
+    }
+  }
+
+  async removeNick(uid: string, nick: string) {
+    if (!confirm(`Удалить ник «${nick}»? Игрок пропадёт из таблиц и должен будет выбрать новый ник.`)) return;
+    if (await this.cloud.removeNick(uid)) void this.renderBoard();
+    else alert("Не получилось удалить ник: нет прав или связи.");
+  }
+
+  // ---------- Menu ----------
+
   showMenu() {
     this.state = "menu";
-    $("menu-coins").textContent = String(this.profile.coins);
+    const p = this.profile;
+    $("menu-coins").textContent = String(p.coins);
+    $("menu-nick").textContent = p.nick ?? "Без ника";
+    const earned = totalStars();
+    $("menu-stars").textContent = `${earned} ★`;
+    $("menu-points").textContent = `${totalPoints()} очк.`;
+    $("menu-bike").textContent = `Мотоцикл: ${bikeSpec(p.bike).name}`;
+
+    const levels = $("levels");
+    levels.innerHTML = "";
+    for (const d of DIFFICULTIES) {
+      const b = document.createElement("button");
+      b.className = "level" + (p.difficulty === d.id ? " sel" : "");
+      b.style.setProperty("--lvl", d.color);
+      b.textContent = d.name;
+      b.addEventListener("click", () => {
+        p.difficulty = d.id;
+        saveProfile(p);
+        this.showMenu();
+      });
+      levels.appendChild(b);
+    }
+
     const list = $("track-list");
     list.innerHTML = "";
-    // New tracks open with mission stars earned anywhere.
-    const earned = TRACKS.reduce((n, t) => n + missionsDone(t).filter(Boolean).length, 0);
-    $("menu-stars").textContent = `${earned} ★`;
+    const diff = DIFFICULTIES[p.difficulty];
     TRACKS.forEach((t, i) => {
-      const best = store.get<number>(bestKey(t));
-      const locked = earned < t.stars;
+      const best = bestTime(boardId(t.id, diff.id, p.bike));
+      const lockedStars = earned < t.stars;
+      const lockedLevel = !lockedStars && !levelOpen(t, diff.id);
+      const done = missionsDone(t, diff.id).filter(Boolean).length;
       const b = document.createElement("button");
-      b.className = "track" + (locked ? " locked" : "");
-      b.disabled = locked;
+      b.className = "track" + (lockedStars || lockedLevel ? " locked" : "");
+      b.disabled = lockedStars || lockedLevel;
+      const won = levelWon(t);
+      const medal = won >= 0 ? `<i class="medal" style="background:${DIFFICULTIES[won].color}" title="Победа: ${DIFFICULTIES[won].name}"></i>` : "";
       b.innerHTML =
         `<span class="num">${i + 1}</span>` +
-        `<span class="name">${t.name}<small>${t.laps} ${t.laps === 1 ? "круг" : t.laps < 5 ? "круга" : "кругов"}</small></span>` +
-        (locked
+        `<span class="name">${t.name}${medal}<small>${t.laps} ${t.laps === 1 ? "круг" : t.laps < 5 ? "круга" : "кругов"}</small></span>` +
+        (lockedStars
           ? `<span class="need">Нужно ${t.stars} ★</span>`
-          : `<span class="stars">${stars(t)}</span><span class="best">${best ? fmt(best) : "—"}</span>`);
+          : lockedLevel
+            ? `<span class="need">Победи на «${DIFFICULTIES[diff.id - 1].name}»</span>`
+            : `<span class="stars">${starsText(done)}</span><span class="best">${best ? fmt(best) : "—"}</span>`);
       b.addEventListener("click", () => this.load(t));
       list.appendChild(b);
     });
     this.ui();
   }
 
+  // ---------- Race ----------
+
   load(track: Track) {
     this.track = track;
-    this.race = new Race(track, { look: lookFor(this.profile), stats: statsFor(this.profile) }, {
-      crash: (r) => {
-        if (!r.isPlayer) return;
-        this.tracker.crashed();
-        this.sound.crash();
+    const p = this.profile;
+    // A level not yet open on this track falls back to the highest open one.
+    let level = p.difficulty;
+    while (level > 0 && !levelOpen(track, level)) level--;
+    this.raceLevel = level;
+    this.race = new Race(
+      track,
+      { look: lookFor(p), stats: statsFor(p) },
+      {
+        crash: (r) => {
+          if (!r.isPlayer) return;
+          this.tracker.crashed();
+          this.sound.crash();
+        },
+        lap: (r, dx, dy) => {
+          if (!r.isPlayer) return;
+          this.cam.x += dx;
+          this.cam.y += dy;
+          this.toast(r.lap === track.laps ? "Последний круг!" : `Круг ${r.lap}`);
+          this.sound.lap();
+        },
+        finish: (r) => {
+          if (r.isPlayer) this.finish();
+        },
       },
-      lap: (r, dx, dy) => {
-        if (!r.isPlayer) return;
-        this.cam.x += dx;
-        this.cam.y += dy;
-        this.toast(r.lap === track.laps ? "Последний круг!" : `Круг ${r.lap}`);
-        this.sound.lap();
-      },
-      finish: (r) => {
-        if (r.isPlayer) this.finish();
-      },
-    }, Math.floor(Math.random() * 1e9));
+      Math.floor(Math.random() * 1e9),
+      { difficulty: level, cls: p.bike },
+    );
 
     this.recorder = new GhostRecorder();
     this.ghost = loadGhost(track.id);
 
-    this.tracker = new MissionTracker(MISSIONS[track.id] ?? [], missionsDone(track), (i) => {
-      store.set(missionsKey(track), this.tracker.done);
-      // Mission coins are paid at once, so they count even if the race is abandoned.
+    const starCoins = Math.round(STAR_REWARD * DIFFICULTIES[level].reward);
+    this.tracker = new MissionTracker(missionsFor(track.id, level, p.bike), missionsDone(track, level), (i) => {
+      setMissionsDone(track, level, this.tracker.done);
+      // Star coins are paid at once, so they count even if the race is abandoned.
       this.newMissions++;
-      this.addCoins(MISSION_REWARD);
+      this.starCoins += starCoins;
+      this.addCoins(starCoins);
       this.sound.chime();
-      this.toast(`✓ ${missionText(this.tracker.missions[i])}  +${MISSION_REWARD}`);
+      this.toast(`★ ${missionText(this.tracker.missions[i])}  +${starCoins}`);
       this.renderMissions();
     });
 
@@ -339,10 +601,11 @@ class Game {
     this.countdown = COUNTDOWN;
     this.acc = 0;
     this.newMissions = 0;
+    this.starCoins = 0;
     this.lastCount = 0;
-    const p = this.player.bike.chassis.getPosition();
+    const pos = this.player.bike.chassis.getPosition();
     const ppm = this.renderer.basePpm();
-    this.cam = { x: p.x, y: p.y + 1.2, ppm: ppm * 1.5 };
+    this.cam = { x: pos.x, y: pos.y + 1.2, ppm: ppm * 1.5 };
     this.renderMissions();
     $("toast").classList.add("hidden");
     this.ui();
@@ -350,31 +613,55 @@ class Game {
 
   finish() {
     this.state = "finished";
+    const track = this.track;
+    const level = this.raceLevel;
+    const cls = this.profile.bike;
+    const d = DIFFICULTIES[level];
+    const board = boardId(track.id, level, cls);
     const time = this.player.finishTime;
     const place = this.race.placeOf(this.player);
     this.tracker.finished(place, time);
-    const prev = store.get<number>(bestKey(this.track));
+
+    const prev = bestTime(board);
     const record = prev === null || time < prev;
-    if (record) store.set(bestKey(this.track), time);
+    if (record) setBestTime(board, time);
+    const prevPlace = bestPlace(board);
+    if (prevPlace === null || place < prevPlace) setBestPlace(board, place);
+    const firstWin = place === 1 && levelWon(track) < level;
+    if (place === 1) setLevelWon(track, level);
+    // The ghost is your fastest run on the track, whatever the level or bike.
+    const ghost = loadGhost(track.id);
+    const ghostSaved = (!ghost || time < ghost.duration - 0.05) && saveGhost(track.id, this.recorder);
+
+    $("res-level").textContent = `${d.name} · ${bikeSpec(cls).name}`;
+    $("res-level").style.setProperty("--lvl", d.color);
     $("res-place").textContent = `${place}-е место`;
     $("res-place").classList.toggle("win", place === 1);
     this.sound.finish(place === 1);
     $("res-time").textContent = fmt(time);
-    // A new record replaces the ghost you'll race against next time.
-    const ghostSaved = record && saveGhost(this.track.id, this.recorder);
     $("res-best").textContent = record ? (ghostSaved ? "Новый рекорд! Призрак обновлён" : "Новый рекорд!") : `Рекорд: ${fmt(prev!)}`;
     $("res-best").classList.toggle("record", record);
-    // Mission coins were already paid during the race; place and record are paid now.
-    const reward = raceReward(place, this.newMissions, record);
-    this.addCoins(reward.total - this.newMissions * MISSION_REWARD);
-    $("res-reward").innerHTML =
-      reward.parts.map(([label, v]) => `<span>${label} +${v}</span>`).join("") +
-      `<span class="coins">+${reward.total}</span>`;
-    $("res-missions").innerHTML = this.tracker.missions
-      .map((m, i) => `<li class="${this.tracker.done[i] ? "done" : ""}">${missionText(m)}</li>`)
-      .join("");
+    const next = DIFFICULTIES[level + 1];
+    $("res-unlock").classList.toggle("hidden", !(firstWin && next));
+    if (firstWin && next) $("res-unlock").textContent = `Открыт уровень «${next.name}» на этой трассе!`;
+
+    // Star coins were already paid during the race; place, first win and record are paid now.
+    const scale = rewardScale(level, cls);
+    const parts: [string, number][] = [[`${place}-е место`, Math.round((PLACE_REWARD[place - 1] ?? 0) * scale)]];
+    if (this.newMissions) parts.push([`Звёзды ×${this.newMissions}`, this.starCoins]);
+    if (firstWin) parts.push([`Первая победа · ${d.name}`, Math.round(WIN_BONUS * scale)]);
+    if (record) parts.push(["Личный рекорд", Math.round(RECORD_REWARD * scale)]);
+    const total = parts.reduce((s, [, v]) => s + v, 0);
+    this.addCoins(total - this.starCoins);
+    $("res-reward").innerHTML = parts.map(([label, v]) => `<span>${label} +${v}</span>`).join("") + `<span class="coins">+${total}</span>`;
+    $("res-missions").innerHTML = this.tracker.missions.map((m, i) => `<li class="${this.tracker.done[i] ? "done" : ""}">${missionText(m)}</li>`).join("");
     this.renderStandings();
     this.ui();
+
+    if (this.profile.nick) {
+      if (record) void this.cloud.submitTime(board, time);
+      void this.cloud.submitPoints(totalPoints());
+    }
   }
 
   renderStandings() {
@@ -382,7 +669,8 @@ class Game {
       .standings()
       .map((r) => {
         const t = r.finished ? fmt(r.finishTime) : "едет…";
-        return `<li class="${r.isPlayer ? "me" : ""}"><span class="dot" style="background:${r.look.plastic}"></span><span class="who">${r.look.name}</span><span class="t">${t}</span></li>`;
+        const name = r.isPlayer ? (this.profile.nick ?? r.look.name) : r.look.name;
+        return `<li class="${r.isPlayer ? "me" : ""}"><span class="dot" style="background:${r.look.plastic}"></span><span class="who">${esc(name)}</span><span class="t">${t}</span></li>`;
       })
       .join("");
   }
@@ -519,14 +807,15 @@ class Game {
 
   ui() {
     const s = this.state;
-    const overlay = s === "menu" || s === "garage";
+    const overlay = s === "menu" || s === "garage" || s === "board";
     this.sound.setMusicLevel(overlay || s === "finished" ? 0.35 : 0.14);
     $("menu").classList.toggle("hidden", s !== "menu");
     $("garage").classList.toggle("hidden", s !== "garage");
+    $("board").classList.toggle("hidden", s !== "board");
     $("results").classList.toggle("hidden", s !== "finished");
     $("hud").classList.toggle("hidden", overlay);
     $("controls").classList.toggle("hidden", overlay || s === "finished");
-    $("track-name").textContent = this.track.name;
+    $("track-name").textContent = `${this.track.name} · ${DIFFICULTIES[this.raceLevel].name}`;
   }
 }
 

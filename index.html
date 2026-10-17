@@ -52,11 +52,17 @@
       <div class="panel menu-panel">
         <div class="menu-side">
           <h1>Moto Trials</h1>
+          <button id="btn-nick" class="nick-btn"><span id="menu-nick">Без ника</span> ✎</button>
           <div class="menu-bar">
             <span class="coins" id="menu-coins">0</span>
             <span class="star-count" id="menu-stars">0 ★</span>
-            <button id="btn-garage" class="garage-btn">Гараж</button>
+            <span class="points" id="menu-points">0 очк.</span>
           </div>
+          <div class="menu-bar">
+            <button id="btn-garage" class="garage-btn">Гараж</button>
+            <button id="btn-board" class="garage-btn">Рекорды</button>
+          </div>
+          <div id="menu-bike" class="menu-bike"></div>
           <button id="btn-fullscreen" class="fs-btn hidden">⛶ Играть во весь экран</button>
           <div class="toggles">
             <button id="tgl-sfx" class="tgl" aria-pressed="true">Звук</button>
@@ -68,7 +74,7 @@
           </div>
         </div>
         <div class="menu-main">
-          <p class="sub">Выбери трассу</p>
+          <div id="levels" class="levels"></div>
           <div id="track-list"></div>
           <p class="keys">
             Клавиатура: <b>↑</b> газ · <b>↓</b> тормоз · <b>← →</b> наклон · <b>R</b> заново · <b>Esc</b> меню
@@ -89,7 +95,9 @@
 
     <div id="results" class="overlay hidden">
       <div class="panel">
+        <div id="res-level" class="level-badge"></div>
         <h2 id="res-place">Финиш</h2>
+        <div id="res-unlock" class="unlock hidden"></div>
         <div id="res-time" class="big"></div>
         <div id="res-best"></div>
         <div id="res-reward"></div>
@@ -109,11 +117,48 @@
           <h2>Гараж</h2>
           <span class="coins" id="garage-coins">0</span>
         </div>
-        <h3>Улучшения</h3>
-        <div id="upgrades"></div>
-        <h3>Раскраска</h3>
-        <div id="paints"></div>
+        <div class="tabs" id="garage-tabs">
+          <button data-tab="bikes">Мотоциклы</button>
+          <button data-tab="paint">Покраска</button>
+          <button data-tab="gear">Экипировка</button>
+          <button data-tab="upgrades">Прокачка</button>
+        </div>
+        <div id="garage-body"></div>
         <button id="garage-close" class="primary-wide">К трассам</button>
+      </div>
+    </div>
+
+    <div id="board" class="overlay hidden">
+      <div class="panel wide">
+        <div class="garage-head">
+          <h2>Рекорды</h2>
+          <span class="points" id="board-mine"></span>
+        </div>
+        <div class="tabs" id="board-tabs">
+          <button data-tab="points">Общий зачёт</button>
+          <button data-tab="times">Время по трассам</button>
+        </div>
+        <div id="board-filters" class="filters">
+          <select id="board-track" aria-label="Трасса"></select>
+          <select id="board-level" aria-label="Уровень"></select>
+          <select id="board-class" aria-label="Класс"></select>
+        </div>
+        <ol id="board-list"></ol>
+        <p id="board-note" class="note"></p>
+        <button id="board-close" class="primary-wide">Назад</button>
+      </div>
+    </div>
+
+    <div id="nick" class="overlay hidden">
+      <div class="panel">
+        <h2>Твой ник</h2>
+        <p id="nick-msg" class="help-text">Под этим именем ты будешь в таблицах рекордов.</p>
+        <input id="nick-input" maxlength="16" autocomplete="off" spellcheck="false" placeholder="3–16 букв или цифр" />
+        <p id="nick-err" class="err"></p>
+        <div class="row">
+          <button id="nick-cancel">Позже</button>
+          <button id="nick-save" class="primary">Сохранить</button>
+        </div>
       </div>
     </div>
 

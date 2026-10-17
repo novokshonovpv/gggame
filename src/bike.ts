@@ -114,6 +114,8 @@ export class Bike {
   power: number; // engine multiplier: AI skill or the player's engine upgrade
   stats: BikeStats;
   gas = false; // last throttle input, for effects
+  pace = 1; // top speed share with full pulling power (slower AI rivals)
+  twoStroke = false; // engine sound
 
   constructor(world: World, start: Vec2Value, stats: BikeStats = BASE_STATS) {
     this.stats = stats;
@@ -261,7 +263,7 @@ export class Bike {
     } else if (input.gas) {
       // Like a rider feathering the clutch: drive fades as the nose rises past the target.
       const cut = wheelie ? Math.max(0.15, Math.min(1, 1 - (pitch - want) / 0.2)) : 1;
-      rearJoint.setMotorSpeed(-BIKE.maxWheelSpeed * this.power);
+      rearJoint.setMotorSpeed(-BIKE.maxWheelSpeed * this.power * this.pace);
       rearJoint.setMaxMotorTorque(BIKE.engineTorque * this.power * cut);
       frontJoint.setMaxMotorTorque(0);
     } else {

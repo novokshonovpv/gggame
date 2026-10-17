@@ -424,7 +424,8 @@ h1 {
 }
 
 #res-table,
-#res-missions {
+#res-missions,
+#board-list {
   display: grid;
   gap: 4px;
   margin: 0 0 14px;
@@ -433,11 +434,13 @@ h1 {
   text-align: left;
 }
 
-#res-table {
+#res-table,
+#board-list {
   counter-reset: place;
 }
 
-#res-table li {
+#res-table li,
+#board-list li {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -447,14 +450,16 @@ h1 {
   counter-increment: place;
 }
 
-#res-table li::before {
+#res-table li::before,
+#board-list li:not(.loading)::before {
   content: counter(place);
   width: 1.2em;
   font-weight: 800;
   color: var(--muted);
 }
 
-#res-table li.me {
+#res-table li.me,
+#board-list li.me {
   background: rgba(242, 165, 22, 0.18);
 }
 
@@ -464,12 +469,14 @@ h1 {
   border-radius: 50%;
 }
 
-#res-table .who {
+#res-table .who,
+#board-list .who {
   flex: 1;
   font-weight: 600;
 }
 
-#res-table .t {
+#res-table .t,
+#board-list .t {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
@@ -629,8 +636,8 @@ h1 {
     display: none;
   }
   #track-list {
-    max-height: calc(100vh - 60px);
-    max-height: calc(100dvh - 60px);
+    max-height: calc(100vh - 100px);
+    max-height: calc(100dvh - 100px);
   }
   .track {
     padding: 8px 10px;
@@ -709,7 +716,7 @@ h1 {
   color: var(--muted);
 }
 
-#upgrades {
+#garage-body .upgrades {
   display: grid;
   gap: 8px;
 }
@@ -770,7 +777,7 @@ h1 {
   cursor: default;
 }
 
-#paints {
+#garage-body .swatches {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   gap: 8px;
@@ -864,4 +871,274 @@ h1 {
   background: none;
   color: var(--muted);
   text-decoration: underline;
+}
+
+/* Nickname, points, chosen bike in the menu. */
+.nick-btn {
+  justify-self: center;
+  max-width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.points {
+  font-weight: 800;
+  color: #8fd3ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-bike {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Difficulty levels: Железо → Профи. */
+.levels {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.level {
+  flex: 1;
+  padding: 7px 4px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--lvl);
+}
+
+.level.sel {
+  border-color: var(--lvl);
+  background: color-mix(in srgb, var(--lvl) 22%, transparent);
+}
+
+.medal {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.35);
+}
+
+.level-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lvl, #888) 25%, transparent);
+  color: var(--lvl, var(--muted));
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.unlock {
+  margin: 4px 0 8px;
+  color: #7fe08f;
+  font-weight: 800;
+}
+
+/* Tabs in the garage and the leaderboard. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 10px 0 12px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tabs button {
+  flex: 1;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.tabs button.sel {
+  background: var(--accent);
+  color: #111;
+}
+
+/* Bikes. */
+.bikes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.bike-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  text-align: left;
+}
+
+.bike-card.sel {
+  border-color: var(--accent);
+}
+
+.bike-card:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bike-card .cls {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.bike-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bike-card .stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bike-card .bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.bike-card .bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.bike-card .price {
+  justify-self: end;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.paint .sw.helmet {
+  border-radius: 50% 50% 35% 35%;
+}
+
+.paint .sw.boots {
+  border-radius: 8px 8px 4px 14px;
+}
+
+/* Leaderboard. */
+.filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.filters select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9px;
+  background: #1d232c;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+#board-list {
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+}
+
+#board-list li.loading {
+  justify-content: center;
+  color: var(--muted);
+}
+
+#board-list .del {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 80, 70, 0.25);
+  color: #ffb3ad;
+  font-weight: 800;
+}
+
+.note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Nickname dialog. */
+#nick {
+  z-index: 5;
+  background: rgba(5, 8, 12, 0.72);
+}
+
+#nick-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#nick-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.err {
+  min-height: 1.2em;
+  margin: 6px 0 10px;
+  color: #ff8a80;
+  font-size: 13px;
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .levels {
+    margin-bottom: 6px;
+  }
+  .level {
+    padding: 5px 2px;
+    font-size: 11px;
+  }
+  .tabs {
+    margin: 6px 0 8px;
+  }
+  .menu-panel .menu-side {
+    gap: 4px;
+  }
 }
