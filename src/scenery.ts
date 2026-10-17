@@ -20,6 +20,7 @@ interface Layer {
   cover?: number; // clouds: share of the sky with a cloud
   drift?: number; // clouds: drift speed, screen heights per second
   reflect?: string; // landmarks standing on water: the water color, mirrored below the base
+  bank?: number; // with reflect: river visible behind the landmarks, share of amp above the base
 }
 
 export interface Theme {
@@ -135,21 +136,21 @@ export const THEMES: Record<ThemeId, Theme> = {
     track: { top: "#8c7a6a", rut: "rgba(40,30,25,0.5)", lip: "#b3a090", berm: "#6f6f80", face: ["#5f5650", "#2a2624"], strata: "rgba(20,15,15,0.35)", fence: "#2a2a30" },
     world: { hemiSky: "#e6d6f0", hemiGround: "#5c5866", hemi: 1.4, sun: "#ffe6d6", sunI: 2.0, apron: "#6a6876", props: "trees", propColor: "#3d5a48", propColor2: "#4a6a55", fogNear: 70, fogFar: 400 },
   },
-  // Смоленск: крепостная стена с Громовой башней на холмах над Днепром, «Орлы» и сад Блонье.
+  // Смоленск: город на холмах, Днепр и старый мост, крепостная стена с Веселухой и Громовой башней, «Орлы», памятник 1812 года, «Я ❤ Смоленск».
   smolensk: {
     sky: ["#5f9fd8", "#a7cdea", "#e6f1e8"],
     sun: { x: 0.8, y: 0.16, r: 0.05, color: "#fffcef", glow: "rgba(255,248,220,0.45)" },
     layers: [
-      { kind: "hills", parallax: 0.05, base: 0.56, amp: 0.14, color: "#93ad9f", seed: 3 },
-      { kind: "marks", parallax: 0.12, base: 0.62, amp: 0.36, color: "#7a9480", color2: "rgba(255,240,200,0.7)", seed: 7, span: 1.6, marks: [{ type: "smolenskWall", at: 0.5, size: 1 }] },
-      { kind: "water", parallax: 0.17, base: 0.66, amp: 0.04, color: "#8db6c8", color2: "#e2f0f4", seed: 3 },
-      { kind: "marks", parallax: 0.22, base: 0.73, amp: 0.3, color: "#4f6e48", color2: "#ffe9b0", seed: 9, span: 1.6, marks: [{ type: "eagles", at: 0.25, size: 0.8 }, { type: "smolenskBlonie", at: 0.7, size: 0.85 }] },
-      { kind: "trees", parallax: 0.42, base: 0.85, amp: 0.2, color: "#3a5e39", color2: "#4e7846", seed: 11 },
+      { kind: "hills", parallax: 0.05, base: 0.55, amp: 0.12, color: "#93ad9f", seed: 3 },
+      { kind: "marks", parallax: 0.08, base: 0.59, amp: 0.16, color: "#86a090", seed: 5, span: 1.3, marks: [{ type: "smolenskTown", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.13, base: 0.645, amp: 0.2, color: "#7f9caa", color2: "rgba(255,236,190,0.9)", reflect: "#8db6c8", bank: 0.22, seed: 7, span: 1.8, marks: [{ type: "dneprBridge", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.19, base: 0.74, amp: 0.4, color: "#5f7f55", color2: "rgba(255,226,160,0.85)", seed: 9, span: 1.8, marks: [{ type: "smolenskWall", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.27, base: 0.81, amp: 0.26, color: "#4f6e48", color2: "#ffe9b0", seed: 11, span: 2.2, marks: [{ type: "eagles", at: 0.15, size: 0.8 }, { type: "monument1812", at: 0.45, size: 1 }, { type: "loveSign", at: 0.78, size: 0.9 }] },
+      { kind: "trees", parallax: 0.45, base: 0.88, amp: 0.18, color: "#3a5e39", color2: "#4e7846", seed: 13 },
     ],
     track: { top: "#a8805a", rut: "rgba(80,55,30,0.45)", lip: "#c9a27a", berm: "#5f8a48", face: ["#77543a", "#3a281a"], strata: "rgba(40,25,12,0.35)", fence: "#f2f2f2" },
     world: { hemiSky: "#dcefff", hemiGround: "#4f7040", hemi: 1.5, sun: "#fffaf0", sunI: 2.3, apron: "#56813f", props: "trees", propColor: "#3b6a3a", propColor2: "#4f8044", fogNear: 80, fogFar: 480 },
-  },
-  // Минск вечером: Национальная библиотека-«алмаз» в подсветке, стела «Минск — город-герой», Ворота Минска.
+  },  // Минск вечером: Национальная библиотека-«алмаз» в подсветке, стела «Минск — город-герой», Ворота Минска.
   minsk: {
     sky: ["#1b2450", "#4b4f8f", "#e09a7c"],
     sun: { x: 0.14, y: 0.44, r: 0.05, color: "#ffd9a0", glow: "rgba(255,170,120,0.45)" },
@@ -575,6 +576,13 @@ export function paintLayer(L: Layer, theme: Theme, w = STRIP.w, h = STRIP.h, bas
     case "marks": {
       ctx.fillStyle = L.color;
       ctx.fillRect(0, base, w, h);
+      if (L.reflect && L.bank) {
+        const river = ctx.createLinearGradient(0, base - amp * L.bank, 0, base);
+        river.addColorStop(0, tone(L.reflect, 0.15));
+        river.addColorStop(1, L.reflect);
+        ctx.fillStyle = river;
+        ctx.fillRect(0, base - amp * L.bank, w, amp * L.bank);
+      }
       drawMarks(ctx, L.marks ?? [], cells, (L.span ?? 3) * S, base, amp, L.color, L.color2 ?? L.color);
       if (L.reflect) reflect(ctx, L.reflect, base, w, h, S);
       break;

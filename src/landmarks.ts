@@ -30,6 +30,10 @@ export type MarkType =
   | "smolenskWall" // Smolensk fortress wall with Gromovaya, a square and a round tower
   | "eagles" // Smolensk: monument to the heroes of 1812 with the eagles
   | "smolenskBlonie" // Smolensk: Blonie garden — bandstand and the Glinka monument
+  | "smolenskTown" // Smolensk: houses on the hills across the Dnieper
+  | "dneprBridge" // Smolensk: the old arched bridge over the Dnieper
+  | "monument1812" // Smolensk: cast-iron gothic monument to the defenders of 1812
+  | "loveSign" // Smolensk: the "Я ❤ СМОЛЕНСК" letters
   | "nationalLibrary" // Minsk: the "diamond" National Library
   | "minskStela" // Minsk: Hero City stela
   | "minskGates" // Minsk: the Gates of Minsk twin towers
@@ -979,28 +983,198 @@ const DRAW: Record<MarkType, (ctx: Ctx, x: number, b: number, h: number, c: stri
     rect(ctx, x - h * 0.26, b - h * 0.64, h * 0.52, h * 0.02, tone(stone, 0.2));
   },
   smolenskWall(ctx, x, b, h, c, a) {
-    // The Smolensk fortress on its hill: a long wall with a square tower, the 16-sided
-    // Gromovaya tower and the round Oryol tower, roofs of dark wooden shingles.
-    const brick = mix("#a6503c", c, 0.25);
-    const roof = mix("#46594a", c, 0.25);
-    const g = (xx: number) => b - h * 0.16 * Math.max(0, 1 - ((xx - x) / (h * 1.25)) ** 2);
-    ctx.fillStyle = tone(c, 0.08);
+    // The Smolensk fortress climbing the green bank up from the Dnieper: the red brick wall
+    // with its double row of loopholes, the Veselukha tower at the foot, a square tower on
+    // the slope, the 16-sided Gromovaya on the crest and a round corner tower, all under
+    // tall tent roofs of grey-brown planks with little lookouts on top.
+    const brick = mix("#a9513d", c, 0.2);
+    const roof = mix("#6e655a", c, 0.2);
+    const rise = (xx: number) => {
+      const t = Math.max(0, Math.min(1, (xx - (x - h * 1.0)) / (h * 1.5)));
+      return t * t * (3 - 2 * t);
+    };
+    const g = (xx: number) => b - h * 0.04 - h * 0.3 * rise(xx);
+    // The bank: grass with a lit crest and a path running up beside the wall.
+    const bank = ctx.createLinearGradient(0, b - h * 0.36, 0, b);
+    bank.addColorStop(0, tone(c, 0.18));
+    bank.addColorStop(1, tone(c, -0.02));
+    ctx.fillStyle = bank;
     ctx.beginPath();
-    ctx.moveTo(x - h * 1.3, b + 2);
-    for (let xx = x - h * 1.3; xx <= x + h * 1.3; xx += h * 0.04) ctx.lineTo(xx, g(xx));
-    ctx.lineTo(x + h * 1.3, b + 2);
+    ctx.moveTo(x - h * 1.4, b + 2);
+    for (let xx = x - h * 1.4; xx <= x + h * 1.4; xx += h * 0.03) ctx.lineTo(xx, g(xx) + h * 0.015);
+    ctx.lineTo(x + h * 1.4, b + 2);
     ctx.fill();
-    fortWall(ctx, x - h * 1.15, x + h * 1.15, g, h * 0.2, brick, false, h);
-    fortTower(ctx, x - h * 0.78, g(x - h * 0.78), h * 0.17, h * 0.36, h * 0.2, brick, roof, false, h);
-    arch(ctx, x - h * 0.78, g(x - h * 0.78), h * 0.06, h * 0.1, tone(brick, -0.55));
-    // Gromovaya: taller, faceted, with a lookout on its tent roof.
-    const gx = x + h * 0.08;
-    const top = fortTower(ctx, gx, g(gx), h * 0.2, h * 0.5, h * 0.16, brick, roof, true, h);
-    block(ctx, gx - h * 0.03, top + h * 0.03, h * 0.06, h * 0.05, brick);
-    rect(ctx, gx - h * 0.02, top + h * 0.045, h * 0.04, h * 0.018, tone(brick, -0.5));
-    poly(ctx, [gx - h * 0.04, top + h * 0.035, gx, top - h * 0.05, gx + h * 0.04, top + h * 0.035], roof);
-    fortTower(ctx, x + h * 0.82, g(x + h * 0.82), h * 0.17, h * 0.33, h * 0.17, brick, roof, true, h);
-    glowDot(ctx, gx + h * 0.05, g(gx) - h * 0.3, Math.max(1, h * 0.006), a);
+    ctx.strokeStyle = tone(c, 0.35);
+    ctx.lineWidth = Math.max(1, h * 0.008);
+    ctx.beginPath();
+    for (let xx = x - h * 1.3; xx <= x + h * 0.6; xx += h * 0.03) ctx.lineTo(xx, g(xx) + h * 0.06 + Math.sin(xx / (h * 0.12)) * h * 0.01);
+    ctx.stroke();
+    fortWall(ctx, x - h * 1.25, x + h * 1.3, g, h * 0.19, brick, false, h);
+    // Shadowed arched recesses along the foot of the wall.
+    for (let xx = x - h * 1.18; xx < x + h * 1.25; xx += h * 0.16) arch(ctx, xx, g(xx) - h * 0.025, h * 0.055, h * 0.08, tone(brick, -0.35));
+    const lookout = (tx: number, apex: number, w: number) => {
+      block(ctx, tx - w / 2, apex + h * 0.035, w, h * 0.045, tone(roof, 0.05));
+      rect(ctx, tx - w * 0.35, apex + h * 0.045, w * 0.7, h * 0.016, tone(roof, -0.45));
+      poly(ctx, [tx - w * 0.65, apex + h * 0.038, tx, apex - h * 0.04, tx + w * 0.65, apex + h * 0.038], roof);
+      line(ctx, tx, apex - h * 0.04, tx, apex - h * 0.07, tone(roof, -0.3), Math.max(1, h * 0.004));
+      poly(ctx, [tx, apex - h * 0.07, tx + h * 0.028, apex - h * 0.063, tx, apex - h * 0.056], "#d9b44a");
+    };
+    // Veselukha at the foot, with its gate.
+    const vx = x - h * 0.98;
+    lookout(vx, fortTower(ctx, vx, g(vx), h * 0.18, h * 0.38, h * 0.24, brick, roof, false, h), h * 0.06);
+    arch(ctx, vx, g(vx), h * 0.07, h * 0.12, tone(brick, -0.6));
+    const sx = x - h * 0.3;
+    lookout(sx, fortTower(ctx, sx, g(sx), h * 0.15, h * 0.33, h * 0.2, brick, roof, false, h), h * 0.05);
+    // Gromovaya: taller, faceted, with the museum's lit windows.
+    const gx = x + h * 0.42;
+    lookout(gx, fortTower(ctx, gx, g(gx), h * 0.2, h * 0.48, h * 0.2, brick, roof, true, h), h * 0.07);
+    for (const t of [0.18, 0.3]) glowDot(ctx, gx + h * 0.045, g(gx) - h * t, Math.max(1, h * 0.005), a);
+    fortTower(ctx, x + h * 1.12, g(x + h * 1.12), h * 0.16, h * 0.3, h * 0.17, brick, roof, true, h);
+  },
+  smolenskTown(ctx, x, b, h, c) {
+    // Smolensk on its hills across the river: old two- and three-storey houses with red,
+    // green and grey roofs, a few five-storey blocks and trees between them.
+    const hill = (xx: number) => b - h * 0.22 * Math.max(0, 1 - ((xx - x) / (h * 1.5)) ** 2) - h * 0.05 * Math.sin((xx - x) / (h * 0.35));
+    ctx.fillStyle = tone(c, 0.06);
+    ctx.beginPath();
+    ctx.moveTo(x - h * 1.6, b + 2);
+    for (let xx = x - h * 1.6; xx <= x + h * 1.6; xx += h * 0.03) ctx.lineTo(xx, Math.min(b, hill(xx)));
+    ctx.lineTo(x + h * 1.6, b + 2);
+    ctx.fill();
+    const wall = mix("#ece4d4", c, 0.45);
+    const roofs = ["#a8503c", "#5f7f6a", "#7a7f88", "#8c5a3c"].map((r) => mix(r, c, 0.4));
+    const rnd = (k: number) => {
+      const s = Math.sin(k * 127.1 + 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    for (let k = 0; k < 26; k++) {
+      const hx = x - h * 1.3 + k * h * 0.1 + rnd(k) * h * 0.04;
+      const gy = Math.min(b, hill(hx)) + h * 0.01;
+      if (rnd(k + 50) < 0.25) {
+        ctx.fillStyle = tone(c, -0.08 + rnd(k + 9) * 0.1); // trees
+        ctx.beginPath();
+        ctx.arc(hx, gy - h * 0.035, h * (0.035 + rnd(k + 3) * 0.02), 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      const tall = rnd(k + 20) < 0.18;
+      const w = h * (tall ? 0.11 : 0.06 + rnd(k + 30) * 0.03);
+      const hh = h * (tall ? 0.13 : 0.045 + rnd(k + 40) * 0.035);
+      block(ctx, hx - w / 2, gy - hh, w, hh, wall, 0.3);
+      for (let wy = gy - hh + h * 0.015; wy < gy - h * 0.012; wy += h * 0.022)
+        for (let wx = hx - w / 2 + h * 0.01; wx < hx + w / 2 - h * 0.008; wx += h * 0.018) rect(ctx, wx, wy, Math.max(1, h * 0.007), Math.max(1, h * 0.009), tone(wall, -0.35));
+      if (!tall) {
+        const r = roofs[k % roofs.length];
+        poly(ctx, [hx - w * 0.58, gy - hh, hx, gy - hh - w * 0.38, hx + w * 0.58, gy - hh], r);
+        poly(ctx, [hx, gy - hh, hx, gy - hh - w * 0.38, hx + w * 0.58, gy - hh], tone(r, 0.12));
+      } else rect(ctx, hx - w / 2, gy - hh - h * 0.006, w, h * 0.006, tone(wall, -0.15));
+    }
+  },
+  dneprBridge(ctx, x, b, h, c, a) {
+    // The old concrete bridge over the Dnieper: low arches on piers, a railing and lamps.
+    const stone = mix("#d9d5ca", c, 0.3);
+    const deck = b - h * 0.13;
+    const L = h * 1.15;
+    const spans = 6;
+    const sw = (2 * L) / spans;
+    ctx.fillStyle = stone;
+    ctx.beginPath();
+    ctx.moveTo(x - L, b);
+    ctx.lineTo(x - L, deck);
+    ctx.lineTo(x + L, deck);
+    ctx.lineTo(x + L, b);
+    for (let i = spans - 1; i >= 0; i--) {
+      const x1 = x - L + (i + 1) * sw - sw * 0.1;
+      const x0 = x - L + i * sw + sw * 0.1;
+      ctx.lineTo(x1, b);
+      ctx.quadraticCurveTo((x0 + x1) / 2, b - h * 0.17, x0, b);
+    }
+    ctx.closePath();
+    ctx.fill();
+    rect(ctx, x - L, deck, 2 * L, h * 0.02, tone(stone, 0.15));
+    rect(ctx, x - L, deck - h * 0.025, 2 * L, Math.max(1, h * 0.005), tone(stone, -0.2));
+    for (let k = 0; k <= 40; k++) line(ctx, x - L + (k * 2 * L) / 40, deck, x - L + (k * 2 * L) / 40, deck - h * 0.025, tone(stone, -0.2), Math.max(1, h * 0.003));
+    for (let k = 0; k <= spans; k++) {
+      const px = x - L + k * sw;
+      line(ctx, px, deck - h * 0.02, px, deck - h * 0.1, tone(stone, -0.35), Math.max(1, h * 0.005));
+      glowDot(ctx, px, deck - h * 0.1, Math.max(1, h * 0.007), a);
+    }
+    const cars = ["#c0392b", "#ecf0f1", "#2c3e50", "#f1c40f"];
+    for (let k = 0; k < 5; k++) rect(ctx, x - L * 0.8 + k * L * 0.37, deck - h * 0.035, h * 0.06, h * 0.025, cars[k % cars.length]);
+  },
+  monument1812(ctx, x, b, h, c) {
+    // Cast-iron monument to the defenders of Smolensk in 1812: a gothic tower in three
+    // tiers of pointed arches with pinnacles, rising to a gilded finial, on granite steps.
+    const iron = mix("#2b2e33", c, 0.15);
+    const lit = tone(iron, 0.25);
+    const stone = mix("#9a9a94", c, 0.3);
+    for (let k = 0; k < 3; k++) block(ctx, x - h * (0.2 - k * 0.04), b - h * (0.03 + k * 0.03), h * (0.4 - k * 0.08), h * 0.03, stone, 0.3);
+    const base = b - h * 0.09;
+    const tiers = [
+      [0.15, 0.26],
+      [0.11, 0.2],
+      [0.075, 0.14],
+    ] as const;
+    let y = base;
+    for (const [w, th] of tiers) {
+      const half = h * w;
+      block(ctx, x - half, y - h * th, half * 2, h * th, iron, 0.3);
+      // Pointed arches with a lit outline.
+      for (const s of [-0.5, 0, 0.5]) {
+        const ax = x + s * half;
+        const aw = half * 0.32;
+        ctx.fillStyle = tone(iron, -0.4);
+        ctx.beginPath();
+        ctx.moveTo(ax - aw / 2, y - h * th * 0.12);
+        ctx.lineTo(ax - aw / 2, y - h * th * 0.6);
+        ctx.quadraticCurveTo(ax - aw / 2, y - h * th * 0.85, ax, y - h * th * 0.92);
+        ctx.quadraticCurveTo(ax + aw / 2, y - h * th * 0.85, ax + aw / 2, y - h * th * 0.6);
+        ctx.lineTo(ax + aw / 2, y - h * th * 0.12);
+        ctx.fill();
+        line(ctx, ax - aw / 2, y - h * th * 0.6, ax, y - h * th * 0.92, lit, Math.max(1, h * 0.003));
+      }
+      // Corner pinnacles.
+      for (const s of [-1, 1]) {
+        const px = x + s * half;
+        poly(ctx, [px - h * 0.012, y - h * th, px, y - h * th - h * 0.06, px + h * 0.012, y - h * th], s > 0 ? lit : iron);
+      }
+      rect(ctx, x - half - h * 0.006, y - h * th, half * 2 + h * 0.012, h * 0.008, lit);
+      y -= h * th;
+    }
+    poly(ctx, [x - h * 0.05, y, x, y - h * 0.26, x + h * 0.05, y], iron);
+    poly(ctx, [x, y, x, y - h * 0.26, x + h * 0.05, y], lit);
+    for (let k = 1; k < 6; k++) {
+      const yy = y - h * 0.045 * k;
+      const ww = h * 0.05 * (1 - k / 6);
+      line(ctx, x - ww, yy, x - ww - h * 0.012, yy - h * 0.01, iron, Math.max(1, h * 0.003));
+      line(ctx, x + ww, yy, x + ww + h * 0.012, yy - h * 0.01, lit, Math.max(1, h * 0.003));
+    }
+    glowDot(ctx, x, y - h * 0.27, Math.max(1.5, h * 0.012), "rgba(230,190,90,0.95)");
+    // Low railing around it.
+    for (let k = -6; k <= 6; k++) line(ctx, x + k * h * 0.04, b, x + k * h * 0.04, b - h * 0.03, iron, Math.max(1, h * 0.004));
+    line(ctx, x - h * 0.24, b - h * 0.028, x + h * 0.24, b - h * 0.028, iron, Math.max(1, h * 0.004));
+  },
+  loveSign(ctx, x, b, h) {
+    // The big "Я ❤ СМОЛЕНСК" letters on the lawn by the fortress.
+    const size = Math.max(8, h * 0.16);
+    ctx.font = `900 ${size}px system-ui, "Segoe UI", sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    const parts: [string, string][] = [
+      ["Я ", "#f4f4f2"],
+      ["❤", "#e2453b"],
+      [" СМОЛЕНСК", "#f4f4f2"],
+    ];
+    const total = parts.reduce((s, [t]) => s + ctx.measureText(t).width, 0);
+    let px = x - total / 2;
+    rect(ctx, x - total / 2 - h * 0.03, b - h * 0.02, total + h * 0.06, h * 0.02, "rgba(0,0,0,0.25)");
+    for (const [t, col] of parts) {
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillText(t, px + size * 0.06, b - h * 0.015);
+      ctx.fillStyle = col;
+      ctx.fillText(t, px, b - h * 0.02);
+      px += ctx.measureText(t).width;
+    }
   },
   eagles(ctx, x, b, h, c) {
     // Monument to the heroes of 1812: a granite cliff with a bronze eagle guarding its nest.
