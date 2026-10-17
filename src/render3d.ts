@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { BikePose } from "./bike.ts";
 import { POINTS, PANELS, type Role, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
@@ -568,7 +569,9 @@ function wheelModel(r: number) {
   disc.rotation.x = Math.PI / 2;
   disc.position.z = 0.085;
   g.add(hub, disc);
-  return shadowed(g);
+  const wheel = new THREE.Group();
+  wheel.add(mergeStatic(g)); // spokes, rim, hub and disc as a few meshes
+  return shadowed(wheel);
 }
 
 function partColor(role: Role, look: Look) {
@@ -595,10 +598,6 @@ function partColor(role: Role, look: Look) {
 
 const TUBE_COLORS = { chrome: "#c9cdd2", muffler: "#b4b9bf", shock: "#d9a514" } as const;
 
-function capsule(radius: number, length: number, color: string) {
-  return new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 8), mat(color));
-}
-
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 
 class BikeModel {
@@ -616,17 +615,22 @@ class BikeModel {
   fores: THREE.Mesh[];
   torso: THREE.Mesh;
   helmet = new THREE.Group();
+  neck = new THREE.Group();
   boots: THREE.Mesh[];
+  bootShafts: THREE.Mesh[];
+  braces: THREE.Mesh[];
+  gloves: THREE.Mesh[];
   tag: THREE.Sprite | null = null;
   marker: THREE.Sprite | null = null;
 
   constructor(look: Look, isPlayer: boolean, ghost = false) {
     const b = this.body;
+    const st = new THREE.Group(); // static bike parts, merged by material below
     // BSE T5 body: plastics, seat, air-cooled engine, frame, exhaust (see bikeShape.ts).
     for (const p of PANELS) {
       const mesh = extrude(p.pts, p.depth, partColor(p.role, look));
       if (p.role === "light") (mesh as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: "#f4f8ff" });
-      b.add(mesh);
+      st.add(mesh);
     }
     // Cooling fins across the cylinder.
     const [c0, c1] = [T(840, 490), T(1000, 600)];
@@ -636,14 +640,14 @@ class BikeModel {
       fin.position.set((c0[0] + c1[0]) / 2 + (k - 2.5) * 0.008, y, 0);
       fin.scale.set(0.2, 0.008, 0.27);
       fin.rotation.z = -0.12;
-      b.add(fin);
+      st.add(fin);
     }
     for (const t of TUBES) {
       for (const z of t.z) {
         const color = t.role === "frame" ? (look.frame ?? "#202022") : TUBE_COLORS[t.role];
         const m = rod(t.r, color);
         span(m, t.a, t.b, z);
-        b.add(m);
+        st.add(m);
       }
     }
     // Triple clamps, handlebar with hand guards.
@@ -655,19 +659,19 @@ class BikeModel {
       clamp.position.set(pt[0], pt[1], 0);
       clamp.scale.set(w, 0.045, 0.3);
       clamp.rotation.z = -0.44;
-      b.add(clamp);
+      st.add(clamp);
     }
     const bar = rod(0.017, "#26262a");
     bar.rotation.x = Math.PI / 2;
     bar.scale.y = 0.8;
     bar.position.set(POINTS.bar[0], POINTS.bar[1], 0);
-    b.add(bar);
+    st.add(bar);
     for (const z of [-0.36, 0.36]) {
       const guard = new THREE.Mesh(boxGeo, mat("#b8bcc2"));
       guard.position.set(POINTS.bar[0] + 0.07, POINTS.bar[1] + 0.02, z);
       guard.scale.set(0.16, 0.02, 0.05);
       guard.rotation.z = -0.25;
-      b.add(guard);
+      st.add(guard);
     }
     // Upside-down fork (thick outer tubes on top), fork guards and the swingarm move
     // with the suspension, see update().
@@ -686,32 +690,129 @@ class BikeModel {
     }
 
     // Rider: capsules with fixed bone lengths, posed by the same IK as in 2D.
-    const pair = (r: number, len: number, color: string) => [capsule(r, len, color), capsule(r, len, color)];
-    this.thighs = pair(0.085, 0.45, look.pants);
-    this.shins = pair(0.07, 0.45, look.pants);
-    this.uppers = pair(0.06, 0.32, look.jersey);
-    this.fores = pair(0.055, 0.32, look.jerseyDark);
-    this.boots = [0, 1].map(() => new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.13), mat("#1d1d1d")));
-    this.torso = capsule(0.15, 0.4, look.jersey);
+    // Kit after the Leatt 3.5 Ride Kit (67moto catalogue): solid jersey with the white LEATT
+    // logo and sleeve piping, matching pants with black knee panels, tall boots, gloves,
+    // C-frame knee braces, a 5.5 neck brace and a Moto 7.5 helmet with Velocity goggles.
+    const kit = kitTextures(look);
+    const kitMat = (map: THREE.Texture) => new THREE.MeshLambertMaterial({ map });
+    const cap = (r: number, len: number, m: THREE.Material) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 12), m);
+    const jerseyM = kitMat(kit.jersey);
+    const sleeveM = kitMat(kit.sleeve);
+    const pantsM = kitMat(kit.pants);
+    const two = <T>(f: () => T) => [f(), f()];
+    this.thighs = two(() => cap(0.088, 0.45, pantsM));
+    this.shins = two(() => cap(0.07, 0.42, mat(look.pants)));
+    this.bootShafts = two(() => cap(0.086, 0.22, mat(look.boots ?? "#ececec")));
+    this.boots = two(() => {
+      const foot = new THREE.Mesh(boxGeo, mat("#1b1b1d"));
+      foot.scale.set(0.29, 0.1, 0.12);
+      return foot;
+    });
+    this.braces = two(() => {
+      const brace = new THREE.Mesh(boxGeo, mat("#2a2a2e"));
+      brace.scale.set(0.05, 0.2, 0.025);
+      return brace;
+    });
+    this.uppers = two(() => cap(0.064, 0.32, sleeveM));
+    this.fores = two(() => cap(0.056, 0.32, sleeveM));
+    this.gloves = two(() => new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), mat(look.jerseyDark)));
+    this.torso = cap(0.15, 0.4, jerseyM);
     this.torso.scale.z = 0.85;
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), mat(look.helmet));
-    const peak = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, 0.26), mat(look.visor));
-    peak.position.set(0.12, 0.13, 0);
-    peak.rotation.z = -0.25;
-    const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.24), mat("#1a1a1a"));
-    goggles.position.set(0.13, 0.03, 0);
-    const chin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.16), mat(look.helmet));
-    chin.position.set(0.13, -0.09, 0);
-    this.helmet.add(shell, peak, goggles, chin);
-    b.add(...this.thighs, ...this.shins, ...this.uppers, ...this.fores, ...this.boots, this.torso, this.helmet);
 
+    // Neck brace: an open ring around the neck (gap at the front) with a strut down the back.
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.03, 6, 20, Math.PI * 1.5), mat("#151517"));
+    ring.rotation.z = Math.PI / 4;
+    const ringPlane = new THREE.Group();
+    ringPlane.rotation.x = Math.PI / 2;
+    ringPlane.add(ring);
+    const strut = new THREE.Mesh(boxGeo, mat("#151517"));
+    strut.position.set(-0.13, -0.1, 0);
+    strut.scale.set(0.04, 0.2, 0.07);
+    this.neck.add(ringPlane, strut);
+
+    // Helmet: long shell, angular peak, protruding chin bar, goggles with a colored strap.
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.175, 20, 14), new THREE.MeshLambertMaterial({ map: kit.helmet }));
+    shell.scale.set(1.1, 1, 0.92);
+    const peak = extrude(poly2(0.0, 0.17, 0.27, 0.21, 0.31, 0.165, 0.1, 0.12), 0.22, look.helmet);
+    const chin = extrude(poly2(0.08, -0.03, 0.23, -0.06, 0.25, -0.13, 0.13, -0.19, 0.02, -0.16), 0.19, look.helmet);
+    const vent = new THREE.Mesh(boxGeo, mat("#151517"));
+    vent.position.set(0.235, -0.1, 0);
+    vent.scale.set(0.02, 0.05, 0.08);
+    const frame = new THREE.Mesh(boxGeo, mat("#1b1b1d"));
+    frame.position.set(0.165, 0.035, 0);
+    frame.scale.set(0.06, 0.08, 0.27);
+    const lens = new THREE.Mesh(boxGeo, mat(look.visor));
+    lens.position.set(0.198, 0.035, 0);
+    lens.scale.set(0.012, 0.06, 0.2);
+    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.178, 0.014, 4, 28), mat(look.jersey));
+    strap.rotation.x = Math.PI / 2;
+    strap.position.y = 0.035;
+    strap.scale.set(1.1, 0.92, 1);
+    this.helmet.add(shell, peak, chin, vent, frame, lens, strap);
+    b.add(
+      ...this.thighs,
+      ...this.shins,
+      ...this.bootShafts,
+      ...this.boots,
+      ...this.braces,
+      ...this.uppers,
+      ...this.fores,
+      ...this.gloves,
+      this.torso,
+      this.neck,
+      this.helmet,
+    );
+
+    // Bike details: BSE / T5 decals, footpegs, levers, engine covers.
+    const decalSide = 0.215;
+    const bse = decal(look, "BSE", 0.42, 0.11);
+    bse.position.set(...T(925, 432), decalSide);
+    bse.rotation.z = 0.06;
+    const t5 = decal(look, "T5", 0.12, 0.07);
+    t5.position.set(...T(1020, 478), decalSide);
+    const side = decal(look, "BSE", 0.22, 0.06);
+    side.position.set(...T(470, 400), 0.155);
+    side.rotation.z = 0.03;
+    st.add(bse, t5, side);
+    for (const z of [-0.17, 0.17]) {
+      const peg = new THREE.Mesh(boxGeo, mat("#9aa0a8"));
+      peg.position.set(POINTS.peg[0], POINTS.peg[1], z);
+      peg.scale.set(0.09, 0.025, 0.07);
+      st.add(peg);
+    }
+    for (const z of [-0.3, 0.3]) {
+      const lever = rod(0.008, "#b8bcc2");
+      span(lever, [POINTS.bar[0] + 0.02, POINTS.bar[1] - 0.005], [POINTS.bar[0] + 0.15, POINTS.bar[1] - 0.05], z);
+      st.add(lever);
+    }
+    for (const [pt, r, color] of [
+      [T(905, 705), 0.085, "#2c2d31"],
+      [T(765, 725), 0.07, "#1e1f22"],
+      [T(905, 705), 0.03, "#e8641e"],
+    ] as const) {
+      const cover = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.02, 18), mat(color));
+      cover.rotation.x = Math.PI / 2;
+      cover.position.set(pt[0], pt[1], color === "#e8641e" ? 0.155 : 0.142);
+      st.add(cover);
+    }
+
+    b.add(mergeStatic(st));
     this.root.add(b, this.rear, this.front);
     if (!isPlayer) {
       // Ghost and rivals are see-through and cast no shadow, so they never hide the player.
       const kind = ghost ? "ghost" : "rival";
       this.root.traverse((n) => {
         const mesh = n as THREE.Mesh;
-        if (mesh.isMesh) mesh.material = fadedMat((mesh.material as THREE.MeshLambertMaterial).color, kind);
+        if (!mesh.isMesh) return;
+        const m = mesh.material as THREE.MeshLambertMaterial;
+        if (m.map) {
+          // Textured kit and decals keep their artwork, just faded.
+          const c = m.clone();
+          c.transparent = true;
+          c.opacity = FADE[kind].opacity;
+          c.depthWrite = false;
+          mesh.material = c;
+        } else mesh.material = fadedMat(m.color, kind);
       });
       this.tag = nameTag(look);
       this.root.add(this.tag);
@@ -752,16 +853,24 @@ class BikeModel {
     });
 
     const pose = riderPose(bike.lean);
+    const { hip, knee, foot, shoulder, elbow, hand, head, tilt } = pose;
+    // Boot shaft covers the lower part of the shin; knee brace hinges on the outside.
+    const bootTop: P2 = [foot[0] + (knee[0] - foot[0]) * 0.58, foot[1] + (knee[1] - foot[1]) * 0.58];
     [-0.16, 0.16].forEach((z, i) => {
-      span(this.thighs[i], pose.hip, pose.knee, z, false);
-      span(this.shins[i], pose.knee, pose.foot, z, false);
-      span(this.uppers[i], pose.shoulder, pose.elbow, z * 1.35, false);
-      span(this.fores[i], pose.elbow, pose.hand, z * 1.35, false);
-      this.boots[i].position.set(pose.foot[0] + 0.04, pose.foot[1] - 0.02, z);
+      span(this.thighs[i], hip, knee, z, false);
+      span(this.shins[i], knee, foot, z, false);
+      span(this.bootShafts[i], [foot[0] + (knee[0] - foot[0]) * 0.12, foot[1] + (knee[1] - foot[1]) * 0.12], bootTop, z, false);
+      span(this.braces[i], [knee[0] + (hip[0] - knee[0]) * 0.25, knee[1] + (hip[1] - knee[1]) * 0.25], [knee[0] + (foot[0] - knee[0]) * 0.25, knee[1] + (foot[1] - knee[1]) * 0.25], z + Math.sign(z) * 0.09, false);
+      span(this.uppers[i], shoulder, elbow, z * 1.35, false);
+      span(this.fores[i], elbow, hand, z * 1.35, false);
+      this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.03, z);
+      this.gloves[i].position.set(hand[0], hand[1], z * 1.35);
     });
-    span(this.torso, pose.hip, pose.shoulder, 0, false);
-    this.helmet.position.set(pose.head[0], pose.head[1], 0);
-    this.helmet.rotation.z = 0.5 - pose.tilt;
+    span(this.torso, hip, shoulder, 0, false);
+    this.neck.position.set(shoulder[0] + Math.sin(tilt) * 0.09, shoulder[1] + Math.cos(tilt) * 0.09, 0);
+    this.neck.rotation.z = -tilt;
+    this.helmet.position.set(head[0], head[1], 0);
+    this.helmet.rotation.z = 0.5 - tilt;
 
     if (this.tag) {
       const head = ch.getWorldPoint({ x: pose.head[0], y: pose.head[1] });
@@ -773,6 +882,146 @@ class BikeModel {
       this.marker.position.set(head.x, head.y + 0.85 + Math.sin(time * 5) * 0.06, 0);
     }
   }
+}
+
+const poly2 = (...pts: number[]) => pts;
+
+// Bakes a bike's static parts into one mesh per material (dozens of draw calls -> a few).
+// Textured parts (decals) stay separate.
+function mergeStatic(group: THREE.Group) {
+  const out = new THREE.Group();
+  const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const child of [...group.children]) {
+    const mesh = child as THREE.Mesh;
+    const material = mesh.material as THREE.MeshLambertMaterial;
+    if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material) || material.map) {
+      out.add(mesh);
+      continue;
+    }
+    mesh.updateMatrix();
+    const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+    g.applyMatrix4(mesh.matrix);
+    for (const name of Object.keys(g.attributes)) if (name !== "position" && name !== "normal") g.deleteAttribute(name);
+    g.clearGroups();
+    const list = buckets.get(material) ?? [];
+    list.push(g);
+    buckets.set(material, list);
+  }
+  for (const [material, geos] of buckets) {
+    const merged = mergeGeometries(geos);
+    geos.forEach((g) => g.dispose());
+    if (merged) out.add(new THREE.Mesh(merged, material));
+  }
+  return out;
+}
+
+function luminance(hex: string) {
+  const c = new THREE.Color(hex);
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
+
+// Bike lettering: heavy italic text with an outline that contrasts with the plastics.
+function decal(look: Look, text: string, w: number, h: number) {
+  const dark = luminance(look.plastic) < 0.35;
+  const fill = dark ? "#ffffff" : (look.accent ?? "#111111");
+  const edge = dark ? (look.accent ?? "#111111") : "#ffffff";
+  const tex = texture(
+    canvas(512, Math.round((512 * h) / w), (ctx) => {
+      const H = ctx.canvas.height;
+      ctx.font = `italic 900 ${Math.round(H * 0.95)}px 'Arial Black', system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = H * 0.12;
+      ctx.strokeStyle = edge;
+      ctx.strokeText(text, 256, H / 2, 500);
+      ctx.fillStyle = fill;
+      ctx.fillText(text, 256, H / 2, 500);
+    }),
+    false,
+  );
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }));
+}
+
+// Leatt-style kit textures. Capsules map u around and v along the bone (v = 1 at the far
+// joint: shoulder, knee, hand), so collars, knee panels and cuffs sit at the top rows.
+function kitTextures(look: Look) {
+  const lighter = (hex: string, k: number) => "#" + new THREE.Color(hex).lerp(new THREE.Color("#ffffff"), k).getHexString();
+  const logo = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string, angle = 0) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.transform(1, 0, -0.25, 1, 0, 0);
+    ctx.fillStyle = color;
+    ctx.font = `900 ${size}px 'Arial Black', system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("LEATT", 0, 0);
+    ctx.restore();
+  };
+  const jersey = texture(
+    canvas(256, 256, (ctx) => {
+      ctx.fillStyle = look.jersey;
+      ctx.fillRect(0, 0, 256, 256);
+      ctx.fillStyle = look.jerseyDark;
+      ctx.fillRect(0, 0, 256, 16); // collar
+      ctx.fillRect(0, 238, 256, 18); // hem
+      // u = 0 faces the camera (the rider's side), so the logo sits there and opposite.
+      for (const cx of [0, 128, 256]) {
+        logo(ctx, cx, 78, 24, "#ffffff");
+        ctx.fillStyle = "#ffffff";
+        for (const s of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(cx + s * 40, 70);
+          ctx.lineTo(cx + s * 56, 64);
+          ctx.lineTo(cx + s * 52, 90);
+          ctx.lineTo(cx + s * 44, 88);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }),
+    true,
+  );
+  const sleeve = texture(
+    canvas(128, 128, (ctx) => {
+      ctx.fillStyle = look.jersey;
+      ctx.fillRect(0, 0, 128, 128);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(28, 0, 5, 128); // piping along the arm
+      ctx.fillRect(92, 0, 5, 128);
+      ctx.fillStyle = look.jerseyDark;
+      ctx.fillRect(0, 0, 128, 12); // cuff / seam
+    }),
+    true,
+  );
+  const pants = texture(
+    canvas(128, 256, (ctx) => {
+      ctx.fillStyle = look.pants;
+      ctx.fillRect(0, 0, 128, 256);
+      ctx.fillStyle = lighter(look.pants, 0.25);
+      ctx.fillRect(36, 60, 56, 196); // lighter thigh panel
+      ctx.fillStyle = "#18181a";
+      ctx.fillRect(0, 0, 128, 58); // knee panel
+      logo(ctx, 100, 170, 15, "#ffffff", -Math.PI / 2);
+    }),
+    true,
+  );
+  const helmet = texture(
+    canvas(256, 128, (ctx) => {
+      ctx.fillStyle = look.helmet;
+      ctx.fillRect(0, 0, 256, 128);
+      ctx.fillStyle = look.jersey;
+      ctx.fillRect(0, 14, 256, 14); // stripe over the crown
+      ctx.fillStyle = look.jerseyDark;
+      ctx.fillRect(0, 34, 256, 6);
+      logo(ctx, 0, 62, 18, look.jerseyDark);
+      logo(ctx, 128, 62, 18, look.jerseyDark);
+      logo(ctx, 256, 62, 18, look.jerseyDark);
+    }),
+    true,
+  );
+  return { jersey, sleeve, pants, helmet };
 }
 
 function playerMarker() {

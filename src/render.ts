@@ -1,5 +1,5 @@
 import { type BikePose, type BodyPose, type ChassisPose, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
-import { PANELS, POINTS, TUBES, WHEEL_R } from "./bikeShape.ts";
+import { PANELS, POINTS, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
 import { THEMES, type Theme, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
@@ -384,6 +384,17 @@ export class Renderer {
         light: "#f4f8ff",
       })[role] ?? look.plastic;
     for (const p of PANELS) this.poly(cam, ch, p.pts, color(p.role));
+    // "BSE" lettering on the shroud, turning with the bike.
+    const [lx, ly] = L(...T(925, 432));
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(-ch.getAngle() - 0.06);
+    ctx.font = `italic 900 ${Math.max(6, 0.1 * s)}px 'Arial Black', system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = look.accent ?? "#111";
+    ctx.fillText("BSE", 0, 0);
+    ctx.restore();
     this.line(L(POINTS.bar[0] - 0.03, POINTS.bar[1] - 0.05), L(POINTS.bar[0] + 0.05, POINTS.bar[1] + 0.03), 0.04 * s, "#26262a");
 
     this.rider(cam, bike, look);
@@ -396,8 +407,12 @@ export class Renderer {
     const { hip, shoulder, head, hand, foot, elbow, knee } = riderPose(bike.lean);
 
     this.line(L(hip), L(knee), 0.15 * s, look.pants);
-    this.line(L(knee), L(foot), 0.13 * s, C.boots);
+    this.line(L(knee), L(foot), 0.13 * s, look.pants);
+    // Tall boot over the lower shin, then the jersey and a neck brace collar.
+    const bootTop: [number, number] = [foot[0] + (knee[0] - foot[0]) * 0.58, foot[1] + (knee[1] - foot[1]) * 0.58];
+    this.line(L(bootTop), L(foot), 0.15 * s, look.boots ?? C.boots);
     this.line(L(hip), L(shoulder), 0.24 * s, look.jersey);
+    this.line(L(shoulder), L([shoulder[0] + 0.05, shoulder[1] + 0.06]), 0.13 * s, "#151517");
     this.line(L(shoulder), L(elbow), 0.11 * s, look.jerseyDark);
     this.line(L(elbow), L(hand), 0.1 * s, look.jerseyDark);
 

@@ -21,6 +21,7 @@ export interface Look {
   visor: string;
   accent?: string; // graphics on the shrouds and side panels
   frame?: string;
+  boots?: string;
 }
 
 // Stock bike: BSE T5 in yellow with black graphics and a black frame.
@@ -30,9 +31,11 @@ export const PLAYER_LOOK: Look = {
   plasticDark: "#1b1b1d",
   accent: "#1b1b1d",
   frame: "#202022",
+  // Leatt 3.5 Ride Kit in blue, white boots.
   jersey: "#1f5fbf",
   jerseyDark: "#163f80",
-  pants: "#e9e9e9",
+  pants: "#1f5fbf",
+  boots: "#ececec",
   helmet: "#f2f2f2",
   visor: "#f4d10f",
 };
