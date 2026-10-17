@@ -192,7 +192,10 @@ button {
   position: absolute;
   inset: 0;
   display: grid;
-  place-items: center;
+  /* The rider is centered during the countdown; the number goes ahead of the bike. */
+  justify-items: end;
+  align-items: center;
+  padding-right: 18vw;
   font-size: 96px;
   font-weight: 900;
   color: #fff;

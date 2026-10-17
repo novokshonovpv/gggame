@@ -3,7 +3,7 @@ export interface Pt {
   y: number;
 }
 
-export type ThemeId = "volgograd" | "ekaterinburg" | "moscow" | "sochi" | "makhachkala" | "kazan" | "spb";
+export type ThemeId = "ekaterinburg" | "moscow" | "sochi" | "makhachkala" | "kazan" | "spb";
 
 export interface Track {
   id: string;
@@ -162,36 +162,6 @@ class Builder {
 }
 
 export const TRACKS: Track[] = [
-  new Builder(11)
-    .flat(16)
-    .rough(24, 0.3)
-    .hill(2.5, 7, 14)
-    .flat(6)
-    .rhythm(4, 8, 1.4)
-    .flat(5)
-    .hill(4, 9, 20)
-    .rough(20, 0.4)
-    .tabletop(2.8, 6)
-    .flat(6)
-    .slope(30, 7)
-    .flat(10)
-    .drop(3.5)
-    .rough(14, 0.3)
-    .whoops(8)
-    .flat(8)
-    .hill(5, 11, 24)
-    .flat(5)
-    .double(2.6, 9)
-    .rough(18, 0.35)
-    .hill(3.5, 8, 16)
-    .rhythm(3, 9, 1.8)
-    .flat(6)
-    .slope(24, -7)
-    .flat(8)
-    .tabletop(3.4, 10)
-    .rough(16, 0.3)
-    .build("canyon", "Волгоград", "volgograd", { laps: 2 }),
-
   new Builder(27)
     .flat(16)
     .rough(18, 0.4)

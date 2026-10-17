@@ -49,20 +49,6 @@ export interface Theme {
 }
 
 export const THEMES: Record<ThemeId, Theme> = {
-  // Волгоград: закатная степь, Волга и Мамаев курган с «Родина-мать зовёт!».
-  volgograd: {
-    sky: ["#c9714a", "#eba56f", "#f7d8a8"],
-    sun: { x: 0.8, y: 0.22, r: 0.065, color: "#fff0cf", glow: "rgba(255,214,160,0.45)" },
-    layers: [
-      { kind: "hills", parallax: 0.06, base: 0.52, amp: 0.08, color: "#d9a173", seed: 3 },
-      { kind: "marks", parallax: 0.1, base: 0.56, amp: 0.3, color: "#7d4f3b", color2: "#f6c27a", seed: 5, span: 1.6, marks: [{ type: "motherland", at: 0.45, size: 1 }] },
-      { kind: "water", parallax: 0.16, base: 0.6, amp: 0.05, color: "#c98e6c", color2: "#f6d2a4", seed: 2 },
-      { kind: "buildings", parallax: 0.22, base: 0.66, amp: 0.14, color: "#9a6247", color2: "rgba(255,220,160,0.5)", seed: 11 },
-      { kind: "hills", parallax: 0.42, base: 0.8, amp: 0.1, color: "#a86a42", seed: 9 },
-    ],
-    track: { top: "#d4a874", rut: "rgba(120,78,40,0.45)", lip: "#ecc995", berm: "#a8794a", face: ["#a56d3d", "#5b3720"], strata: "rgba(70,40,20,0.35)", fence: "#6b4a2e" },
-    world: { hemiSky: "#ffe2bd", hemiGround: "#8a5634", hemi: 1.6, sun: "#fff0d6", sunI: 2.4, apron: "#b88452", props: "trees", propColor: "#6f7a3c", propColor2: "#86904a", fogNear: 90, fogFar: 520 },
-  },
   // Екатеринбург: Уральские хребты, тайга, озеро и небоскрёбы «Исеть» и «Высоцкий».
   ekaterinburg: {
     sky: ["#5d9fd6", "#9fcbea", "#dcefe9"],
@@ -104,39 +90,39 @@ export const THEMES: Record<ThemeId, Theme> = {
     track: { top: "#86674d", rut: "rgba(60,40,25,0.45)", lip: "#b09073", berm: "#f2f6f8", face: ["#6b503e", "#30231a"], strata: "rgba(30,20,12,0.35)", fence: "#d23c3c" },
     world: { hemiSky: "#e6f2ff", hemiGround: "#c4d2dc", hemi: 1.6, sun: "#ffffff", sunI: 2.2, apron: "#eef3f6", props: "pines", propColor: "#3d6858", propColor2: "#e3ecee", fogNear: 70, fogFar: 420 },
   },
-  // Махачкала: бархан Сарыкум, гора Тарки-Тау, Каспий и мечеть.
+  // Махачкала: бархан Сарыкум, гора Тарки-Тау, Каспий, маяк на Анжи-Кале и морской порт.
   makhachkala: {
     sky: ["#3c8ad4", "#8cc4ec", "#f0e0bd"],
     sun: { x: 0.82, y: 0.14, r: 0.06, color: "#fffbe8", glow: "rgba(255,240,200,0.5)" },
     layers: [
       { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.2, color: "#9aa48a", color2: "#b9bea2", seed: 51 },
       { kind: "water", parallax: 0.1, base: 0.56, amp: 0.04, color: "#4f9ec4", color2: "#cfe9f2", seed: 4 },
-      { kind: "marks", parallax: 0.14, base: 0.6, amp: 0.28, color: "#a99a7c", color2: "#2f8f86", seed: 53, span: 1.6, marks: [{ type: "mosque", at: 0.6, size: 1 }] },
+      { kind: "marks", parallax: 0.14, base: 0.6, amp: 0.28, color: "#a99a7c", color2: "#ffe9a8", seed: 53, span: 1.6, marks: [{ type: "lighthouse", at: 0.3, size: 1 }, { type: "portCranes", at: 0.75, size: 0.8 }] },
       { kind: "hills", parallax: 0.24, base: 0.68, amp: 0.2, color: "#dcb57a", seed: 5 },
       { kind: "hills", parallax: 0.42, base: 0.8, amp: 0.16, color: "#c7985d", seed: 9 },
     ],
     track: { top: "#dfba7f", rut: "rgba(150,105,55,0.45)", lip: "#f3d6a3", berm: "#c99b62", face: ["#c48f55", "#7a5230"], strata: "rgba(110,70,35,0.3)", fence: "#5a4330" },
     world: { hemiSky: "#fff3d9", hemiGround: "#c99b62", hemi: 1.6, sun: "#fff6e0", sunI: 2.6, apron: "#d9b277", props: "rocks", propColor: "#b58f62", propColor2: "#9c7a52", fogNear: 100, fogFar: 560 },
   },
-  // Казань: ночной суперкросс на «Казань Арене», за трибунами Кул-Шариф и Сююмбике.
+  // Казань: ночной суперкросс на «Казань Арене», за трибунами «Чаша», Сююмбике и мост «Миллениум».
   kazan: {
     sky: ["#04060d", "#121833", "#2c3560"],
     stars: true,
     layers: [
-      { kind: "marks", parallax: 0.06, base: 0.5, amp: 0.36, color: "#1d2240", color2: "#3d7be0", seed: 61, span: 1.6, marks: [{ type: "kulSharif", at: 0.35, size: 1 }, { type: "suyumbike", at: 0.7, size: 0.85 }] },
+      { kind: "marks", parallax: 0.06, base: 0.5, amp: 0.36, color: "#1d2240", color2: "#ffd58a", seed: 61, span: 1.6, marks: [{ type: "kazanBowl", at: 0.2, size: 0.8 }, { type: "suyumbike", at: 0.5, size: 0.85 }, { type: "millenniumBridge", at: 0.8, size: 0.9 }] },
       { kind: "stands", parallax: 0.2, base: 0.7, amp: 0.26, color: "#252a40", color2: "#3a4060", seed: 67 },
       { kind: "stands", parallax: 0.35, base: 0.78, amp: 0.26, color: "#2e334c", color2: "#454c70", seed: 71 },
     ],
     track: { top: "#7a5a44", rut: "rgba(40,25,15,0.55)", lip: "#a07b5e", berm: "#3d4566", face: ["#5c4232", "#241812"], strata: "rgba(20,10,5,0.4)", fence: "#f2f2f2" },
     world: { hemiSky: "#9fb0ff", hemiGround: "#2a2236", hemi: 1.2, sun: "#f4f6ff", sunI: 2.6, apron: "#2a2a36", props: "lamps", propColor: "#9aa0b5", propColor2: "#fffbe0", fogNear: 90, fogFar: 460 },
   },
-  // Санкт-Петербург: белая ночь, Нева, разведённый мост, Исаакий, Петропавловка, «Лахта».
+  // Санкт-Петербург: белая ночь, Нева, разведённый мост, Адмиралтейство, Ростральная колонна, «Лахта».
   spb: {
     sky: ["#7f8fbf", "#d9b4c4", "#f6dcc6"],
     sun: { x: 0.85, y: 0.3, r: 0.045, color: "#fff2e2", glow: "rgba(255,210,190,0.45)" },
     layers: [
       { kind: "marks", parallax: 0.05, base: 0.55, amp: 0.46, color: "#8b8fae", color2: "#b9c3e6", seed: 81, span: 1.6, marks: [{ type: "lakhta", at: 0.5, size: 1 }] },
-      { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.36, color: "#6e6c8c", color2: "#e7c35a", seed: 83, span: 1.6, marks: [{ type: "isaac", at: 0.28, size: 0.8 }, { type: "peterPaul", at: 0.72, size: 1 }] },
+      { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.36, color: "#6e6c8c", color2: "#e7c35a", seed: 83, span: 1.6, marks: [{ type: "admiralty", at: 0.3, size: 0.9 }, { type: "rostral", at: 0.75, size: 0.8 }] },
       { kind: "water", parallax: 0.18, base: 0.64, amp: 0.06, color: "#8f9cc4", color2: "#f3d9d2", seed: 6 },
       { kind: "marks", parallax: 0.24, base: 0.7, amp: 0.3, color: "#4c4c68", color2: "#ffe0a0", seed: 85, span: 1.6, marks: [{ type: "drawbridge", at: 0.5, size: 1 }] },
       { kind: "buildings", parallax: 0.42, base: 0.84, amp: 0.16, color: "#3d3b52", color2: "rgba(255,220,170,0.6)", seed: 87 },

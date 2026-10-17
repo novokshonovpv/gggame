@@ -7,6 +7,7 @@ import { groundY, rng, type Track } from "./track.ts";
 export const GRAVITY = -11;
 const RESPAWN_DELAY = 1.1;
 const STUCK_LIMIT = 5; // seconds without forward progress before a reset
+const GRID_GAP = 2.4; // m between bikes on the start grid
 const IDLE: Input = { gas: false, brake: false, lean: 0 };
 const HOLD: Input = { gas: false, brake: true, lean: 0 };
 
@@ -90,14 +91,15 @@ export class Racer {
     spec: RivalSpec | null,
     rand: () => number,
     stats: BikeStats = BASE_STATS,
+    startX = track.startX,
   ) {
     this.look = look;
     this.isPlayer = isPlayer;
     this.spec = spec;
     this.rand = rand;
-    this.bike = new Bike(world, { x: track.startX, y: groundY(track, track.startX) }, stats);
+    this.bike = new Bike(world, { x: startX, y: groundY(track, startX) }, stats);
     if (spec) this.bike.power = spec.power;
-    this.checkpoint = track.startX;
+    this.checkpoint = startX;
   }
 
   get x() {
@@ -147,7 +149,12 @@ export class Race {
     });
     const rand = rng(seed);
     if (player) this.racers.push(new Racer(this.world, track, player.look, true, null, rand, player.stats));
-    for (const spec of RIVALS) this.racers.push(new Racer(this.world, track, spec.look, false, spec, rand));
+    // Start grid: the player on the line, rivals lined up behind one bike length apart,
+    // so nobody starts on top of the player.
+    RIVALS.forEach((spec, i) => {
+      const x = track.startX - GRID_GAP * (i + 1);
+      this.racers.push(new Racer(this.world, track, spec.look, false, spec, rand, BASE_STATS, x));
+    });
     this.world.on("begin-contact", (c) => this.contact(c, 1));
     this.world.on("end-contact", (c) => this.contact(c, -1));
   }

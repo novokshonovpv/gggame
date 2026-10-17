@@ -342,7 +342,7 @@ class Game {
     this.lastCount = 0;
     const p = this.player.bike.chassis.getPosition();
     const ppm = this.renderer.basePpm();
-    this.cam = { x: p.x + (this.renderer.w * 0.12) / ppm, y: p.y + 1.2, ppm };
+    this.cam = { x: p.x, y: p.y + 1.2, ppm: ppm * 1.5 };
     this.renderMissions();
     $("toast").classList.add("hidden");
     this.ui();
@@ -438,7 +438,9 @@ class Game {
     if (this.state === "finished" && this.frame % 15 === 0) this.renderStandings();
 
     this.updateCamera(dt);
-    const riders: RiderView[] = [...race.racers];
+    // The player is spotlit on the grid and for the first seconds of the race.
+    const highlight = this.state === "countdown" ? 1 : this.state === "racing" ? Math.max(0, 1 - race.time / 3) : 0;
+    const riders: RiderView[] = race.racers.map((r) => (r.isPlayer ? { bike: r.bike, look: r.look, isPlayer: true, highlight } : r));
     if (this.ghost) {
       this.ghost.setTime(race.time);
       riders.push({ bike: this.ghost, look: GHOST_LOOK, isPlayer: false, ghost: true });
@@ -473,10 +475,12 @@ class Game {
     const alt = p.y - groundY(this.track, p.x);
     const speed = Math.hypot(v.x, v.y);
 
-    const ppm = r.basePpm() / (1 + speed / 90 + Math.max(0, alt - 3) / 16);
+    // During the countdown the camera closes in on the player, then eases out after the start.
+    const start = this.state === "countdown" ? 1 : 0;
+    const ppm = (r.basePpm() * (1 + 0.5 * start)) / (1 + speed / 90 + Math.max(0, alt - 3) / 16);
     this.cam.ppm += (ppm - this.cam.ppm) * (1 - Math.exp(-dt * 2));
 
-    const tx = p.x + (r.w * 0.12) / this.cam.ppm + ahead;
+    const tx = p.x + (r.w * 0.12 * (1 - start)) / this.cam.ppm + ahead;
     this.cam.x += (tx - this.cam.x) * (1 - Math.exp(-dt * 5));
     let ty = p.y * 0.6 + terrain * 0.4 + 1.2;
     // Keep the rider inside the middle 50% of the screen height.

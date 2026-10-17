@@ -16,7 +16,8 @@ const TAN = Math.tan(((FOV / 2) * Math.PI) / 180);
 const REF_D = 24; // typical camera distance, used to place the backdrop layers
 const LANES = [0.7, -0.15, -0.85, -1.45]; // player in front, rivals behind
 const GHOST_LANE = 0.3; // just behind the player
-const NEAR_PLAYER = 2.2; // m: rival tags hide this close to the player
+const NEAR_PLAYER = 3; // m: closer than this, rivals fade further and hide their tags
+const BIKE_WHEEL_R = 0.34;
 const LAYER_W = 4096;
 const LAYER_H = 512;
 const LAYER_BASE = 400; // baseline row in the layer canvas
@@ -405,7 +406,7 @@ function addGate(group: THREE.Group, x: number, y: number, kind: "start" | "fini
   line.rotation.x = -Math.PI / 2;
   line.position.set(x, y + 0.01, 0);
   line.receiveShadow = true;
-  group.add(bar, sign, line);
+  group.add(sign, line);
 }
 
 // ---------- Backdrop ----------
@@ -622,6 +623,9 @@ class BikeModel {
   gloves: THREE.Mesh[];
   tag: THREE.Sprite | null = null;
   marker: THREE.Sprite | null = null;
+  halo: THREE.Mesh | null = null;
+  fadeMats: THREE.Material[] = [];
+  fadeBase = 1;
 
   constructor(look: Look, isPlayer: boolean, ghost = false) {
     const b = this.body;
@@ -801,29 +805,45 @@ class BikeModel {
     if (!isPlayer) {
       // Ghost and rivals are see-through and cast no shadow, so they never hide the player.
       const kind = ghost ? "ghost" : "rival";
+      // Each rival owns its faded materials so it can fade further near the player.
+      const own = new Map<THREE.Material, THREE.Material>();
       this.root.traverse((n) => {
         const mesh = n as THREE.Mesh;
         if (!mesh.isMesh) return;
         const m = mesh.material as THREE.MeshLambertMaterial;
-        if (m.map) {
+        let c = own.get(m);
+        if (!c) {
           // Textured kit and decals keep their artwork, just faded.
-          const c = m.clone();
+          c = m.map ? m.clone() : fadedMat(m.color, kind).clone();
           c.transparent = true;
           c.opacity = FADE[kind].opacity;
           c.depthWrite = false;
-          mesh.material = c;
-        } else mesh.material = fadedMat(m.color, kind);
+          own.set(m, c);
+          this.fadeMats.push(c);
+        }
+        mesh.material = c;
       });
+      this.fadeBase = FADE[kind].opacity;
       this.tag = nameTag(look);
       this.root.add(this.tag);
     } else {
       shadowed(this.root);
       this.marker = playerMarker();
-      this.root.add(this.marker);
+      this.halo = new THREE.Mesh(
+        new THREE.RingGeometry(0.85, 1.25, 48),
+        new THREE.MeshBasicMaterial({ color: "#ffd21f", transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+      );
+      this.halo.rotation.x = -Math.PI / 2;
+      this.root.add(this.marker, this.halo);
     }
   }
 
-  update(bike: BikePose, time = 0) {
+  // Rivals and the ghost: 1 = their normal see-through look, lower = fainter.
+  setFade(k: number) {
+    for (const m of this.fadeMats) m.opacity = this.fadeBase * k;
+  }
+
+  update(bike: BikePose, time = 0, highlight = 0) {
     const ch = bike.chassis;
     const p = ch.getPosition();
     this.body.position.set(p.x, p.y, 0);
@@ -877,9 +897,21 @@ class BikeModel {
       this.tag.position.set(head.x, head.y + 0.55, 0);
     }
     if (this.marker) {
-      // Bobbing arrow over the player's helmet, upright whatever the bike does.
+      // Bobbing arrow over the player's helmet, upright whatever the bike does; bigger at the start.
       const head = ch.getWorldPoint({ x: pose.head[0], y: pose.head[1] });
-      this.marker.position.set(head.x, head.y + 0.85 + Math.sin(time * 5) * 0.06, 0);
+      const s = 1 + 0.6 * highlight;
+      this.marker.scale.set(s, s, 1);
+      this.marker.position.set(head.x, head.y + 0.85 + 0.3 * highlight + Math.sin(time * 5) * 0.06, 0);
+    }
+    if (this.halo) {
+      // Pulsing ring on the ground under the player while the grid is crowded.
+      const mat = this.halo.material as THREE.MeshBasicMaterial;
+      mat.opacity = highlight * (0.45 + 0.25 * Math.sin(time * 6));
+      this.halo.visible = highlight > 0.01;
+      const ground = Math.min(bike.rear.getPosition().y, bike.front.getPosition().y) - BIKE_WHEEL_R + 0.02;
+      this.halo.position.set(p.x, ground, 0);
+      const r = 1 + 0.08 * Math.sin(time * 6);
+      this.halo.scale.set(r, r, r);
     }
   }
 }
@@ -1189,7 +1221,9 @@ export class Renderer3D {
     if (stars) stars.position.set(cam.x, cam.y, -far + 20);
 
     const live = new Set<BikePose>();
-    const playerX = riders.find((r) => r.isPlayer)?.bike.chassis.getPosition().x ?? Infinity;
+    const playerView = riders.find((r) => r.isPlayer);
+    const playerX = playerView?.bike.chassis.getPosition().x ?? Infinity;
+    const startPhase = playerView?.highlight ?? 0;
     riders.forEach((r, i) => {
       live.add(r.bike);
       let m = this.bikes.get(r.bike);
@@ -1199,9 +1233,14 @@ export class Renderer3D {
         this.bikes.set(r.bike, m);
         this.scene.add(m.root);
       }
-      m.update(r.bike, time);
-      // Rival name tags hide while they ride on top of the player, so only "ТЫ" shows there.
-      if (m.tag) m.tag.visible = Math.abs(r.bike.chassis.getPosition().x - playerX) > NEAR_PLAYER;
+      m.update(r.bike, time, r.highlight ?? 0);
+      if (!r.isPlayer) {
+        // Near the player (and on the start grid) rivals and the ghost fade out further and
+        // drop their name tags, so the only solid, labelled rider there is the player.
+        const near = Math.abs(r.bike.chassis.getPosition().x - playerX) < NEAR_PLAYER;
+        m.setFade((1 - 0.6 * startPhase) * (near ? 0.5 : 1));
+        if (m.tag) m.tag.visible = !near && startPhase < 0.5;
+      }
     });
     for (const [bike, m] of this.bikes)
       if (!live.has(bike)) {
@@ -1212,6 +1251,7 @@ export class Renderer3D {
           if (mesh.geometry && mesh.geometry !== rodGeo) mesh.geometry.dispose();
         });
         if (m.tag) disposeTree(m.tag);
+        m.fadeMats.forEach((mat) => mat.dispose());
         this.bikes.delete(bike);
       }
 

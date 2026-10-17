@@ -10,11 +10,6 @@ export type Mission =
   | { kind: "clean" };
 
 export const MISSIONS: Record<string, Mission[]> = {
-  canyon: [
-    { kind: "wheelie", seconds: 3 },
-    { kind: "air", seconds: 2 },
-    { kind: "place", place: 3 },
-  ],
   forest: [
     { kind: "backflips", count: 1 },
     { kind: "clean" },

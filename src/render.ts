@@ -22,6 +22,7 @@ const C = {
 export interface RiderView {
   bike: BikePose;
   ghost?: boolean; // replay of the player's best run: drawn see-through
+  highlight?: number; // 0..1: spotlight on the player at the start
   look: Look;
   isPlayer: boolean;
 }
@@ -71,29 +72,58 @@ export class Renderer {
     this.ground(cam, track, theme);
     // Rivals are see-through and labelled (unless right on top of the player); the player
     // is drawn last, on top, with the "ТЫ" marker.
-    const playerX = riders.find((r) => r.isPlayer)?.bike.chassis.getPosition().x ?? Infinity;
+    const player = riders.find((r) => r.isPlayer);
+    const playerX = player?.bike.chassis.getPosition().x ?? Infinity;
+    const startPhase = player?.highlight ?? 0;
     for (const r of riders) {
       if (r.isPlayer) continue;
       const x = this.sx(cam, r.bike.chassis.getPosition().x);
       if (x < -100 || x > this.w + 100) continue;
-      ctx.globalAlpha = r.ghost ? 0.35 : 0.5;
+      const near = Math.abs(r.bike.chassis.getPosition().x - playerX) < 3;
+      ctx.globalAlpha = (r.ghost ? 0.35 : 0.5) * (1 - 0.6 * startPhase) * (near ? 0.5 : 1);
       this.bike(cam, r.bike, r.look);
       ctx.globalAlpha = 1;
-      if (Math.abs(r.bike.chassis.getPosition().x - playerX) > 2.2) this.nameTag(cam, r);
+      if (!near && startPhase < 0.5) this.nameTag(cam, r);
     }
     for (const r of riders)
       if (r.isPlayer) {
+        if (startPhase > 0.01) this.spotlight(cam, r, time, startPhase);
         this.bike(cam, r.bike, r.look);
-        this.playerMarker(cam, r, time);
+        this.playerMarker(cam, r, time, startPhase);
       }
   }
 
+  // Pulsing yellow ring on the ground under the player on the start grid.
+  private spotlight(cam: Camera, r: RiderView, time: number, k: number) {
+    const { ctx } = this;
+    const p = r.bike.chassis.getPosition();
+    const ground = Math.min(r.bike.rear.getPosition().y, r.bike.front.getPosition().y) - 0.34;
+    const x = this.sx(cam, p.x);
+    const y = this.sy(cam, ground);
+    const pulse = 1 + 0.08 * Math.sin(time * 6);
+    ctx.save();
+    ctx.globalAlpha = k * (0.45 + 0.25 * Math.sin(time * 6));
+    ctx.strokeStyle = "#ffd21f";
+    ctx.lineWidth = Math.max(3, cam.ppm * 0.18);
+    ctx.beginPath();
+    ctx.ellipse(x, y, 1.1 * cam.ppm * pulse, 0.22 * cam.ppm * pulse, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Yellow "ТЫ" arrow bobbing over the player's helmet.
-  private playerMarker(cam: Camera, r: RiderView, time: number) {
+  private playerMarker(cam: Camera, r: RiderView, time: number, k = 0) {
     const { ctx } = this;
     const head = r.bike.chassis.getWorldPoint(RIDER_HEAD);
-    const x = this.sx(cam, head.x);
-    const y = this.sy(cam, head.y) - RIDER_HEAD_R * cam.ppm - 14 + Math.sin(time * 5) * 3;
+    const hx = this.sx(cam, head.x);
+    const hy = this.sy(cam, head.y) - RIDER_HEAD_R * cam.ppm - 14 + Math.sin(time * 5) * 3;
+    // Bigger on the start grid; drawn around (0,0) and scaled.
+    const s = 1 + 0.6 * k;
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.scale(s, s);
+    const x = 0;
+    const y = 0;
     ctx.fillStyle = "#ffd21f";
     ctx.strokeStyle = "#1a1a1a";
     ctx.lineWidth = 2;
@@ -109,6 +139,7 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ТЫ", x, y - 21);
+    ctx.restore();
   }
 
   private nameTag(cam: Camera, r: RiderView) {

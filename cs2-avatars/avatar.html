@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  svg { display: block; width: 512px; height: 512px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const params = new URLSearchParams(location.search);
+const nick = params.get('nick') || 'menopay3a';
+const variant = params.get('v') || 't';
+
+const themes = {
+  t: {
+    bgIn: '#ffb347', bgOut: '#4a1f05',
+    scarf: '#c8102e', scarfDark: '#8a0a1f', scarfDot: '#fff3d6',
+    dress: '#2d6a3e', dressDot: '#f6f1d0',
+    accent: '#ffb000', item: 'pin'
+  },
+  ct: {
+    bgIn: '#6fb7ff', bgOut: '#0a1c3a',
+    scarf: '#1d4fa8', scarfDark: '#0f2f6e', scarfDot: '#ffd23f',
+    dress: '#7b2557', dressDot: '#ffd7ec',
+    accent: '#5fd0ff', item: 'pan'
+  },
+  duo: {
+    bgIn: '#ffb347', bgOut: '#4a1f05', bgIn2: '#6fb7ff', bgOut2: '#0a1c3a',
+    scarf: '#c8102e', scarfDark: '#8a0a1f', scarfDot: '#fff3d6',
+    dress: '#2d6a3e', dressDot: '#f6f1d0',
+    accent: '#ffb000', accent2: '#5fd0ff', item: 'pin'
+  }
+};
+const nick2 = params.get('nick2');
+const c = themes[variant] || themes.t;
+const skin = '#f4c3a0', skinShade = '#e0a07c', blush = '#ff6f7d';
+
+const rollingPin = `
+  <g transform="rotate(-18 256 405)">
+    <rect x="96" y="388" width="34" height="22" rx="10" fill="#a8652e" stroke="#2a1405" stroke-width="5"/>
+    <rect x="382" y="388" width="34" height="22" rx="10" fill="#a8652e" stroke="#2a1405" stroke-width="5"/>
+    <rect x="124" y="378" width="264" height="42" rx="21" fill="#e2b072" stroke="#2a1405" stroke-width="6"/>
+    <rect x="140" y="386" width="230" height="8" rx="4" fill="#fff" opacity=".35"/>
+  </g>
+  <circle cx="150" cy="440" r="28" fill="${skin}" stroke="#2a1405" stroke-width="5"/>
+  <circle cx="360" cy="372" r="28" fill="${skin}" stroke="#2a1405" stroke-width="5"/>
+  <path d="M138 432 q12 -6 24 0 M140 446 q12 -6 22 0" stroke="${skinShade}" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M348 364 q12 -6 24 0 M350 378 q12 -6 22 0" stroke="${skinShade}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+
+const fryingPan = `
+  <g transform="translate(410 360) rotate(35)">
+    <rect x="-14" y="56" width="28" height="100" rx="12" fill="#5a3416" stroke="#111" stroke-width="5"/>
+    <circle r="64" fill="#2b2b2e" stroke="#111" stroke-width="7"/>
+    <circle r="48" fill="#3d3d42"/>
+    <path d="M-38 -20 a42 42 0 0 1 32 -22" stroke="#8a8a95" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M-14 16 l10 -6 l-2 12 z M16 -10 l8 -2 l-4 8 z" fill="#ffcf4a"/>
+  </g>
+  <circle cx="352" cy="430" r="28" fill="${skin}" stroke="#2a1405" stroke-width="5"/>
+  <path d="M340 422 q12 -6 24 0 M342 436 q12 -6 22 0" stroke="${skinShade}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+
+const bulletHole = (x, y, r) => `
+  <g opacity=".8">
+    <path d="M${x} ${y} l${-r*2.2} ${-r*0.8} M${x} ${y} l${r*1.9} ${-r*1.6} M${x} ${y} l${r*0.5} ${r*2.4} M${x} ${y} l${-r*1.6} ${r*1.5}"
+      stroke="#000" stroke-opacity=".35" stroke-width="2"/>
+    <circle cx="${x}" cy="${y}" r="${r}" fill="#1a1a1a" stroke="#fff" stroke-opacity=".25" stroke-width="2"/>
+  </g>`;
+
+const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="70%">
+      <stop offset="0" stop-color="${c.bgIn}"/>
+      <stop offset="1" stop-color="${c.bgOut}"/>
+    </radialGradient>
+    <pattern id="scarfDots" width="34" height="34" patternUnits="userSpaceOnUse" patternTransform="rotate(20)">
+      <circle cx="9" cy="9" r="5" fill="${c.scarfDot}"/>
+      <circle cx="26" cy="26" r="3" fill="${c.scarfDot}" opacity=".8"/>
+    </pattern>
+    <pattern id="dressDots" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="8" cy="8" r="4.5" fill="${c.dressDot}"/>
+      <circle cx="23" cy="23" r="4.5" fill="${c.dressDot}"/>
+    </pattern>
+    <radialGradient id="cheek" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="${blush}" stop-opacity=".7"/>
+      <stop offset="1" stop-color="${blush}" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity=".45"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  ${c.bgIn2 ? `
+  <defs>
+    <radialGradient id="bg2" cx="50%" cy="38%" r="70%">
+      <stop offset="0" stop-color="${c.bgIn2}"/>
+      <stop offset="1" stop-color="${c.bgOut2}"/>
+    </radialGradient>
+  </defs>
+  <path d="M330 0 L512 0 L512 512 L130 512 Z" fill="url(#bg2)"/>
+  <path d="M330 0 L130 512" stroke="#fff" stroke-opacity=".35" stroke-width="6"/>` : ''}
+  <g stroke="#000" stroke-opacity=".08" stroke-width="18">
+    <path d="M-40 120 L200 -60 M-40 260 L340 -60 M-40 400 L480 -60 M60 560 L600 120 M200 560 L600 260"/>
+  </g>
+  <!-- crosshair -->
+  <g stroke="#3dff6e" stroke-width="5" stroke-linecap="round" opacity=".85"${nick2 ? ' transform="translate(20 70)"' : ''}>
+    <line x1="430" y1="56" x2="430" y2="74"/><line x1="430" y1="98" x2="430" y2="116"/>
+    <line x1="400" y1="86" x2="418" y2="86"/><line x1="442" y1="86" x2="460" y2="86"/>
+  </g>
+  ${bulletHole(64, 92, 9)}
+  ${bulletHole(458, 300, 7)}
+  ${bulletHole(52, 330, 6)}
+
+  <g filter="url(#shadow)">
+    <!-- body -->
+    <ellipse cx="256" cy="540" rx="250" ry="190" fill="${c.dress}" stroke="#1b0d05" stroke-width="7"/>
+    <ellipse cx="256" cy="540" rx="250" ry="190" fill="url(#dressDots)"/>
+    <!-- shoulders of the scarf tails -->
+    <path d="M150 360 Q120 420 96 470 L190 440 Q200 400 214 372 Z" fill="${c.scarf}" stroke="#1b0d05" stroke-width="6"/>
+    <path d="M150 360 Q120 420 96 470 L190 440 Q200 400 214 372 Z" fill="url(#scarfDots)"/>
+
+    <!-- scarf back -->
+    <path d="M256 78 C 120 78 92 200 112 300 C 124 352 160 372 200 380 L312 380 C 352 372 388 352 400 300 C 420 200 392 78 256 78 Z"
+      fill="${c.scarf}" stroke="#1b0d05" stroke-width="7"/>
+    <path d="M256 78 C 120 78 92 200 112 300 C 124 352 160 372 200 380 L312 380 C 352 372 388 352 400 300 C 420 200 392 78 256 78 Z"
+      fill="url(#scarfDots)"/>
+
+    <!-- double chin -->
+    <ellipse cx="256" cy="368" rx="96" ry="34" fill="${skin}" stroke="#1b0d05" stroke-width="6"/>
+    <ellipse cx="256" cy="346" rx="110" ry="40" fill="${skin}" stroke="#1b0d05" stroke-width="6"/>
+    <!-- face -->
+    <ellipse cx="256" cy="262" rx="124" ry="104" fill="${skin}" stroke="#1b0d05" stroke-width="6"/>
+    <path d="M196 342 Q256 366 316 342" stroke="${skinShade}" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M206 366 Q256 384 306 366" stroke="${skinShade}" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <!-- fat cheeks -->
+    <circle cx="166" cy="296" r="54" fill="${skin}"/>
+    <circle cx="346" cy="296" r="54" fill="${skin}"/>
+    <path d="M116 268 Q110 330 160 350" stroke="#1b0d05" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M396 268 Q402 330 352 350" stroke="#1b0d05" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="172" cy="300" r="38" fill="url(#cheek)"/>
+    <circle cx="340" cy="300" r="38" fill="url(#cheek)"/>
+    <!-- wrinkles -->
+    <g stroke="${skinShade}" stroke-width="4" fill="none" stroke-linecap="round">
+      <path d="M164 240 l-16 -6 M164 252 l-18 2 M166 264 l-14 8"/>
+      <path d="M348 240 l16 -6 M348 252 l18 2 M346 264 l14 8"/>
+      <path d="M222 300 Q206 316 210 334 M290 300 Q306 316 302 334"/>
+    </g>
+
+    <!-- grey curls under the scarf -->
+    <g fill="#d9d9de" stroke="#7d7d88" stroke-width="3">
+      <circle cx="176" cy="172" r="16"/><circle cx="204" cy="160" r="17"/><circle cx="234" cy="154" r="17"/>
+      <circle cx="264" cy="153" r="17"/><circle cx="294" cy="157" r="17"/><circle cx="322" cy="166" r="16"/><circle cx="342" cy="182" r="13"/>
+    </g>
+
+    <!-- scarf front band over the forehead -->
+    <path d="M128 230 C 140 120 372 120 384 230 C 360 170 152 170 128 230 Z" fill="${c.scarf}" stroke="#1b0d05" stroke-width="6"/>
+    <path d="M128 230 C 140 120 372 120 384 230 C 360 170 152 170 128 230 Z" fill="url(#scarfDots)"/>
+    <path d="M150 196 C 200 150 312 150 362 196" stroke="${c.scarfDark}" stroke-width="5" fill="none" opacity=".6"/>
+
+    <!-- grumpy brows -->
+    <path d="M176 206 L238 222" stroke="#5a5a62" stroke-width="10" stroke-linecap="round"/>
+    <path d="M336 206 L274 222" stroke="#5a5a62" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- eyes -->
+    <ellipse cx="212" cy="246" rx="11" ry="9" fill="#1b0d05"/>
+    <ellipse cx="300" cy="246" rx="11" ry="9" fill="#1b0d05"/>
+    <circle cx="216" cy="243" r="3" fill="#fff"/><circle cx="304" cy="243" r="3" fill="#fff"/>
+    <path d="M196 238 Q212 230 228 238" stroke="#1b0d05" stroke-width="5" fill="none"/>
+    <path d="M284 238 Q300 230 316 238" stroke="#1b0d05" stroke-width="5" fill="none"/>
+    <!-- bags under the eyes -->
+    <path d="M198 262 Q212 270 226 262 M286 262 Q300 270 314 262" stroke="${skinShade}" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+    <!-- glasses -->
+    <g fill="#ffffff" fill-opacity=".18" stroke="#2a1a10" stroke-width="7">
+      <circle cx="212" cy="248" r="34"/><circle cx="300" cy="248" r="34"/>
+    </g>
+    <path d="M246 246 Q256 238 266 246" stroke="#2a1a10" stroke-width="7" fill="none"/>
+    <path d="M178 244 L140 236 M334 244 L372 236" stroke="#2a1a10" stroke-width="6"/>
+    <path d="M192 232 l10 -10 M280 232 l10 -10" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+
+    <!-- nose -->
+    <ellipse cx="256" cy="284" rx="22" ry="19" fill="#f0a88a" stroke="#1b0d05" stroke-width="5"/>
+    <circle cx="249" cy="278" r="5" fill="#fff" opacity=".6"/>
+
+    <!-- mole with a hair -->
+    <circle cx="330" cy="318" r="6" fill="#5b3015"/>
+    <path d="M330 312 q4 -10 10 -12" stroke="#1b0d05" stroke-width="2" fill="none"/>
+
+    <!-- smirk with a gold tooth -->
+    <path d="M214 318 Q252 346 300 314 Q290 336 256 340 Q228 340 214 318 Z" fill="#7a1525" stroke="#1b0d05" stroke-width="5" stroke-linejoin="round"/>
+    <rect x="262" y="320" width="13" height="12" rx="2" fill="#ffcc33" stroke="#8a6200" stroke-width="2"/>
+    <rect x="240" y="322" width="12" height="10" rx="2" fill="#fff8e8"/>
+
+    <!-- scarf knot under the chin -->
+    <path d="M232 372 L204 410 L244 398 Z" fill="${c.scarf}" stroke="#1b0d05" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M280 372 L312 406 L270 398 Z" fill="${c.scarf}" stroke="#1b0d05" stroke-width="5" stroke-linejoin="round"/>
+    <circle cx="256" cy="384" r="18" fill="${c.scarfDark}" stroke="#1b0d05" stroke-width="5"/>
+
+    <!-- gamer headset -->
+    <path d="M118 250 C 110 120 180 76 256 76 C 332 76 402 120 394 250" stroke="#151518" stroke-width="16" fill="none" stroke-linecap="round"/>
+    <path d="M140 150 C 180 96 332 96 372 150" stroke="${c.accent}" stroke-width="4" fill="none" opacity=".9"/>
+    <rect x="94" y="214" width="44" height="86" rx="18" fill="#222226" stroke="#0a0a0a" stroke-width="5"/>
+    <rect x="374" y="214" width="44" height="86" rx="18" fill="#222226" stroke="#0a0a0a" stroke-width="5"/>
+    <rect x="104" y="232" width="10" height="50" rx="5" fill="${c.accent}"/>
+    <rect x="398" y="232" width="10" height="50" rx="5" fill="${c.accent}"/>
+    <path d="M120 296 Q130 340 200 330" stroke="#151518" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <ellipse cx="204" cy="329" rx="11" ry="9" fill="#151518"/>
+
+    ${c.item === 'pan' ? fryingPan : rollingPin}
+  </g>
+
+  ${nick2 ? plate(8, nick, c.accent) + plate(444, nick2, c.accent2 || c.accent) : plate(440, nick, c.accent)}
+</svg>`;
+
+function plate(y, text, accent) {
+  return `
+  <g filter="url(#shadow)">
+    <rect x="26" y="${y}" width="460" height="60" rx="12" fill="#101014" stroke="${accent}" stroke-width="5"/>
+  </g>
+  <text x="256" y="${y + 47}" text-anchor="middle" textLength="${Math.min(420, text.length * 50)}" lengthAdjust="spacingAndGlyphs"
+    font-family="Impact, 'Arial Black', sans-serif" font-size="48" fill="#ffffff" stroke="#000" stroke-width="2" paint-order="stroke"
+    letter-spacing="1">${text}</text>`;
+}
+
+document.getElementById('root').innerHTML = svg;
+</script>
+</body>
+</html>
