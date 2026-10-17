@@ -5,7 +5,7 @@ import { POINTS, PANELS, type Role, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
 import { Dust } from "./dust.ts";
 import { type Camera, type RiderView, riderPose } from "./render.ts";
-import { type Layer, THEMES, type Theme, paintLayer } from "./scenery.ts";
+import { FOREGROUND, type Layer, STRIP, THEMES, type Theme, groundColor, paintForeground, paintLayer } from "./scenery.ts";
 import { type Track, groundY, rng } from "./track.ts";
 
 // 3D renderer: same physics and camera as the 2D one, drawn MSM3-style as a 2.5D scene.
@@ -19,10 +19,8 @@ const LANES = [0.7, -0.15, -0.85, -1.45]; // player in front, rivals behind
 const GHOST_LANE = 0.3; // just behind the player
 const NEAR_PLAYER = 3; // m: closer than this, rivals fade further and hide their tags
 const BIKE_WHEEL_R = 0.34;
-const LAYER_W = 4096;
-const LAYER_H = 512;
-const LAYER_BASE = 400; // baseline row in the layer canvas
-const LAYER_AMP = 360; // tallest feature in px
+const { w: LAYER_W, h: LAYER_H, base: LAYER_BASE, amp: LAYER_AMP } = STRIP; // painted strip size
+const FG_DIST = 9; // foreground strip: meters in front of the camera
 
 type P2 = [number, number];
 
@@ -468,7 +466,7 @@ function buildBackdrop(track: Track, theme: Theme, group: THREE.Group) {
   theme.layers.forEach((L: Layer, i) => {
     // Parallax p means the layer scrolls p times as fast as the track: at distance REF_D / p.
     // Near layers are pushed back behind the ground strip.
-    const z = -Math.max(REF_D / L.parallax - REF_D, 34 + i * 6);
+    const z = -Math.min(820, Math.max(REF_D / L.parallax - REF_D, 34 + i * 6));
     const dist = REF_D - z;
     const viewH = 12 * (dist / REF_D); // world height of the screen at that depth
     const amp = L.amp * viewH;
@@ -479,21 +477,49 @@ function buildBackdrop(track: Track, theme: Theme, group: THREE.Group) {
     const width = x1 - x0 + halfW * 2;
     const h = LAYER_H * mPerPx;
 
-    const tex = texture(paintLayer(L, LAYER_W, LAYER_H, LAYER_BASE, LAYER_AMP), false);
+    const tex = texture(paintLayer(L, theme), false);
     tex.wrapS = THREE.RepeatWrapping;
     tex.repeat.set(width / period, 1);
+    // The strips carry their own aerial haze, so scene fog stays off them.
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(width, h),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }),
     );
     const cx = (x0 + x1) / 2;
     plane.position.set(cx, baseY + (LAYER_BASE - LAYER_H / 2) * mPerPx, z);
+    if (L.drift) plane.userData.drift = (L.drift * viewH) / period; // texture repeats per second
     group.add(plane);
+    if (L.kind === "clouds") return;
     // Solid ground below the strip so nothing shows through underneath.
     const fillH = 400;
-    const fill = new THREE.Mesh(new THREE.PlaneGeometry(width, fillH), new THREE.MeshBasicMaterial({ color: L.color }));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(width, fillH), new THREE.MeshBasicMaterial({ color: groundColor(L, theme), fog: false }));
     fill.position.set(cx, baseY - (LAYER_H - LAYER_BASE) * mPerPx - fillH / 2 + 0.05, z - 0.01);
     group.add(fill);
+  });
+}
+
+// Halo around the sun with faint rays, drawn additively (black = no change).
+function sunGlow(color: string, rays: boolean) {
+  return canvas(256, 256, (ctx) => {
+    const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+    g.addColorStop(0, color);
+    g.addColorStop(0.25, color.replace(/[\d.]+\)$/, (a) => `${parseFloat(a) * 0.45})`));
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.globalCompositeOperation = "lighter";
+    for (let k = 0; rays && k < 14; k++) {
+      const a = (k / 14) * Math.PI * 2 + (k % 3) * 0.07;
+      const len = 70 + (k % 4) * 14;
+      const rg = ctx.createRadialGradient(128, 128, 10, 128, 128, len);
+      rg.addColorStop(0, "rgba(255,240,210,0.12)");
+      rg.addColorStop(1, "rgba(255,240,210,0)");
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.moveTo(128, 128);
+      ctx.arc(128, 128, len, a - 0.05, a + 0.05);
+      ctx.fill();
+    }
   });
 }
 
@@ -1289,6 +1315,9 @@ export class Renderer3D {
   bikes = new Map<BikePose, BikeModel>();
   dust = new Dust();
   dustPts = dustPoints(this.dust);
+  drifting: THREE.Mesh[] = []; // cloud strips
+  // Blurred grass along the bottom of the screen, riding with the camera (see draw()).
+  fg = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, fog: false, depthWrite: false }));
 
   constructor(canvasEl: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
@@ -1306,7 +1335,9 @@ export class Renderer3D {
     sc.near = 1;
     sc.far = 90;
     this.sun.shadow.bias = -0.0005;
-    this.scene.add(this.hemi, this.sun, this.sun.target, this.world, this.sky, this.dustPts);
+    this.fg.renderOrder = 10;
+    this.camera.add(this.fg);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.world, this.sky, this.dustPts, this.camera);
     this.resize();
   }
 
@@ -1341,6 +1372,7 @@ export class Renderer3D {
     this.sun.intensity = w.sunI;
     buildTrack(track, theme, this.world);
     buildBackdrop(track, theme, this.world);
+    this.drifting = this.world.children.filter((n): n is THREE.Mesh => !!n.userData.drift);
     this.dust.reset();
     // Dust takes the color of the dirt, dimmed at night.
     (this.dustPts.material as THREE.ShaderMaterial).uniforms.uColor.value.set(theme.track.lip).lerp(new THREE.Color("#fff4e0"), 0.35).multiplyScalar(theme.stars ? 0.65 : 1);
@@ -1348,8 +1380,19 @@ export class Renderer3D {
     if (theme.sun) {
       const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({ color: theme.sun.color, fog: false }));
       disc.name = "sun";
-      this.sky.add(disc);
+      // Glow with soft rays around the sun, added on top of the sky.
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(2, 2),
+        new THREE.MeshBasicMaterial({ map: texture(sunGlow(theme.sun.glow, !theme.stars), false), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }),
+      );
+      glow.name = "glow";
+      this.sky.add(glow, disc);
     }
+    const fgMat = this.fg.material as THREE.MeshBasicMaterial;
+    fgMat.map?.dispose();
+    fgMat.map = texture(paintForeground(theme), false);
+    fgMat.map.wrapS = THREE.RepeatWrapping;
+    fgMat.needsUpdate = true;
     if (theme.stars) {
       const rand = rng(5);
       const pos: number[] = [];
@@ -1384,8 +1427,28 @@ export class Renderer3D {
       sun.position.set(cam.x + (theme.sun.x * 2 - 1) * halfH * this.camera.aspect, cam.y + (1 - theme.sun.y * 2) * halfH, -far);
       sun.scale.setScalar(theme.sun.r * 2 * halfH);
     }
+    const glow = this.sky.getObjectByName("glow");
+    if (glow && sun) {
+      glow.position.copy(sun.position).setZ(-far + 1);
+      glow.scale.setScalar(sun.scale.x * 9);
+    }
     const stars = this.sky.getObjectByName("stars");
     if (stars) stars.position.set(cam.x, cam.y, -far + 20);
+    // Clouds drift; the foreground strip hugs the bottom of the view and scrolls faster
+    // than the track (by the stable base scale, so zooming does not slide it).
+    for (const m of this.drifting) (m.material as THREE.MeshBasicMaterial).map!.offset.x = (time * m.userData.drift) % 1;
+    const fgH = 2 * FG_DIST * TAN; // view height at that distance
+    const fgW = fgH * this.camera.aspect;
+    const fh = fgH * FOREGROUND.height;
+    this.fg.scale.set(fgW, fh, 1);
+    this.fg.position.set(0, -fgH / 2 + fh / 2, -FG_DIST);
+    const fgMap = (this.fg.material as THREE.MeshBasicMaterial).map;
+    if (fgMap) {
+      const img = fgMap.image as HTMLCanvasElement;
+      const tilePx = (img.width * (this.h * FOREGROUND.height)) / img.height; // one tile on screen
+      fgMap.repeat.set(this.w / tilePx, 1);
+      fgMap.offset.x = ((cam.x * this.basePpm() * FOREGROUND.parallax) / tilePx) % 1;
+    }
 
     const live = new Set<BikePose>();
     const playerView = riders.find((r) => r.isPlayer);

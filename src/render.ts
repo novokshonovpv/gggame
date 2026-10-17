@@ -2,7 +2,7 @@ import { type BikePose, type BodyPose, type ChassisPose, RIDER_HEAD, RIDER_HEAD_
 import { PANELS, POINTS, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import { Dust } from "./dust.ts";
 import type { Look } from "./race.ts";
-import { THEMES, type Theme, drawScenery } from "./scenery.ts";
+import { THEMES, type Theme, drawForeground, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
 
 const BAND = 1.0; // visual depth of the riding surface, meters
@@ -93,6 +93,7 @@ export class Renderer {
         this.bike(cam, r.bike, r.look);
         this.playerMarker(cam, r, time, startPhase);
       }
+    drawForeground(ctx, theme, { w: this.w, h: this.h, camX: cam.x, camY: cam.y, scale: this.basePpm(), time });
   }
 
   private dust = new Dust();

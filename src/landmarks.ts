@@ -78,10 +78,16 @@ function rect(ctx: Ctx, x: number, y: number, w: number, h: number, fill: string
   ctx.fillRect(x, y, w, h);
 }
 
-// A block with its right face catching the light.
+// Which side of the sky the sun is on; blocks light their face on that side.
+let lightLeft = false;
+export function setLight(left: boolean) {
+  lightLeft = left;
+}
+
+// A block with one face catching the light.
 function block(ctx: Ctx, x: number, y: number, w: number, h: number, c: string, lit = 0.3) {
   rect(ctx, x, y, w, h, c);
-  rect(ctx, x + w * (1 - lit), y, w * lit, h, tone(c, 0.12));
+  rect(ctx, lightLeft ? x : x + w * (1 - lit), y, w * lit, h, tone(c, 0.12));
 }
 
 function line(ctx: Ctx, x1: number, y1: number, x2: number, y2: number, color: string, width: number) {
@@ -136,7 +142,7 @@ const WARM = "rgba(255,214,150,0.8)";
 
 // Blend of two #rrggbb colors as #rrggbb: tints fixed materials (brick, bronze) toward the
 // layer's haze color, so far landmarks fade like the rest of their layer.
-function mix(c1: string, c2: string, t: number) {
+export function mix(c1: string, c2: string, t: number) {
   const p = (s: string) => {
     const n = parseInt(s.slice(1, 7), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
