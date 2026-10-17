@@ -232,7 +232,10 @@ class Game {
 
   renderAccount() {
     const c = this.cloud;
-    $("account").classList.toggle("hidden", !c.configured);
+    // Players never see Google sign-in: nicknames and records work on the anonymous account.
+    // It shows only with ?login in the address (for the owner) or once already signed in.
+    const showLogin = new URLSearchParams(location.search).has("login") || c.linked;
+    $("account").classList.toggle("hidden", !c.configured || !showLogin);
     let status = "";
     let button = "";
     if (c.status === "loading") status = "Сервер подключается…";
