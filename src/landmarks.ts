@@ -982,54 +982,121 @@ const DRAW: Record<MarkType, (ctx: Ctx, x: number, b: number, h: number, c: stri
     ctx.fill();
     rect(ctx, x - h * 0.26, b - h * 0.64, h * 0.52, h * 0.02, tone(stone, 0.2));
   },
-  smolenskWall(ctx, x, b, h, c, a) {
-    // The Smolensk fortress climbing the green bank up from the Dnieper: the red brick wall
-    // with its double row of loopholes, the Veselukha tower at the foot, a square tower on
-    // the slope, the 16-sided Gromovaya on the crest and a round corner tower, all under
-    // tall tent roofs of grey-brown planks with little lookouts on top.
-    const brick = mix("#a9513d", c, 0.2);
-    const roof = mix("#6e655a", c, 0.2);
-    const rise = (xx: number) => {
-      const t = Math.max(0, Math.min(1, (xx - (x - h * 1.0)) / (h * 1.5)));
-      return t * t * (3 - 2 * t);
+  smolenskWall(ctx, x, b, h, c) {
+    // After the photo of the Smolensk fortress from the meadow: a long, tall wall of warm
+    // ochre brick crowned with small square merlons, the wide round tower with narrow
+    // white-framed windows, a gallery of loopholes under the eaves and a tall cone of grey
+    // sheet metal, and square towers along the wall under grey pyramid roofs; trees behind.
+    const brick = mix("#cf8d5c", c, 0.12);
+    const metal = mix("#8f949a", c, 0.12);
+    const dark = tone(brick, -0.45);
+    const courses = "rgba(90,40,20,0.12)";
+    const ground = b;
+    const L = h * 1.45;
+    // Trees behind the wall.
+    for (let k = 0; k < 14; k++) {
+      const tx = x - L * 0.6 + k * h * 0.17 + Math.sin(k * 7.3) * h * 0.04;
+      const r = h * (0.07 + ((k * 37) % 5) * 0.012);
+      ctx.fillStyle = tone(c, k % 2 ? -0.08 : 0.02);
+      ctx.beginPath();
+      ctx.arc(tx, ground - h * 0.2 - r * 0.4, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // The wall: brick courses, a darker crown band, merlons, loopholes, white-stone plinth.
+    const wh = h * 0.2;
+    const wg = ctx.createLinearGradient(0, ground - wh, 0, ground);
+    wg.addColorStop(0, tone(brick, -0.06));
+    wg.addColorStop(0.15, brick);
+    wg.addColorStop(1, tone(brick, 0.06));
+    ctx.fillStyle = wg;
+    ctx.fillRect(x - L, ground - wh, L * 2, wh + 2);
+    for (let y = ground - wh + h * 0.02; y < ground; y += h * 0.012) rect(ctx, x - L, y, L * 2, Math.max(1, h * 0.002), courses);
+    rect(ctx, x - L, ground - wh, L * 2, h * 0.025, tone(brick, -0.12));
+    const mw = h * 0.018;
+    for (let m = x - L; m < x + L - mw; m += mw * 2.1) {
+      rect(ctx, m, ground - wh - h * 0.028, mw, h * 0.03, tone(brick, -0.05));
+      rect(ctx, m + mw, ground - wh - h * 0.028, Math.max(1, h * 0.002), h * 0.03, tone(brick, -0.25));
+    }
+    for (let m = x - L + h * 0.05; m < x + L; m += h * 0.2) rect(ctx, m, ground - wh * 0.55, h * 0.012, h * 0.03, dark);
+    rect(ctx, x - L, ground - h * 0.012, L * 2, h * 0.012, tone(brick, 0.15));
+
+    // Square towers along the wall: brick shaft, a gallery of openings, grey pyramid roof.
+    const square = (tx: number, w: number, bh: number, rh: number) => {
+      const top = ground - bh;
+      block(ctx, tx - w / 2, top, w, bh, brick, 0.32);
+      for (let y = top + h * 0.02; y < ground; y += h * 0.012) rect(ctx, tx - w / 2, y, w, Math.max(1, h * 0.002), courses);
+      rect(ctx, tx - w * 0.54, top, w * 1.08, h * 0.05, tone(brick, -0.04));
+      for (let k = 0; k < 4; k++) rect(ctx, tx - w * 0.42 + k * w * 0.25, top + h * 0.012, w * 0.1, h * 0.026, dark);
+      for (const t of [0.45, 0.7]) rect(ctx, tx - w * 0.04, top + bh * t, w * 0.08, h * 0.03, dark);
+      const ew = w * 0.62;
+      poly(ctx, [tx - ew, top + h * 0.002, tx, top - rh, tx + ew, top + h * 0.002], tone(metal, -0.12));
+      poly(ctx, [tx, top + h * 0.002, tx, top - rh, tx + ew, top + h * 0.002], tone(metal, 0.12));
+      line(ctx, tx, top - rh, tx, top - rh - h * 0.03, tone(metal, -0.4), Math.max(1, h * 0.003));
     };
-    const g = (xx: number) => b - h * 0.04 - h * 0.3 * rise(xx);
-    // The bank: grass with a lit crest and a path running up beside the wall.
-    const bank = ctx.createLinearGradient(0, b - h * 0.36, 0, b);
-    bank.addColorStop(0, tone(c, 0.18));
-    bank.addColorStop(1, tone(c, -0.02));
-    ctx.fillStyle = bank;
-    ctx.beginPath();
-    ctx.moveTo(x - h * 1.4, b + 2);
-    for (let xx = x - h * 1.4; xx <= x + h * 1.4; xx += h * 0.03) ctx.lineTo(xx, g(xx) + h * 0.015);
-    ctx.lineTo(x + h * 1.4, b + 2);
-    ctx.fill();
-    ctx.strokeStyle = tone(c, 0.35);
-    ctx.lineWidth = Math.max(1, h * 0.008);
-    ctx.beginPath();
-    for (let xx = x - h * 1.3; xx <= x + h * 0.6; xx += h * 0.03) ctx.lineTo(xx, g(xx) + h * 0.06 + Math.sin(xx / (h * 0.12)) * h * 0.01);
-    ctx.stroke();
-    fortWall(ctx, x - h * 1.25, x + h * 1.3, g, h * 0.19, brick, false, h);
-    // Shadowed arched recesses along the foot of the wall.
-    for (let xx = x - h * 1.18; xx < x + h * 1.25; xx += h * 0.16) arch(ctx, xx, g(xx) - h * 0.025, h * 0.055, h * 0.08, tone(brick, -0.35));
-    const lookout = (tx: number, apex: number, w: number) => {
-      block(ctx, tx - w / 2, apex + h * 0.035, w, h * 0.045, tone(roof, 0.05));
-      rect(ctx, tx - w * 0.35, apex + h * 0.045, w * 0.7, h * 0.016, tone(roof, -0.45));
-      poly(ctx, [tx - w * 0.65, apex + h * 0.038, tx, apex - h * 0.04, tx + w * 0.65, apex + h * 0.038], roof);
-      line(ctx, tx, apex - h * 0.04, tx, apex - h * 0.07, tone(roof, -0.3), Math.max(1, h * 0.004));
-      poly(ctx, [tx, apex - h * 0.07, tx + h * 0.028, apex - h * 0.063, tx, apex - h * 0.056], "#d9b44a");
-    };
-    // Veselukha at the foot, with its gate.
-    const vx = x - h * 0.98;
-    lookout(vx, fortTower(ctx, vx, g(vx), h * 0.18, h * 0.38, h * 0.24, brick, roof, false, h), h * 0.06);
-    arch(ctx, vx, g(vx), h * 0.07, h * 0.12, tone(brick, -0.6));
-    const sx = x - h * 0.3;
-    lookout(sx, fortTower(ctx, sx, g(sx), h * 0.15, h * 0.33, h * 0.2, brick, roof, false, h), h * 0.05);
-    // Gromovaya: taller, faceted, with the museum's lit windows.
-    const gx = x + h * 0.42;
-    lookout(gx, fortTower(ctx, gx, g(gx), h * 0.2, h * 0.48, h * 0.2, brick, roof, true, h), h * 0.07);
-    for (const t of [0.18, 0.3]) glowDot(ctx, gx + h * 0.045, g(gx) - h * t, Math.max(1, h * 0.005), a);
-    fortTower(ctx, x + h * 1.12, g(x + h * 1.12), h * 0.16, h * 0.3, h * 0.17, brick, roof, true, h);
+    square(x + h * 0.6, h * 0.12, h * 0.27, h * 0.15);
+    square(x + h * 1.25, h * 0.1, h * 0.24, h * 0.13);
+
+    // The great round tower.
+    const rx = x - h * 0.85;
+    const w = h * 0.44;
+    const bh = h * 0.5;
+    const top = ground - bh;
+    const tg = ctx.createLinearGradient(rx - w / 2, 0, rx + w / 2, 0);
+    tg.addColorStop(0, tone(brick, -0.2));
+    tg.addColorStop(0.35, tone(brick, -0.04));
+    tg.addColorStop(0.7, tone(brick, 0.12));
+    tg.addColorStop(1, tone(brick, 0.02));
+    ctx.fillStyle = tg;
+    ctx.fillRect(rx - w / 2, top, w, bh);
+    for (let y = top + h * 0.02; y < ground; y += h * 0.012) rect(ctx, rx - w / 2, y, w, Math.max(1, h * 0.002), courses);
+    for (let k = -3; k <= 3; k++) {
+      const fx = rx + (w / 2) * Math.sin((k / 8) * Math.PI);
+      rect(ctx, fx, top + h * 0.1, Math.max(1, h * 0.002), bh - h * 0.12, `rgba(90,40,20,${0.08 + Math.abs(k) * 0.02})`);
+    }
+    rect(ctx, rx - w / 2, ground - h * 0.03, w, h * 0.03, tone(brick, 0.14));
+    // Narrow white-framed windows.
+    for (const [fx, fy] of [
+      [-0.3, 0.42],
+      [0.05, 0.5],
+      [0.32, 0.4],
+      [-0.1, 0.25],
+    ]) {
+      const wx = rx + fx * w;
+      const wy = top + bh * fy;
+      arch(ctx, wx, wy, h * 0.026, h * 0.05, "#f0ebe2");
+      arch(ctx, wx, wy - h * 0.004, h * 0.013, h * 0.038, dark);
+    }
+    // Gallery under the eaves: a slightly wider band with two rows of loopholes.
+    const gw = w * 1.04;
+    const gh = h * 0.085;
+    const gg = ctx.createLinearGradient(rx - gw / 2, 0, rx + gw / 2, 0);
+    gg.addColorStop(0, tone(brick, -0.16));
+    gg.addColorStop(0.7, tone(brick, 0.1));
+    gg.addColorStop(1, tone(brick, 0));
+    ctx.fillStyle = gg;
+    ctx.fillRect(rx - gw / 2, top - gh, gw, gh + 1);
+    rect(ctx, rx - gw / 2, top, gw, h * 0.008, tone(brick, -0.25));
+    for (let k = 0; k < 11; k++) {
+      const u = (k + 0.5) / 11;
+      const ox = rx - gw / 2 + u * gw;
+      const sq = Math.sin(u * Math.PI); // openings narrow towards the sides of the drum
+      rect(ctx, ox - h * 0.009 * sq, top - gh + h * 0.012, h * 0.018 * sq, h * 0.03, dark);
+      rect(ctx, ox - h * 0.006 * sq, top - h * 0.03, h * 0.012 * sq, h * 0.02, dark);
+    }
+    // Tall cone of grey sheet metal with seams, a shadow under the eave, finial and flag.
+    const ew = gw * 0.55;
+    const eave = top - gh;
+    const apex = eave - h * 0.44;
+    const cg = ctx.createLinearGradient(rx - ew, 0, rx + ew, 0);
+    cg.addColorStop(0, tone(metal, -0.25));
+    cg.addColorStop(0.6, tone(metal, 0.18));
+    cg.addColorStop(1, tone(metal, 0));
+    ctx.fillStyle = cg;
+    poly(ctx, [rx - ew, eave + h * 0.004, rx, apex, rx + ew, eave + h * 0.004]);
+    for (let k = -5; k <= 5; k++) line(ctx, rx + (k / 5.5) * ew, eave, rx, apex, `rgba(40,45,50,${0.12 + Math.abs(k) * 0.015})`, Math.max(1, h * 0.002));
+    rect(ctx, rx - ew, eave, ew * 2, h * 0.01, "rgba(30,25,20,0.35)");
+    line(ctx, rx, apex, rx, apex - h * 0.05, tone(metal, -0.4), Math.max(1, h * 0.004));
+    poly(ctx, [rx, apex - h * 0.05, rx + h * 0.03, apex - h * 0.044, rx, apex - h * 0.036], tone(metal, 0.2));
   },
   smolenskTown(ctx, x, b, h, c) {
     // Smolensk on its hills across the river: old two- and three-storey houses with red,

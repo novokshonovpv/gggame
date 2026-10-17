@@ -6,7 +6,8 @@
 export type BikeClass = "125" | "250" | "300" | "450";
 
 export interface BikeSpec {
-  id: BikeClass;
+  id: BikeClass; // stable key for saves and leaderboards
+  label: string; // class as shown to players
   name: string;
   brand: string; // big lettering on the shrouds
   model: string; // small lettering on the radiator scoop
@@ -21,10 +22,10 @@ export interface BikeSpec {
 }
 
 export const BIKES: BikeSpec[] = [
-  { id: "125", name: "Шмель 125", brand: "ШМЕЛЬ", model: "125", desc: "Лёгкий двухтактник: слабее, но вертится в воздухе быстрее всех", price: 1200, power: 0.9, airSpin: 0.6, twoStroke: true, reward: 0.9, points: 0.9, timeFactor: 1.05 },
-  { id: "250", name: "BSE T5 250", brand: "BSE", model: "T5", desc: "Надёжный четырёхтактник, с него начинают все", price: 0, power: 1, airSpin: 0, twoStroke: false, reward: 1, points: 1, timeFactor: 1 },
-  { id: "300", name: "Буран 300", brand: "БУРАН", model: "300", desc: "Злой двухтактник: мощный подхват, легко встаёт на заднее", price: 8000, power: 1.1, airSpin: -0.15, twoStroke: true, reward: 1.15, points: 1.2, timeFactor: 0.95 },
-  { id: "450", name: "Зверь 450", brand: "ЗВЕРЬ", model: "450", desc: "Самый быстрый и тяжёлый: нужна точная работа корпусом", price: 20000, power: 1.2, airSpin: -0.35, twoStroke: false, reward: 1.3, points: 1.4, timeFactor: 0.91 },
+  { id: "125", label: "125", name: "BSE EX 125", brand: "BSE", model: "EX", desc: "Лёгкий и вёрткий: слабее, но быстрее всех вращается в воздухе", price: 1200, power: 0.9, airSpin: 0.6, twoStroke: false, reward: 0.9, points: 0.9, timeFactor: 1.05 },
+  { id: "250", label: "250", name: "BSE Z3 250", brand: "BSE", model: "Z3", desc: "Надёжный четырёхтактник, с него начинают все", price: 0, power: 1, airSpin: 0, twoStroke: false, reward: 1, points: 1, timeFactor: 1 },
+  { id: "300", label: "300", name: "BSE T5 300", brand: "BSE", model: "T5", desc: "Мощный четырёхтактный эндуро: больше тяги на подъёмах и в разгоне", price: 8000, power: 1.1, airSpin: -0.15, twoStroke: false, reward: 1.15, points: 1.2, timeFactor: 0.95 },
+  { id: "450", label: "300 2T", name: "BSE 2T 300", brand: "BSE", model: "2T", desc: "Двухтактный и самый мощный: резкий подхват, нужна точная работа корпусом", price: 20000, power: 1.2, airSpin: -0.35, twoStroke: true, reward: 1.3, points: 1.4, timeFactor: 0.91 },
 ];
 
 export const bikeSpec = (id: string) => BIKES.find((b) => b.id === id) ?? BIKES[1];
@@ -149,11 +150,11 @@ export const gearItem = (id: string) => GEAR.find((x) => x.id === id);
 //   each new star (5):     40 × the same multipliers (40 … 240)
 //   first win on a level: 150 × the same (150 … 900), which also opens the next level
 //   new personal best:     20 × the same
-// Bigger classes pay more (125 ×0.9, 300 ×1.15, 450 ×1.3).
+// Bigger classes pay more (125 ×0.9, 300 ×1.15, 300 2T ×1.3).
 // A full first pass over the 13 tracks earns about 5.9k on Железо, 9.4k on Бронза,
 // 14.6k on Серебро, 23k on Золото and 35k on Профи: about 88k in all. Everything in the
 // shop costs about 55k (bikes 29k, upgrades 11k, paints 3k, gear 9k), so after Серебро
-// you can afford the 300 and some upgrades, and the 450 around Золото.
+// you can afford the T5 300 and some upgrades, and the 2T 300 around Золото.
 
 export const PLACE_REWARD = [100, 60, 40, 20];
 export const STAR_REWARD = 40;

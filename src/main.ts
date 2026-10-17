@@ -350,7 +350,7 @@ class Game {
         card.className = "bike-card" + (sel ? " sel" : "");
         card.disabled = !owned && p.coins < b.price;
         card.innerHTML =
-          `<span class="cls">${b.id}</span><b>${b.name}</b><small>${b.desc}</small>` +
+          `<span class="cls">${b.label}</span><b>${b.name}</b><small>${b.desc}</small>` +
           `<span class="stat">Мощность ${bar(b.power / maxPower)}</span>` +
           `<span class="stat">Вращение ${bar((4.3 + b.airSpin) / 4.9)}</span>` +
           `<span class="stat">Очки ×${b.points} · монеты ×${b.reward}</span>` +
@@ -446,7 +446,7 @@ class Game {
     };
     fill("board-track", TRACKS.map((t) => [t.id, t.name]), this.track.id);
     fill("board-level", DIFFICULTIES.map((d) => [String(d.id), d.name]), String(this.profile.difficulty));
-    fill("board-class", BIKES.map((b) => [b.id, `Класс ${b.id}`]), this.profile.bike);
+    fill("board-class", BIKES.map((b) => [b.id, `Класс ${b.label}`]), this.profile.bike);
     this.ui();
     void this.renderBoard();
   }

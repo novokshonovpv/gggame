@@ -29,7 +29,7 @@ export interface Look {
   model?: string; // lettering on the radiator scoop
 }
 
-// Stock bike: BSE T5 in yellow with black graphics and a black frame.
+// Stock bike: the BSE Z3 250 in yellow with black graphics and a black frame (body traced from a T5).
 export const PLAYER_LOOK: Look = {
   name: "Ты",
   number: "7",
