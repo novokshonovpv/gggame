@@ -143,9 +143,27 @@ export class Cloud {
     }
     this.busy = true;
     this.set("syncing");
-    const { fs, db } = this.sdk;
-    const uid = this.user.uid;
     try {
+      // A request can hang (seen right after the very first anonymous sign-in): give up
+      // after a while so the next race or purchase gets to sync again.
+      await Promise.race([this.syncOnce(), new Promise((_, reject) => setTimeout(() => reject(new Error("sync timeout")), 20000))]);
+      this.lastSync = Date.now();
+      this.set(this.linked ? "synced" : "signed-out", true);
+    } catch {
+      this.set("error");
+    } finally {
+      this.busy = false;
+      if (this.again) {
+        this.again = false;
+        void this.sync();
+      }
+    }
+  }
+
+  private async syncOnce() {
+    const { fs, db } = this.sdk!;
+    const uid = this.user!.uid;
+    {
       const ref = fs.doc(db, "users", uid);
       const snap = await fs.getDoc(ref);
       const remote = snap.exists() ? (snap.data() as RemoteDoc) : null;
@@ -178,16 +196,6 @@ export class Cloud {
 
       // JSON round-trip drops undefined fields, which Firestore rejects.
       await fs.setDoc(ref, JSON.parse(JSON.stringify({ ...merged, ghostTimes })));
-      this.lastSync = Date.now();
-      this.set(this.linked ? "synced" : "signed-out", true);
-    } catch {
-      this.set("error");
-    } finally {
-      this.busy = false;
-      if (this.again) {
-        this.again = false;
-        void this.sync();
-      }
     }
   }
 
