@@ -582,7 +582,32 @@ function span(m: THREE.Object3D, a: P2, b: P2, z: number, stretch = true) {
 // Spoked wheel with a knobby tyre: black rim, 16 spokes, wave brake disc on the camera side.
 const knobGeo = new THREE.BoxGeometry(0.05, 0.028, 0.12);
 const spokeGeo = new THREE.CylinderGeometry(0.0035, 0.0035, 1, 4);
-function wheelModel(r: number) {
+// Toothed sprocket in the xy plane, with lightening holes when it is big enough.
+function sprocketGeo(r: number, teeth: number) {
+  const s = new THREE.Shape();
+  for (let i = 0; i < teeth * 2; i++) {
+    const a = (i / (teeth * 2)) * Math.PI * 2;
+    const rr = i % 2 ? r : r * 0.9;
+    if (i) s.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    else s.moveTo(rr, 0);
+  }
+  if (r > 0.06)
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      const hole = new THREE.Path();
+      hole.absarc(Math.cos(a) * r * 0.56, Math.sin(a) * r * 0.56, r * 0.17, 0, Math.PI * 2, true);
+      s.holes.push(hole);
+    }
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.008, bevelEnabled: false });
+  g.translate(0, 0, -0.004);
+  return g;
+}
+
+// The chain runs on the camera side; the rear brake disc sits on the other side.
+const CHAIN_Z = 0.14; // outside the swingarm
+const FRONT_SPROCKET: P2 = [POINTS.pivot[0] + 0.06, POINTS.pivot[1] + 0.01]; // countershaft
+
+function wheelModel(r: number, rear = false) {
   const g = new THREE.Group();
   const tire = new THREE.Mesh(new THREE.TorusGeometry(r - 0.07, 0.066, 10, 32), mat("#1a1a1a"));
   const knobs = new THREE.InstancedMesh(knobGeo, mat("#222222"), 30);
@@ -612,8 +637,13 @@ function wheelModel(r: number) {
   hub.rotation.x = Math.PI / 2;
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.006, 10), mat("#c8ccd2"));
   disc.rotation.x = Math.PI / 2;
-  disc.position.z = 0.085;
+  disc.position.z = rear ? -0.085 : 0.085;
   g.add(hub, disc);
+  if (rear) {
+    const sprocket = new THREE.Mesh(sprocketGeo(0.105, 24), mat("#c3c8cf"));
+    sprocket.position.z = CHAIN_Z;
+    g.add(sprocket);
+  }
   const wheel = new THREE.Group();
   wheel.add(mergeStatic(g)); // spokes, rim, hub and disc as a few meshes
   return shadowed(wheel);
@@ -648,12 +678,14 @@ const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 class BikeModel {
   root = new THREE.Group();
   body = new THREE.Group();
-  rear = wheelModel(WHEEL_R.rear);
+  rear = wheelModel(WHEEL_R.rear, true);
   front = wheelModel(WHEEL_R.front);
   forkUpper: THREE.Mesh[] = [];
   forkLower: THREE.Mesh[] = [];
   forkGuard: THREE.Mesh[] = [];
   swing: THREE.Mesh[] = [];
+  chain: THREE.Mesh[] = [];
+  caliper = new THREE.Mesh(boxGeo, mat("#c9a227"));
   thighs: THREE.Mesh[];
   shins: THREE.Mesh[];
   uppers: THREE.Mesh[];
@@ -736,6 +768,29 @@ class BikeModel {
       this.swing.push(sw);
       b.add(up, low, guard, sw);
     }
+    // Chain: two runs between the sprockets that follow the swingarm; the front brake caliper
+    // rides on the fork leg. See update().
+    for (let k = 0; k < 2; k++) {
+      const run = rod(0.011, "#3a3a3f");
+      this.chain.push(run);
+      b.add(run);
+    }
+    this.caliper.scale.set(0.05, 0.1, 0.035);
+    b.add(this.caliper);
+    const cs = new THREE.Mesh(sprocketGeo(0.042, 13), mat("#9aa0a8"));
+    cs.position.set(FRONT_SPROCKET[0], FRONT_SPROCKET[1], CHAIN_Z);
+    st.add(cs);
+    // Muffler end cap and bar-end grips.
+    const cap0 = rod(0.052, "#2c2c30");
+    span(cap0, T(262, 428), T(214, 407), 0.16);
+    st.add(cap0);
+    for (const z of [-0.34, 0.34]) {
+      const grip = rod(0.024, "#141416");
+      grip.rotation.x = Math.PI / 2;
+      grip.scale.y = 0.12;
+      grip.position.set(POINTS.bar[0], POINTS.bar[1], z);
+      st.add(grip);
+    }
 
     // Rider: capsules with fixed bone lengths, posed by the same IK as in 2D.
     // Kit after the Leatt 3.5 Ride Kit (67moto catalogue): solid jersey with the white LEATT
@@ -766,6 +821,21 @@ class BikeModel {
     this.gloves = two(() => new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), mat(look.jerseyDark)));
     this.torso = cap(0.15, 0.4, jerseyM);
     this.torso.scale.z = 0.85;
+    // Hard elbow guards on the outside of the elbows and three alloy buckles on each boot.
+    this.uppers.forEach((u, i) => {
+      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat("#1b1b1d"));
+      guard.position.set(-0.01, 0.14, i ? 0.035 : -0.035);
+      guard.scale.set(1, 1.35, 0.9);
+      u.add(guard);
+    });
+    this.bootShafts.forEach((s, i) => {
+      for (const y of [-0.08, -0.01, 0.06]) {
+        const buckle = new THREE.Mesh(boxGeo, mat("#7f868f"));
+        buckle.position.set(0.035, y, i ? 0.08 : -0.08);
+        buckle.scale.set(0.1, 0.02, 0.025);
+        s.add(buckle);
+      }
+    });
 
     // Neck brace: an open ring around the neck (gap at the front) with a strut down the back.
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.03, 6, 20, Math.PI * 1.5), mat("#151517"));
@@ -796,7 +866,12 @@ class BikeModel {
     strap.rotation.x = Math.PI / 2;
     strap.position.y = 0.035;
     strap.scale.set(1.1, 0.92, 1);
-    this.helmet.add(shell, peak, chin, vent, frame, lens, strap);
+    // A glint across the goggle lens.
+    const glint = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.8 }));
+    glint.position.set(0.206, 0.05, 0.05);
+    glint.scale.set(0.004, 0.014, 0.08);
+    glint.rotation.x = 0.45;
+    this.helmet.add(shell, peak, chin, vent, frame, lens, strap, glint);
     b.add(
       ...this.thighs,
       ...this.shins,
@@ -818,10 +893,19 @@ class BikeModel {
     bse.rotation.z = 0.06;
     const t5 = decal(look, "T5", 0.12, 0.07);
     t5.position.set(...T(1020, 478), decalSide);
-    const side = decal(look, "BSE", 0.22, 0.06);
-    side.position.set(...T(470, 400), 0.155);
-    side.rotation.z = 0.03;
-    st.add(bse, t5, side);
+    st.add(bse, t5);
+    if (look.number) {
+      // On the plain plastic below the side panel graphic, clear of the rider's leg.
+      const plate = numberPlate(look.number, 0.17, 0.1);
+      plate.position.set(...T(515, 458), 0.183);
+      plate.rotation.z = -0.2;
+      st.add(plate);
+    } else {
+      const side = decal(look, "BSE", 0.22, 0.06);
+      side.position.set(...T(470, 400), 0.155);
+      side.rotation.z = 0.03;
+      st.add(side);
+    }
     for (const z of [-0.17, 0.17]) {
       const peg = new THREE.Mesh(boxGeo, mat("#9aa0a8"));
       peg.position.set(POINTS.peg[0], POINTS.peg[1], z);
@@ -915,6 +999,15 @@ class BikeModel {
       span(this.forkGuard[i], [fl.x + dx * 0.06, fl.y + dy * 0.06], [fl.x + dx * 0.32, fl.y + dy * 0.32], z * 1.15, false);
       span(this.swing[i], POINTS.pivot, [rl.x, rl.y], z * 0.95);
     });
+    // Chain runs: lines between the tops and bottoms of the two sprockets.
+    const [sx, sy] = FRONT_SPROCKET;
+    const ul = Math.hypot(rl.x - sx, rl.y - sy);
+    const [nx, ny] = [-(rl.y - sy) / ul, (rl.x - sx) / ul];
+    span(this.chain[0], [sx + nx * 0.042, sy + ny * 0.042], [rl.x + nx * 0.1, rl.y + ny * 0.1], CHAIN_Z);
+    span(this.chain[1], [sx - nx * 0.042, sy - ny * 0.042], [rl.x - nx * 0.1, rl.y - ny * 0.1], CHAIN_Z);
+    // The caliper trails the fork leg just above the axle.
+    this.caliper.position.set(fl.x + dx * 0.11 - dy * 0.06, fl.y + dy * 0.11 + dx * 0.06, 0.1);
+    this.caliper.rotation.z = Math.atan2(dy, dx) - Math.PI / 2;
 
     const pose = riderPose(bike.lean);
     const { hip, knee, foot, shoulder, elbow, hand, head, tilt } = pose;
@@ -1013,6 +1106,29 @@ function decal(look: Look, text: string, w: number, h: number) {
       ctx.strokeText(text, 256, H / 2, 500);
       ctx.fillStyle = fill;
       ctx.fillText(text, 256, H / 2, 500);
+    }),
+    false,
+  );
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }));
+}
+
+// Side number plate: white rounded plate with a black outline and a heavy italic number.
+function numberPlate(num: string, w: number, h: number) {
+  const tex = texture(
+    canvas(256, Math.round((256 * h) / w), (ctx) => {
+      const H = ctx.canvas.height;
+      ctx.fillStyle = "#f4f4f2";
+      ctx.strokeStyle = "#1b1b1d";
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.roundRect(6, 6, 244, H - 12, H * 0.22);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#141416";
+      ctx.font = `italic 900 ${Math.round(H * 0.74)}px 'Arial Black', system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(num, 128, H * 0.54, 210);
     }),
     false,
   );

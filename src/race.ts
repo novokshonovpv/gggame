@@ -23,11 +23,13 @@ export interface Look {
   accent?: string; // graphics on the shrouds and side panels
   frame?: string;
   boots?: string;
+  number?: string; // race number on the side plates
 }
 
 // Stock bike: BSE T5 in yellow with black graphics and a black frame.
 export const PLAYER_LOOK: Look = {
   name: "Ты",
+  number: "7",
   plastic: "#f4d10f",
   plasticDark: "#1b1b1d",
   accent: "#1b1b1d",
@@ -51,17 +53,17 @@ export const RIVALS: RivalSpec[] = [
   {
     power: 0.97,
     wobble: 0.3,
-    look: { name: "Шторм", plastic: "#e23b3b", plasticDark: "#1d1d20", accent: "#f2f2f2", frame: "#1d1d20", jersey: "#26262b", jerseyDark: "#141417", pants: "#2c2c30", helmet: "#e23b3b", visor: "#f2f2f2" },
+    look: { name: "Шторм", number: "23", plastic: "#e23b3b", plasticDark: "#1d1d20", accent: "#f2f2f2", frame: "#1d1d20", jersey: "#26262b", jerseyDark: "#141417", pants: "#2c2c30", helmet: "#e23b3b", visor: "#f2f2f2" },
   },
   {
     power: 0.9,
     wobble: 0.4,
-    look: { name: "Кобра", plastic: "#30b85a", plasticDark: "#1d1d20", accent: "#1d1d20", frame: "#2a2a2c", jersey: "#1d6b3a", jerseyDark: "#124827", pants: "#f0f0f0", helmet: "#f4f4f4", visor: "#30b85a" },
+    look: { name: "Кобра", number: "44", plastic: "#30b85a", plasticDark: "#1d1d20", accent: "#1d1d20", frame: "#2a2a2c", jersey: "#1d6b3a", jerseyDark: "#124827", pants: "#f0f0f0", helmet: "#f4f4f4", visor: "#30b85a" },
   },
   {
     power: 0.8,
     wobble: 0.5,
-    look: { name: "Ледок", plastic: "#f2f4f7", plasticDark: "#1e6fc4", accent: "#3a9cff", frame: "#3a9cff", jersey: "#f2f2f2", jerseyDark: "#c9d3dd", pants: "#2b4f7a", helmet: "#3a9cff", visor: "#f2f2f2" },
+    look: { name: "Ледок", number: "91", plastic: "#f2f4f7", plasticDark: "#1e6fc4", accent: "#3a9cff", frame: "#3a9cff", jersey: "#f2f2f2", jerseyDark: "#c9d3dd", pants: "#2b4f7a", helmet: "#3a9cff", visor: "#f2f2f2" },
   },
 ];
 

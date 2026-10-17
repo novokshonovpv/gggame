@@ -146,7 +146,7 @@ export function statsFor(p: Profile): BikeStats {
 
 export function lookFor(p: Profile): Look {
   const paint = PAINTS.find((x) => x.id === p.paint) ?? PAINTS[0];
-  return { ...paint.look, name: PLAYER_LOOK.name };
+  return { ...paint.look, name: PLAYER_LOOK.name, number: PLAYER_LOOK.number };
 }
 
 // Race payout: by finishing place, plus a bonus per mission completed for the first time.
