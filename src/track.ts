@@ -3,7 +3,7 @@ export interface Pt {
   y: number;
 }
 
-export type ThemeId = "canyon" | "forest" | "city" | "snow" | "dunes" | "stadium" | "volcano";
+export type ThemeId = "volgograd" | "ekaterinburg" | "moscow" | "sochi" | "makhachkala" | "kazan" | "spb";
 
 export interface Track {
   id: string;
@@ -190,7 +190,7 @@ export const TRACKS: Track[] = [
     .flat(8)
     .tabletop(3.4, 10)
     .rough(16, 0.3)
-    .build("canyon", "Каньон", "canyon", { laps: 2 }),
+    .build("canyon", "Волгоград", "volgograd", { laps: 2 }),
 
   new Builder(27)
     .flat(16)
@@ -219,7 +219,7 @@ export const TRACKS: Track[] = [
     .flat(6)
     .double(3.4, 13)
     .rough(14, 0.3)
-    .build("forest", "Лесная тропа", "forest", { laps: 2 }),
+    .build("forest", "Екатеринбург", "ekaterinburg", { laps: 2 }),
 
   new Builder(53)
     .flat(16)
@@ -248,7 +248,7 @@ export const TRACKS: Track[] = [
     .flat(4)
     .double(4, 17)
     .rough(12, 0.3)
-    .build("city", "Ночной город", "city"),
+    .build("city", "Москва", "moscow"),
 
   // Snow: slippery, long climbs and descents, step-downs.
   new Builder(71)
@@ -272,7 +272,7 @@ export const TRACKS: Track[] = [
     .slope(26, -6)
     .tabletop(3, 8)
     .rough(14, 0.3)
-    .build("snow", "Снежный перевал", "snow", { laps: 2, grip: 0.72, stars: 3 }),
+    .build("snow", "Сочи", "sochi", { laps: 2, grip: 0.72, stars: 3 }),
 
   // Dunes: huge smooth sand waves, long airtime, soft sand.
   new Builder(83)
@@ -293,7 +293,7 @@ export const TRACKS: Track[] = [
     .hill(6, 13, 28)
     .rhythm(4, 10, 2)
     .rough(12, 0.3)
-    .build("dunes", "Дюны", "dunes", { grip: 0.8, stars: 5 }),
+    .build("dunes", "Махачкала", "makhachkala", { grip: 0.8, stars: 5 }),
 
   // Stadium supercross: short, technical, three laps.
   new Builder(97)
@@ -314,9 +314,9 @@ export const TRACKS: Track[] = [
     .flat(3)
     .tabletop(2.4, 6)
     .flat(6)
-    .build("stadium", "Стадион", "stadium", { laps: 3, stars: 7 }),
+    .build("stadium", "Казань", "kazan", { laps: 3, stars: 7 }),
 
-  // Volcano: the hardest — big gaps, ledges and rough ash.
+  // St Petersburg: the hardest — big gaps, ledges and rough ground.
   new Builder(113)
     .flat(16)
     .double(3.4, 13)
@@ -334,7 +334,7 @@ export const TRACKS: Track[] = [
     .hill(7, 14, 30)
     .double(4.2, 18)
     .rough(12, 0.4)
-    .build("volcano", "Вулкан", "volcano", { stars: 10 }),
+    .build("volcano", "Санкт-Петербург", "spb", { stars: 10 }),
 ];
 
 // Ground height at x (linear interpolation between samples).

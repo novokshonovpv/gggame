@@ -1,9 +1,10 @@
+import { type Mark, drawMarks } from "./landmarks.ts";
 import type { ThemeId } from "./track.ts";
 
-// Procedural parallax backgrounds, one theme per track (after MSM3's locations:
-// desert canyon, mountain forest with a river, neon night city).
+// Procedural parallax backgrounds, one Russian city per track: its skyline landmarks and the
+// landscape around it (see landmarks.ts).
 
-type LayerKind = "ridge" | "hills" | "mesa" | "pines" | "buildings" | "puffs" | "rocks" | "water" | "stands";
+type LayerKind = "ridge" | "hills" | "mesa" | "pines" | "buildings" | "puffs" | "rocks" | "water" | "stands" | "marks";
 
 interface Layer {
   kind: LayerKind;
@@ -13,6 +14,8 @@ interface Layer {
   color: string;
   color2?: string; // highlight: snow caps, lit windows, strata
   seed: number;
+  marks?: Mark[]; // landmarks for kind "marks"
+  span?: number; // landmarks repeat every span x screen height
 }
 
 export interface Theme {
@@ -46,225 +49,100 @@ export interface Theme {
 }
 
 export const THEMES: Record<ThemeId, Theme> = {
-  canyon: {
-    sky: ["#d98a52", "#efb67a", "#f8dcb0"],
-    sun: { x: 0.78, y: 0.2, r: 0.07, color: "#fff1cf", glow: "rgba(255,226,170,0.45)" },
+  // Волгоград: закатная степь, Волга и Мамаев курган с «Родина-мать зовёт!».
+  volgograd: {
+    sky: ["#c9714a", "#eba56f", "#f7d8a8"],
+    sun: { x: 0.8, y: 0.22, r: 0.065, color: "#fff0cf", glow: "rgba(255,214,160,0.45)" },
     layers: [
-      { kind: "mesa", parallax: 0.08, base: 0.5, amp: 0.2, color: "#d39a6c", color2: "#c48a5e", seed: 3 },
-      { kind: "mesa", parallax: 0.2, base: 0.62, amp: 0.26, color: "#b8744a", color2: "#a4643f", seed: 9 },
-      { kind: "rocks", parallax: 0.45, base: 0.8, amp: 0.12, color: "#8c5434", color2: "#7a482c", seed: 21 },
+      { kind: "hills", parallax: 0.06, base: 0.52, amp: 0.08, color: "#d9a173", seed: 3 },
+      { kind: "marks", parallax: 0.1, base: 0.56, amp: 0.3, color: "#7d4f3b", color2: "#f6c27a", seed: 5, span: 1.6, marks: [{ type: "motherland", at: 0.45, size: 1 }] },
+      { kind: "water", parallax: 0.16, base: 0.6, amp: 0.05, color: "#c98e6c", color2: "#f6d2a4", seed: 2 },
+      { kind: "buildings", parallax: 0.22, base: 0.66, amp: 0.14, color: "#9a6247", color2: "rgba(255,220,160,0.5)", seed: 11 },
+      { kind: "hills", parallax: 0.42, base: 0.8, amp: 0.1, color: "#a86a42", seed: 9 },
     ],
-    track: {
-      top: "#d7ab72",
-      rut: "rgba(120,78,40,0.45)",
-      lip: "#ecc995",
-      berm: "#a8794a",
-      face: ["#a56d3d", "#5b3720"],
-      strata: "rgba(70,40,20,0.35)",
-      fence: "#6b4a2e",
-    },
-    world: {
-      hemiSky: "#ffe2bd",
-      hemiGround: "#8a5634",
-      hemi: 1.6,
-      sun: "#fff0d6",
-      sunI: 2.4,
-      apron: "#a8693f",
-      props: "rocks",
-      propColor: "#9a5b37",
-      propColor2: "#b9764a",
-      fogNear: 90,
-      fogFar: 520,
-    },
+    track: { top: "#d4a874", rut: "rgba(120,78,40,0.45)", lip: "#ecc995", berm: "#a8794a", face: ["#a56d3d", "#5b3720"], strata: "rgba(70,40,20,0.35)", fence: "#6b4a2e" },
+    world: { hemiSky: "#ffe2bd", hemiGround: "#8a5634", hemi: 1.6, sun: "#fff0d6", sunI: 2.4, apron: "#b88452", props: "trees", propColor: "#6f7a3c", propColor2: "#86904a", fogNear: 90, fogFar: 520 },
   },
-  forest: {
+  // Екатеринбург: Уральские хребты, тайга, озеро и небоскрёбы «Исеть» и «Высоцкий».
+  ekaterinburg: {
     sky: ["#5d9fd6", "#9fcbea", "#dcefe9"],
     layers: [
-      { kind: "ridge", parallax: 0.06, base: 0.5, amp: 0.26, color: "#8fb0c8", color2: "#eef5fa", seed: 5 },
-      { kind: "ridge", parallax: 0.14, base: 0.58, amp: 0.16, color: "#6f97a8", color2: "#a9c4cf", seed: 8 },
-      { kind: "water", parallax: 0.22, base: 0.64, amp: 0.05, color: "#9ccbe0", color2: "#d8eef6", seed: 2 },
-      { kind: "pines", parallax: 0.3, base: 0.7, amp: 0.15, color: "#3e6e55", color2: "#4f8366", seed: 13 },
+      { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.2, color: "#8eaabd", color2: "#c9d9e3", seed: 5 },
+      { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.48, color: "#6e8597", color2: "rgba(255,240,200,0.55)", seed: 6, span: 1.6, marks: [{ type: "isetTowers", at: 0.5, size: 1 }] },
+      { kind: "water", parallax: 0.18, base: 0.62, amp: 0.04, color: "#9ccbe0", color2: "#d8eef6", seed: 2 },
+      { kind: "pines", parallax: 0.3, base: 0.72, amp: 0.09, color: "#3e6e55", color2: "#4f8366", seed: 13 },
       { kind: "pines", parallax: 0.55, base: 0.84, amp: 0.22, color: "#24493a", color2: "#2e5847", seed: 17 },
     ],
-    track: {
-      top: "#b58b5a",
-      rut: "rgba(90,60,30,0.45)",
-      lip: "#d2ab7a",
-      berm: "#5f7d45",
-      face: ["#7b5636", "#3d2919"],
-      strata: "rgba(40,25,12,0.35)",
-      fence: "#5a4330",
-    },
-    world: {
-      hemiSky: "#d8ecff",
-      hemiGround: "#4c6b3c",
-      hemi: 1.5,
-      sun: "#fffaf0",
-      sunI: 2.3,
-      apron: "#4f7a45",
-      props: "pines",
-      propColor: "#2f5e45",
-      propColor2: "#3d7354",
-      fogNear: 80,
-      fogFar: 480,
-    },
+    track: { top: "#b58b5a", rut: "rgba(90,60,30,0.45)", lip: "#d2ab7a", berm: "#5f7d45", face: ["#7b5636", "#3d2919"], strata: "rgba(40,25,12,0.35)", fence: "#5a4330" },
+    world: { hemiSky: "#d8ecff", hemiGround: "#4c6b3c", hemi: 1.5, sun: "#fffaf0", sunI: 2.3, apron: "#4f7a45", props: "pines", propColor: "#2f5e45", propColor2: "#3d7354", fogNear: 80, fogFar: 480 },
   },
-  city: {
-    sky: ["#2a1840", "#7a2f6b", "#e0658e"],
-    sun: { x: 0.2, y: 0.18, r: 0.045, color: "#ffe9f0", glow: "rgba(255,180,210,0.35)" },
+  // Москва ночью: «Москва-Сити», Останкино, Спасская башня, МГУ.
+  moscow: {
+    sky: ["#0f1530", "#2b2f63", "#8c5a8f"],
+    sun: { x: 0.18, y: 0.16, r: 0.04, color: "#fff6e6", glow: "rgba(255,230,200,0.3)" },
     stars: true,
     layers: [
-      { kind: "buildings", parallax: 0.08, base: 0.62, amp: 0.36, color: "#53305f", color2: "rgba(255,200,140,0.5)", seed: 4 },
-      { kind: "buildings", parallax: 0.2, base: 0.7, amp: 0.4, color: "#3b2148", color2: "rgba(255,214,140,0.85)", seed: 7 },
-      { kind: "puffs", parallax: 0.45, base: 0.84, amp: 0.2, color: "#23142e", color2: "#2e1b3b", seed: 19 },
+      { kind: "marks", parallax: 0.06, base: 0.56, amp: 0.42, color: "#2a2d55", color2: "rgba(150,200,255,0.75)", seed: 4, span: 1.6, marks: [{ type: "moscowCity", at: 0.3, size: 1 }, { type: "ostankino", at: 0.78, size: 1.25 }] },
+      { kind: "buildings", parallax: 0.14, base: 0.64, amp: 0.2, color: "#232448", color2: "rgba(255,214,140,0.7)", seed: 7 },
+      { kind: "marks", parallax: 0.2, base: 0.7, amp: 0.36, color: "#3a1d2a", color2: "#ff3b30", seed: 8, span: 1.6, marks: [{ type: "kremlin", at: 0.3, size: 1 }, { type: "msu", at: 0.78, size: 0.9 }] },
+      { kind: "puffs", parallax: 0.45, base: 0.84, amp: 0.2, color: "#14142a", color2: "#1b1b36", seed: 19 },
     ],
-    track: {
-      top: "#a6714c",
-      rut: "rgba(70,40,30,0.5)",
-      lip: "#c99268",
-      berm: "#6b3f52",
-      face: ["#6c4232", "#2c1818"],
-      strata: "rgba(30,15,20,0.4)",
-      fence: "#e9e2f0",
-    },
-    world: {
-      hemiSky: "#c890d8",
-      hemiGround: "#3a2040",
-      hemi: 1.3,
-      sun: "#ffd6e8",
-      sunI: 1.5,
-      apron: "#3d2547",
-      props: "trees",
-      propColor: "#2a1836",
-      propColor2: "#3a2148",
-      fogNear: 70,
-      fogFar: 420,
-    },
+    track: { top: "#a6714c", rut: "rgba(70,40,30,0.5)", lip: "#c99268", berm: "#3d3f6b", face: ["#6c4232", "#2c1818"], strata: "rgba(30,15,20,0.4)", fence: "#e9e2f0" },
+    world: { hemiSky: "#a8b4ff", hemiGround: "#2a2040", hemi: 1.3, sun: "#ffe9d0", sunI: 1.5, apron: "#272744", props: "trees", propColor: "#1b1b36", propColor2: "#25254a", fogNear: 70, fogFar: 420 },
   },
-  snow: {
-    sky: ["#6ea6dc", "#bcd8f0", "#eef5fb"],
+  // Сочи: Красная Поляна — заснеженный Кавказ и трамплины «Русские горки».
+  sochi: {
+    sky: ["#5d9fe0", "#b4d6f2", "#eef5fb"],
     sun: { x: 0.74, y: 0.17, r: 0.05, color: "#fffdf5", glow: "rgba(255,255,240,0.45)" },
     layers: [
-      { kind: "ridge", parallax: 0.06, base: 0.5, amp: 0.3, color: "#b4c8dc", color2: "#ffffff", seed: 31 },
-      { kind: "ridge", parallax: 0.14, base: 0.58, amp: 0.2, color: "#8ea6be", color2: "#f4f8fb", seed: 37 },
-      { kind: "pines", parallax: 0.3, base: 0.7, amp: 0.15, color: "#56766f", color2: "#e4edf0", seed: 41 },
-      { kind: "pines", parallax: 0.55, base: 0.84, amp: 0.22, color: "#3c5a54", color2: "#d6e3e6", seed: 43 },
+      { kind: "ridge", parallax: 0.06, base: 0.5, amp: 0.34, color: "#a9bfd6", color2: "#ffffff", seed: 31 },
+      { kind: "ridge", parallax: 0.14, base: 0.6, amp: 0.22, color: "#8aa3bb", color2: "#f4f8fb", seed: 37 },
+      { kind: "marks", parallax: 0.16, base: 0.6, amp: 0.4, color: "#5f7387", color2: "#e8eef4", seed: 39, span: 1.6, marks: [{ type: "skiJumps", at: 0.5, size: 1 }] },
+      { kind: "pines", parallax: 0.32, base: 0.74, amp: 0.1, color: "#56766f", color2: "#e4edf0", seed: 41 },
+      { kind: "pines", parallax: 0.55, base: 0.85, amp: 0.22, color: "#3c5a54", color2: "#d6e3e6", seed: 43 },
     ],
-    track: {
-      top: "#86674d",
-      rut: "rgba(60,40,25,0.45)",
-      lip: "#b09073",
-      berm: "#f2f6f8",
-      face: ["#6b503e", "#30231a"],
-      strata: "rgba(30,20,12,0.35)",
-      fence: "#d23c3c",
-    },
-    world: {
-      hemiSky: "#e6f2ff",
-      hemiGround: "#c4d2dc",
-      hemi: 1.6,
-      sun: "#ffffff",
-      sunI: 2.2,
-      apron: "#eef3f6",
-      props: "pines",
-      propColor: "#3d6858",
-      propColor2: "#e3ecee",
-      fogNear: 70,
-      fogFar: 420,
-    },
+    track: { top: "#86674d", rut: "rgba(60,40,25,0.45)", lip: "#b09073", berm: "#f2f6f8", face: ["#6b503e", "#30231a"], strata: "rgba(30,20,12,0.35)", fence: "#d23c3c" },
+    world: { hemiSky: "#e6f2ff", hemiGround: "#c4d2dc", hemi: 1.6, sun: "#ffffff", sunI: 2.2, apron: "#eef3f6", props: "pines", propColor: "#3d6858", propColor2: "#e3ecee", fogNear: 70, fogFar: 420 },
   },
-  dunes: {
-    sky: ["#3c8ad4", "#8cc4ec", "#f3dfb9"],
-    sun: { x: 0.8, y: 0.14, r: 0.06, color: "#fffbe8", glow: "rgba(255,240,200,0.5)" },
+  // Махачкала: бархан Сарыкум, гора Тарки-Тау, Каспий и мечеть.
+  makhachkala: {
+    sky: ["#3c8ad4", "#8cc4ec", "#f0e0bd"],
+    sun: { x: 0.82, y: 0.14, r: 0.06, color: "#fffbe8", glow: "rgba(255,240,200,0.5)" },
     layers: [
-      { kind: "hills", parallax: 0.07, base: 0.55, amp: 0.14, color: "#e5c995", seed: 3 },
-      { kind: "hills", parallax: 0.18, base: 0.64, amp: 0.18, color: "#d8af72", seed: 5 },
-      { kind: "hills", parallax: 0.4, base: 0.78, amp: 0.16, color: "#c7985d", seed: 9 },
+      { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.2, color: "#9aa48a", color2: "#b9bea2", seed: 51 },
+      { kind: "water", parallax: 0.1, base: 0.56, amp: 0.04, color: "#4f9ec4", color2: "#cfe9f2", seed: 4 },
+      { kind: "marks", parallax: 0.14, base: 0.6, amp: 0.28, color: "#a99a7c", color2: "#2f8f86", seed: 53, span: 1.6, marks: [{ type: "mosque", at: 0.6, size: 1 }] },
+      { kind: "hills", parallax: 0.24, base: 0.68, amp: 0.2, color: "#dcb57a", seed: 5 },
+      { kind: "hills", parallax: 0.42, base: 0.8, amp: 0.16, color: "#c7985d", seed: 9 },
     ],
-    track: {
-      top: "#dfba7f",
-      rut: "rgba(150,105,55,0.45)",
-      lip: "#f3d6a3",
-      berm: "#c99b62",
-      face: ["#c48f55", "#7a5230"],
-      strata: "rgba(110,70,35,0.3)",
-      fence: "#5a4330",
-    },
-    world: {
-      hemiSky: "#fff3d9",
-      hemiGround: "#c99b62",
-      hemi: 1.6,
-      sun: "#fff6e0",
-      sunI: 2.6,
-      apron: "#d9b277",
-      props: "cacti",
-      propColor: "#4f8a4a",
-      propColor2: "#5f9c55",
-      fogNear: 100,
-      fogFar: 560,
-    },
+    track: { top: "#dfba7f", rut: "rgba(150,105,55,0.45)", lip: "#f3d6a3", berm: "#c99b62", face: ["#c48f55", "#7a5230"], strata: "rgba(110,70,35,0.3)", fence: "#5a4330" },
+    world: { hemiSky: "#fff3d9", hemiGround: "#c99b62", hemi: 1.6, sun: "#fff6e0", sunI: 2.6, apron: "#d9b277", props: "rocks", propColor: "#b58f62", propColor2: "#9c7a52", fogNear: 100, fogFar: 560 },
   },
-  stadium: {
-    sky: ["#04060d", "#121833", "#283058"],
+  // Казань: ночной суперкросс на «Казань Арене», за трибунами Кул-Шариф и Сююмбике.
+  kazan: {
+    sky: ["#04060d", "#121833", "#2c3560"],
     stars: true,
     layers: [
-      { kind: "buildings", parallax: 0.07, base: 0.55, amp: 0.25, color: "#1a1e38", color2: "rgba(255,220,150,0.55)", seed: 61 },
-      { kind: "stands", parallax: 0.2, base: 0.66, amp: 0.32, color: "#252a40", color2: "#3a4060", seed: 67 },
+      { kind: "marks", parallax: 0.06, base: 0.5, amp: 0.36, color: "#1d2240", color2: "#3d7be0", seed: 61, span: 1.6, marks: [{ type: "kulSharif", at: 0.35, size: 1 }, { type: "suyumbike", at: 0.7, size: 0.85 }] },
+      { kind: "stands", parallax: 0.2, base: 0.7, amp: 0.26, color: "#252a40", color2: "#3a4060", seed: 67 },
       { kind: "stands", parallax: 0.35, base: 0.78, amp: 0.26, color: "#2e334c", color2: "#454c70", seed: 71 },
     ],
-    track: {
-      top: "#7a5a44",
-      rut: "rgba(40,25,15,0.55)",
-      lip: "#a07b5e",
-      berm: "#3d4566",
-      face: ["#5c4232", "#241812"],
-      strata: "rgba(20,10,5,0.4)",
-      fence: "#f2f2f2",
-    },
-    world: {
-      hemiSky: "#9fb0ff",
-      hemiGround: "#2a2236",
-      hemi: 1.2,
-      sun: "#f4f6ff",
-      sunI: 2.6,
-      apron: "#2a2a36",
-      props: "lamps",
-      propColor: "#9aa0b5",
-      propColor2: "#fffbe0",
-      fogNear: 90,
-      fogFar: 460,
-    },
+    track: { top: "#7a5a44", rut: "rgba(40,25,15,0.55)", lip: "#a07b5e", berm: "#3d4566", face: ["#5c4232", "#241812"], strata: "rgba(20,10,5,0.4)", fence: "#f2f2f2" },
+    world: { hemiSky: "#9fb0ff", hemiGround: "#2a2236", hemi: 1.2, sun: "#f4f6ff", sunI: 2.6, apron: "#2a2a36", props: "lamps", propColor: "#9aa0b5", propColor2: "#fffbe0", fogNear: 90, fogFar: 460 },
   },
-  volcano: {
-    sky: ["#1d0b0b", "#5a1c12", "#c2471f"],
-    sun: { x: 0.68, y: 0.24, r: 0.05, color: "#ffb070", glow: "rgba(255,120,40,0.45)" },
+  // Санкт-Петербург: белая ночь, Нева, разведённый мост, Исаакий, Петропавловка, «Лахта».
+  spb: {
+    sky: ["#7f8fbf", "#d9b4c4", "#f6dcc6"],
+    sun: { x: 0.85, y: 0.3, r: 0.045, color: "#fff2e2", glow: "rgba(255,210,190,0.45)" },
     layers: [
-      { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.34, color: "#3a1a17", color2: "#ff7a2a", seed: 83 },
-      { kind: "ridge", parallax: 0.15, base: 0.6, amp: 0.22, color: "#2a1412", color2: "#a8341a", seed: 89 },
-      { kind: "rocks", parallax: 0.45, base: 0.8, amp: 0.14, color: "#1f1110", color2: "#2c1715", seed: 97 },
+      { kind: "marks", parallax: 0.05, base: 0.55, amp: 0.46, color: "#8b8fae", color2: "#b9c3e6", seed: 81, span: 1.6, marks: [{ type: "lakhta", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.36, color: "#6e6c8c", color2: "#e7c35a", seed: 83, span: 1.6, marks: [{ type: "isaac", at: 0.28, size: 0.8 }, { type: "peterPaul", at: 0.72, size: 1 }] },
+      { kind: "water", parallax: 0.18, base: 0.64, amp: 0.06, color: "#8f9cc4", color2: "#f3d9d2", seed: 6 },
+      { kind: "marks", parallax: 0.24, base: 0.7, amp: 0.3, color: "#4c4c68", color2: "#ffe0a0", seed: 85, span: 1.6, marks: [{ type: "drawbridge", at: 0.5, size: 1 }] },
+      { kind: "buildings", parallax: 0.42, base: 0.84, amp: 0.16, color: "#3d3b52", color2: "rgba(255,220,170,0.6)", seed: 87 },
     ],
-    track: {
-      top: "#5a4a44",
-      rut: "rgba(20,10,10,0.5)",
-      lip: "#7d6a62",
-      berm: "#ff6a2a",
-      face: ["#3a2a26", "#120a09"],
-      strata: "rgba(255,90,30,0.28)",
-      fence: "#2a2a2a",
-    },
-    world: {
-      hemiSky: "#ffb08a",
-      hemiGround: "#3a1a12",
-      hemi: 1.3,
-      sun: "#ffb27a",
-      sunI: 2.0,
-      apron: "#2a1b18",
-      props: "rocks",
-      propColor: "#2a1a17",
-      propColor2: "#3a2420",
-      fogNear: 70,
-      fogFar: 380,
-    },
+    track: { top: "#8c7a6a", rut: "rgba(40,30,25,0.5)", lip: "#b3a090", berm: "#6f6f80", face: ["#5f5650", "#2a2624"], strata: "rgba(20,15,15,0.35)", fence: "#2a2a30" },
+    world: { hemiSky: "#e6d6f0", hemiGround: "#5c5866", hemi: 1.4, sun: "#ffe6d6", sunI: 2.0, apron: "#6a6876", props: "trees", propColor: "#3d5a48", propColor2: "#4a6a55", fogNear: 70, fogFar: 400 },
   },
 };
 
@@ -465,6 +343,12 @@ export function paintLayer(L: Layer, w: number, h: number, base: number, amp: nu
     }
     case "stands": {
       drawStands(ctx, L, cells, base, amp, S, w, h);
+      break;
+    }
+    case "marks": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, base, w, h);
+      drawMarks(ctx, L.marks ?? [], cells, (L.span ?? 3) * S, base, amp, L.color, L.color2 ?? L.color);
       break;
     }
     case "puffs": {
@@ -709,6 +593,12 @@ function drawLayer(ctx: CanvasRenderingContext2D, L: Layer, v: View) {
     }
     case "stands": {
       drawStands(ctx, L, cells, baseY, amp, h, w, h);
+      break;
+    }
+    case "marks": {
+      ctx.fillStyle = L.color;
+      ctx.fillRect(0, baseY, w, h);
+      drawMarks(ctx, L.marks ?? [], cells, (L.span ?? 3) * h, baseY, amp, L.color, L.color2 ?? L.color);
       break;
     }
     case "puffs": {

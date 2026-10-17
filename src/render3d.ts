@@ -282,7 +282,7 @@ function addProps(track: Track, theme: Theme, group: THREE.Group, depth: number)
   const w = theme.world;
   if (w.props === "lamps") return addLamps(track, theme, group);
   const placements: { x: number; z: number; y: number; s: number }[] = [];
-  const density = w.props === "rocks" ? 0.5 : 0.3;
+  const density = w.props === "rocks" ? 0.5 : w.props === "trees" ? 0.2 : 0.3;
   const near = w.props === "rocks" ? 0.1 : 0.3; // tall props stay away from the fence
   for (let x = track.startX - 40; x <= track.finishX + 80; x += 2.2) {
     if (rand() > density) continue;
@@ -336,9 +336,9 @@ function addProps(track: Track, theme: Theme, group: THREE.Group, depth: number)
         seg(p.x + side * 0.55, p.y + ah + 0.38, 0.17, 0.8, 0);
       }
     } else {
-      const r = 1.1 + p.s * 0.9;
-      target.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 1.6 + r, p.z), q, new THREE.Vector3(r, r * 0.85, r)));
-      trunks.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 1.2, p.z), q, new THREE.Vector3(0.22, 2.6, 0.22)));
+      const r = 0.7 + p.s * 0.6;
+      target.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 1.2 + r, p.z), q, new THREE.Vector3(r, r * 0.9, r)));
+      trunks.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + 0.8, p.z), q, new THREE.Vector3(0.18, 1.8, 0.18)));
     }
   }
   const geo =
