@@ -477,6 +477,11 @@ class Game {
 
     // During the countdown the camera closes in on the player, then eases out after the start.
     const start = this.state === "countdown" ? 1 : 0;
+    // A page opened hidden starts at zero size and may get no resize event when shown.
+    if (r.w !== window.innerWidth || r.h !== window.innerHeight) r.resize();
+    // A zero-sized canvas would turn the camera into NaN for good: keep the last framing.
+    if (!(r.basePpm() > 0)) return;
+    if (!Number.isFinite(this.cam.x + this.cam.y) || !(this.cam.ppm > 0)) Object.assign(this.cam, { x: p.x, y: p.y, ppm: r.basePpm() });
     const ppm = (r.basePpm() * (1 + 0.5 * start)) / (1 + speed / 90 + Math.max(0, alt - 3) / 16);
     this.cam.ppm += (ppm - this.cam.ppm) * (1 - Math.exp(-dt * 2));
 

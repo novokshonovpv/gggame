@@ -1,5 +1,6 @@
 import { type BikePose, type BodyPose, type ChassisPose, RIDER_HEAD, RIDER_HEAD_R } from "./bike.ts";
 import { PANELS, POINTS, T, TUBES, WHEEL_R } from "./bikeShape.ts";
+import { Dust } from "./dust.ts";
 import type { Look } from "./race.ts";
 import { THEMES, type Theme, drawScenery } from "./scenery.ts";
 import { type Pt, type Track, groundY } from "./track.ts";
@@ -70,6 +71,7 @@ export class Renderer {
     this.fence(cam, track, theme);
     this.flags(cam, track);
     this.ground(cam, track, theme);
+    this.drawDust(cam, track, riders, time);
     // Rivals are see-through and labelled (unless right on top of the player); the player
     // is drawn last, on top, with the "ТЫ" marker.
     const player = riders.find((r) => r.isPlayer);
@@ -91,6 +93,29 @@ export class Renderer {
         this.bike(cam, r.bike, r.look);
         this.playerMarker(cam, r, time, startPhase);
       }
+  }
+
+  private dust = new Dust();
+  private dustTrack = "";
+
+  private drawDust(cam: Camera, track: Track, riders: RiderView[], time: number) {
+    if (track.id !== this.dustTrack) {
+      this.dust.reset();
+      this.dustTrack = track.id;
+    }
+    const d = this.dust;
+    d.update(riders, track, time, () => 0);
+    const { ctx } = this;
+    ctx.fillStyle = THEMES[track.theme].track.lip;
+    for (let i = 0; i < d.max; i++) {
+      const [s, a] = d.look(i);
+      if (a <= 0) continue;
+      ctx.globalAlpha = a * 0.8;
+      ctx.beginPath();
+      ctx.arc(this.sx(cam, d.x[i]), this.sy(cam, d.y[i]), (s * cam.ppm) / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // Pulsing yellow ring on the ground under the player on the start grid.

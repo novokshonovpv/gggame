@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { BikePose } from "./bike.ts";
 import { POINTS, PANELS, type Role, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
+import { Dust } from "./dust.ts";
 import { type Camera, type RiderView, riderPose } from "./render.ts";
 import { type Layer, THEMES, type Theme, paintLayer } from "./scenery.ts";
 import { type Track, groundY, rng } from "./track.ts";
@@ -407,6 +408,49 @@ function addGate(group: THREE.Group, x: number, y: number, kind: "start" | "fini
   line.position.set(x, y + 0.01, 0);
   line.receiveShadow = true;
   group.add(sign, line);
+}
+
+// ---------- Dust ----------
+
+// Soft round sprites sized in meters, with per-particle opacity and shade.
+function dustPoints(dust: Dust) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(dust.max * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute("aSize", new THREE.BufferAttribute(new Float32Array(dust.max), 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute("aAlpha", new THREE.BufferAttribute(new Float32Array(dust.max), 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute("aShade", new THREE.BufferAttribute(new Float32Array(dust.max), 1).setUsage(THREE.DynamicDrawUsage));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color() }, uScale: { value: 1 } },
+    vertexShader: `
+      attribute float aSize;
+      attribute float aAlpha;
+      attribute float aShade;
+      uniform float uScale;
+      varying float vAlpha;
+      varying float vShade;
+      void main() {
+        vAlpha = aAlpha;
+        vShade = aShade;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = aAlpha > 0.0 ? aSize * uScale / -mv.z : 0.0;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 uColor;
+      varying float vAlpha;
+      varying float vShade;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        gl_FragColor = vec4(uColor * vShade, vAlpha * smoothstep(0.5, 0.12, d));
+      }`,
+    transparent: true,
+    depthWrite: false,
+  });
+  const pts = new THREE.Points(g, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 5;
+  return pts;
 }
 
 // ---------- Backdrop ----------
@@ -1127,6 +1171,8 @@ export class Renderer3D {
   sky = new THREE.Group();
   trackId = "";
   bikes = new Map<BikePose, BikeModel>();
+  dust = new Dust();
+  dustPts = dustPoints(this.dust);
 
   constructor(canvasEl: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
@@ -1144,7 +1190,7 @@ export class Renderer3D {
     sc.near = 1;
     sc.far = 90;
     this.sun.shadow.bias = -0.0005;
-    this.scene.add(this.hemi, this.sun, this.sun.target, this.world, this.sky);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.world, this.sky, this.dustPts);
     this.resize();
   }
 
@@ -1152,6 +1198,8 @@ export class Renderer3D {
     this.w = window.innerWidth;
     this.h = window.innerHeight;
     this.gl.setSize(this.w, this.h, false);
+    // Point size in pixels = meters * uScale / depth.
+    (this.dustPts.material as THREE.ShaderMaterial).uniforms.uScale.value = (this.h * this.gl.getPixelRatio()) / 2 / TAN;
     this.camera.aspect = this.w / this.h;
     this.camera.updateProjectionMatrix();
   }
@@ -1177,6 +1225,9 @@ export class Renderer3D {
     this.sun.intensity = w.sunI;
     buildTrack(track, theme, this.world);
     buildBackdrop(track, theme, this.world);
+    this.dust.reset();
+    // Dust takes the color of the dirt, dimmed at night.
+    (this.dustPts.material as THREE.ShaderMaterial).uniforms.uColor.value.set(theme.track.lip).lerp(new THREE.Color("#fff4e0"), 0.35).multiplyScalar(theme.stars ? 0.65 : 1);
 
     if (theme.sun) {
       const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({ color: theme.sun.color, fog: false }));
@@ -1254,6 +1305,22 @@ export class Renderer3D {
         m.fadeMats.forEach((mat) => mat.dispose());
         this.bikes.delete(bike);
       }
+
+    const d = this.dust;
+    d.update(riders, track, time, (i) => (riders[i].ghost ? GHOST_LANE : (LANES[i] ?? -1.6)));
+    const g = this.dustPts.geometry;
+    const pos = g.getAttribute("position") as THREE.BufferAttribute;
+    const size = g.getAttribute("aSize") as THREE.BufferAttribute;
+    const alpha = g.getAttribute("aAlpha") as THREE.BufferAttribute;
+    const shade = g.getAttribute("aShade") as THREE.BufferAttribute;
+    for (let i = 0; i < d.max; i++) {
+      const [s, a] = d.look(i);
+      pos.setXYZ(i, d.x[i], d.y[i], d.z[i]);
+      size.setX(i, s);
+      alpha.setX(i, a);
+      shade.setX(i, d.shade[i]);
+    }
+    pos.needsUpdate = size.needsUpdate = alpha.needsUpdate = shade.needsUpdate = true;
 
     this.gl.render(this.scene, this.camera);
   }

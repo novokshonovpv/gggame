@@ -69,6 +69,9 @@ export interface BikePose {
   rear: BodyPose;
   front: BodyPose;
   lean: number;
+  // Physics bikes also report these (the ghost does not); the renderers kick up dust from them.
+  rearContacts?: number;
+  gas?: boolean;
 }
 
 // What garage upgrades change on a particular bike.
@@ -110,6 +113,7 @@ export class Bike {
   sinceGround = 0; // seconds since any wheel last touched
   power: number; // engine multiplier: AI skill or the player's engine upgrade
   stats: BikeStats;
+  gas = false; // last throttle input, for effects
 
   constructor(world: World, start: Vec2Value, stats: BikeStats = BASE_STATS) {
     this.stats = stats;
@@ -225,6 +229,7 @@ export class Bike {
 
   apply(input: Input, dt: number) {
     const { rearJoint, frontJoint, chassis } = this;
+    this.gas = input.gas;
 
     // Wheels skip off bumps for a few milliseconds; count the bike as airborne only after
     // a short grace time so ground lean and wheelie control don't flip to air spin.
