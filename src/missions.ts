@@ -40,6 +40,41 @@ export const MISSIONS: Record<string, Mission[]> = {
     { kind: "backflips", count: 3 },
     { kind: "time", seconds: 58 },
   ],
+  smolensk: [
+    { kind: "wheelie", seconds: 3 },
+    { kind: "clean" },
+    { kind: "place", place: 3 },
+  ],
+  minsk: [
+    { kind: "backflips", count: 1 },
+    { kind: "time", seconds: 75 },
+    { kind: "place", place: 1 },
+  ],
+  voronezh: [
+    { kind: "air", seconds: 2 },
+    { kind: "clean" },
+    { kind: "time", seconds: 40 },
+  ],
+  nizhny: [
+    { kind: "wheelie", seconds: 4 },
+    { kind: "backflips", count: 2 },
+    { kind: "place", place: 1 },
+  ],
+  novosibirsk: [
+    { kind: "air", seconds: 2.5 },
+    { kind: "clean" },
+    { kind: "time", seconds: 80 },
+  ],
+  grozny: [
+    { kind: "air", seconds: 2.8 },
+    { kind: "place", place: 1 },
+    { kind: "time", seconds: 41 },
+  ],
+  vladivostok: [
+    { kind: "backflips", count: 3 },
+    { kind: "clean" },
+    { kind: "place", place: 1 },
+  ],
 };
 
 export function missionText(m: Mission): string {

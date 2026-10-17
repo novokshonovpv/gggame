@@ -1,10 +1,10 @@
-import { type Mark, drawMarks } from "./landmarks.ts";
+import { type Mark, drawMarks, tone } from "./landmarks.ts";
 import type { ThemeId } from "./track.ts";
 
 // Procedural parallax backgrounds, one Russian city per track: its skyline landmarks and the
 // landscape around it (see landmarks.ts).
 
-type LayerKind = "ridge" | "hills" | "mesa" | "pines" | "buildings" | "puffs" | "rocks" | "water" | "stands" | "marks";
+type LayerKind = "ridge" | "hills" | "mesa" | "pines" | "buildings" | "puffs" | "rocks" | "water" | "stands" | "marks" | "trees";
 
 interface Layer {
   kind: LayerKind;
@@ -16,6 +16,7 @@ interface Layer {
   seed: number;
   marks?: Mark[]; // landmarks for kind "marks"
   span?: number; // landmarks repeat every span x screen height
+  trunk?: string; // tree trunks (white for birches)
 }
 
 export interface Theme {
@@ -49,12 +50,12 @@ export interface Theme {
 }
 
 export const THEMES: Record<ThemeId, Theme> = {
-  // Екатеринбург: Уральские хребты, тайга, озеро и небоскрёбы «Исеть» и «Высоцкий».
+  // Екатеринбург: Уральские хребты, тайга, озеро и небоскрёбы «Исеть» и «Высоцкий», Белая башня, Центральный стадион.
   ekaterinburg: {
     sky: ["#5d9fd6", "#9fcbea", "#dcefe9"],
     layers: [
       { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.2, color: "#8eaabd", color2: "#c9d9e3", seed: 5 },
-      { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.48, color: "#6e8597", color2: "rgba(255,240,200,0.55)", seed: 6, span: 1.6, marks: [{ type: "isetTowers", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.48, color: "#6e8597", color2: "rgba(255,240,200,0.55)", seed: 6, span: 1.6, marks: [{ type: "isetTowers", at: 0.3, size: 1 }, { type: "whiteTower", at: 0.62, size: 0.55 }, { type: "ekbArena", at: 0.85, size: 0.45 }] },
       { kind: "water", parallax: 0.18, base: 0.62, amp: 0.04, color: "#9ccbe0", color2: "#d8eef6", seed: 2 },
       { kind: "pines", parallax: 0.3, base: 0.72, amp: 0.09, color: "#3e6e55", color2: "#4f8366", seed: 13 },
       { kind: "pines", parallax: 0.55, base: 0.84, amp: 0.22, color: "#24493a", color2: "#2e5847", seed: 17 },
@@ -62,13 +63,13 @@ export const THEMES: Record<ThemeId, Theme> = {
     track: { top: "#b58b5a", rut: "rgba(90,60,30,0.45)", lip: "#d2ab7a", berm: "#5f7d45", face: ["#7b5636", "#3d2919"], strata: "rgba(40,25,12,0.35)", fence: "#5a4330" },
     world: { hemiSky: "#d8ecff", hemiGround: "#4c6b3c", hemi: 1.5, sun: "#fffaf0", sunI: 2.3, apron: "#4f7a45", props: "pines", propColor: "#2f5e45", propColor2: "#3d7354", fogNear: 80, fogFar: 480 },
   },
-  // Москва ночью: «Москва-Сити», Останкино, Спасская башня, МГУ.
+  // Москва ночью: «Москва-Сити», Шуховская башня, Останкино, Спасская башня, МГУ.
   moscow: {
     sky: ["#0f1530", "#2b2f63", "#8c5a8f"],
     sun: { x: 0.18, y: 0.16, r: 0.04, color: "#fff6e6", glow: "rgba(255,230,200,0.3)" },
     stars: true,
     layers: [
-      { kind: "marks", parallax: 0.06, base: 0.56, amp: 0.42, color: "#2a2d55", color2: "rgba(150,200,255,0.75)", seed: 4, span: 1.6, marks: [{ type: "moscowCity", at: 0.3, size: 1 }, { type: "ostankino", at: 0.78, size: 1.25 }] },
+      { kind: "marks", parallax: 0.06, base: 0.56, amp: 0.42, color: "#2a2d55", color2: "rgba(150,200,255,0.75)", seed: 4, span: 1.6, marks: [{ type: "moscowCity", at: 0.3, size: 1 }, { type: "shukhov", at: 0.55, size: 0.6 }, { type: "ostankino", at: 0.78, size: 1.1 }] },
       { kind: "buildings", parallax: 0.14, base: 0.64, amp: 0.2, color: "#232448", color2: "rgba(255,214,140,0.7)", seed: 7 },
       { kind: "marks", parallax: 0.2, base: 0.7, amp: 0.36, color: "#3a1d2a", color2: "#ff3b30", seed: 8, span: 1.6, marks: [{ type: "kremlin", at: 0.3, size: 1 }, { type: "msu", at: 0.78, size: 0.9 }] },
       { kind: "puffs", parallax: 0.45, base: 0.84, amp: 0.2, color: "#14142a", color2: "#1b1b36", seed: 19 },
@@ -76,59 +77,156 @@ export const THEMES: Record<ThemeId, Theme> = {
     track: { top: "#a6714c", rut: "rgba(70,40,30,0.5)", lip: "#c99268", berm: "#3d3f6b", face: ["#6c4232", "#2c1818"], strata: "rgba(30,15,20,0.4)", fence: "#e9e2f0" },
     world: { hemiSky: "#a8b4ff", hemiGround: "#2a2040", hemi: 1.3, sun: "#ffe9d0", sunI: 1.5, apron: "#272744", props: "trees", propColor: "#1b1b36", propColor2: "#25254a", fogNear: 70, fogFar: 420 },
   },
-  // Сочи: Красная Поляна — заснеженный Кавказ и трамплины «Русские горки».
+  // Сочи: Красная Поляна — заснеженный Кавказ и трамплины «Русские горки», канатная дорога.
   sochi: {
     sky: ["#5d9fe0", "#b4d6f2", "#eef5fb"],
     sun: { x: 0.74, y: 0.17, r: 0.05, color: "#fffdf5", glow: "rgba(255,255,240,0.45)" },
     layers: [
       { kind: "ridge", parallax: 0.06, base: 0.5, amp: 0.34, color: "#a9bfd6", color2: "#ffffff", seed: 31 },
       { kind: "ridge", parallax: 0.14, base: 0.6, amp: 0.22, color: "#8aa3bb", color2: "#f4f8fb", seed: 37 },
-      { kind: "marks", parallax: 0.16, base: 0.6, amp: 0.4, color: "#5f7387", color2: "#e8eef4", seed: 39, span: 1.6, marks: [{ type: "skiJumps", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.16, base: 0.6, amp: 0.4, color: "#5f7387", color2: "#e8eef4", seed: 39, span: 1.6, marks: [{ type: "skiJumps", at: 0.35, size: 1 }, { type: "gondola", at: 0.8, size: 0.7 }] },
       { kind: "pines", parallax: 0.32, base: 0.74, amp: 0.1, color: "#56766f", color2: "#e4edf0", seed: 41 },
       { kind: "pines", parallax: 0.55, base: 0.85, amp: 0.22, color: "#3c5a54", color2: "#d6e3e6", seed: 43 },
     ],
     track: { top: "#86674d", rut: "rgba(60,40,25,0.45)", lip: "#b09073", berm: "#f2f6f8", face: ["#6b503e", "#30231a"], strata: "rgba(30,20,12,0.35)", fence: "#d23c3c" },
     world: { hemiSky: "#e6f2ff", hemiGround: "#c4d2dc", hemi: 1.6, sun: "#ffffff", sunI: 2.2, apron: "#eef3f6", props: "pines", propColor: "#3d6858", propColor2: "#e3ecee", fogNear: 70, fogFar: 420 },
   },
-  // Махачкала: бархан Сарыкум, гора Тарки-Тау, Каспий, маяк на Анжи-Кале и морской порт.
+  // Махачкала: бархан Сарыкум, гора Тарки-Тау, Каспий, маяк на Анжи-Кале, «Анжи-Арена» и морской порт.
   makhachkala: {
     sky: ["#3c8ad4", "#8cc4ec", "#f0e0bd"],
     sun: { x: 0.82, y: 0.14, r: 0.06, color: "#fffbe8", glow: "rgba(255,240,200,0.5)" },
     layers: [
       { kind: "ridge", parallax: 0.06, base: 0.52, amp: 0.2, color: "#9aa48a", color2: "#b9bea2", seed: 51 },
       { kind: "water", parallax: 0.1, base: 0.56, amp: 0.04, color: "#4f9ec4", color2: "#cfe9f2", seed: 4 },
-      { kind: "marks", parallax: 0.14, base: 0.6, amp: 0.28, color: "#a99a7c", color2: "#ffe9a8", seed: 53, span: 1.6, marks: [{ type: "lighthouse", at: 0.3, size: 1 }, { type: "portCranes", at: 0.75, size: 0.8 }] },
+      { kind: "marks", parallax: 0.14, base: 0.6, amp: 0.28, color: "#a99a7c", color2: "#ffe9a8", seed: 53, span: 2, marks: [{ type: "lighthouse", at: 0.25, size: 1 }, { type: "anjiArena", at: 0.5, size: 0.6 }, { type: "portCranes", at: 0.78, size: 0.8 }] },
       { kind: "hills", parallax: 0.24, base: 0.68, amp: 0.2, color: "#dcb57a", seed: 5 },
       { kind: "hills", parallax: 0.42, base: 0.8, amp: 0.16, color: "#c7985d", seed: 9 },
     ],
     track: { top: "#dfba7f", rut: "rgba(150,105,55,0.45)", lip: "#f3d6a3", berm: "#c99b62", face: ["#c48f55", "#7a5230"], strata: "rgba(110,70,35,0.3)", fence: "#5a4330" },
     world: { hemiSky: "#fff3d9", hemiGround: "#c99b62", hemi: 1.6, sun: "#fff6e0", sunI: 2.6, apron: "#d9b277", props: "rocks", propColor: "#b58f62", propColor2: "#9c7a52", fogNear: 100, fogFar: 560 },
   },
-  // Казань: ночной суперкросс на «Казань Арене», за трибунами «Чаша», Сююмбике и мост «Миллениум».
+  // Казань: ночной суперкросс на «Казань Арене», за трибунами «Чаша», Сююмбике, Дворец земледельцев и мост «Миллениум».
   kazan: {
     sky: ["#04060d", "#121833", "#2c3560"],
     stars: true,
     layers: [
-      { kind: "marks", parallax: 0.06, base: 0.5, amp: 0.36, color: "#1d2240", color2: "#ffd58a", seed: 61, span: 1.6, marks: [{ type: "kazanBowl", at: 0.2, size: 0.8 }, { type: "suyumbike", at: 0.5, size: 0.85 }, { type: "millenniumBridge", at: 0.8, size: 0.9 }] },
+      { kind: "marks", parallax: 0.06, base: 0.5, amp: 0.36, color: "#1d2240", color2: "#ffd58a", seed: 61, span: 2, marks: [{ type: "kazanBowl", at: 0.15, size: 0.8 }, { type: "suyumbike", at: 0.38, size: 0.85 }, { type: "farmersPalace", at: 0.58, size: 0.7 }, { type: "millenniumBridge", at: 0.85, size: 0.9 }] },
       { kind: "stands", parallax: 0.2, base: 0.7, amp: 0.26, color: "#252a40", color2: "#3a4060", seed: 67 },
       { kind: "stands", parallax: 0.35, base: 0.78, amp: 0.26, color: "#2e334c", color2: "#454c70", seed: 71 },
     ],
     track: { top: "#7a5a44", rut: "rgba(40,25,15,0.55)", lip: "#a07b5e", berm: "#3d4566", face: ["#5c4232", "#241812"], strata: "rgba(20,10,5,0.4)", fence: "#f2f2f2" },
     world: { hemiSky: "#9fb0ff", hemiGround: "#2a2236", hemi: 1.2, sun: "#f4f6ff", sunI: 2.6, apron: "#2a2a36", props: "lamps", propColor: "#9aa0b5", propColor2: "#fffbe0", fogNear: 90, fogFar: 460 },
   },
-  // Санкт-Петербург: белая ночь, Нева, разведённый мост, Адмиралтейство, Ростральная колонна, «Лахта».
+  // Санкт-Петербург: белая ночь, Нева, разведённый мост, Адмиралтейство, Ростральная колонна, «Аврора», «Лахта» и стадион на Крестовском.
   spb: {
     sky: ["#7f8fbf", "#d9b4c4", "#f6dcc6"],
     sun: { x: 0.85, y: 0.3, r: 0.045, color: "#fff2e2", glow: "rgba(255,210,190,0.45)" },
     layers: [
-      { kind: "marks", parallax: 0.05, base: 0.55, amp: 0.46, color: "#8b8fae", color2: "#b9c3e6", seed: 81, span: 1.6, marks: [{ type: "lakhta", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.05, base: 0.55, amp: 0.46, color: "#8b8fae", color2: "#b9c3e6", seed: 81, span: 1.6, marks: [{ type: "gazpromArena", at: 0.15, size: 0.45 }, { type: "lakhta", at: 0.5, size: 1 }] },
       { kind: "marks", parallax: 0.12, base: 0.6, amp: 0.36, color: "#6e6c8c", color2: "#e7c35a", seed: 83, span: 1.6, marks: [{ type: "admiralty", at: 0.3, size: 0.9 }, { type: "rostral", at: 0.75, size: 0.8 }] },
       { kind: "water", parallax: 0.18, base: 0.64, amp: 0.06, color: "#8f9cc4", color2: "#f3d9d2", seed: 6 },
-      { kind: "marks", parallax: 0.24, base: 0.7, amp: 0.3, color: "#4c4c68", color2: "#ffe0a0", seed: 85, span: 1.6, marks: [{ type: "drawbridge", at: 0.5, size: 1 }] },
+      { kind: "marks", parallax: 0.24, base: 0.7, amp: 0.3, color: "#4c4c68", color2: "#ffe0a0", seed: 85, span: 1.6, marks: [{ type: "aurora", at: 0.15, size: 0.6 }, { type: "drawbridge", at: 0.5, size: 1 }] },
       { kind: "buildings", parallax: 0.42, base: 0.84, amp: 0.16, color: "#3d3b52", color2: "rgba(255,220,170,0.6)", seed: 87 },
     ],
     track: { top: "#8c7a6a", rut: "rgba(40,30,25,0.5)", lip: "#b3a090", berm: "#6f6f80", face: ["#5f5650", "#2a2624"], strata: "rgba(20,15,15,0.35)", fence: "#2a2a30" },
     world: { hemiSky: "#e6d6f0", hemiGround: "#5c5866", hemi: 1.4, sun: "#ffe6d6", sunI: 2.0, apron: "#6a6876", props: "trees", propColor: "#3d5a48", propColor2: "#4a6a55", fogNear: 70, fogFar: 400 },
+  },
+  // Смоленск: крепостная стена с Громовой башней на холмах над Днепром, «Орлы» и сад Блонье.
+  smolensk: {
+    sky: ["#5f9fd8", "#a7cdea", "#e6f1e8"],
+    sun: { x: 0.8, y: 0.16, r: 0.05, color: "#fffcef", glow: "rgba(255,248,220,0.45)" },
+    layers: [
+      { kind: "hills", parallax: 0.05, base: 0.56, amp: 0.14, color: "#93ad9f", seed: 3 },
+      { kind: "marks", parallax: 0.12, base: 0.62, amp: 0.36, color: "#7a9480", color2: "rgba(255,240,200,0.7)", seed: 7, span: 1.6, marks: [{ type: "smolenskWall", at: 0.5, size: 1 }] },
+      { kind: "water", parallax: 0.17, base: 0.66, amp: 0.04, color: "#8db6c8", color2: "#e2f0f4", seed: 3 },
+      { kind: "marks", parallax: 0.22, base: 0.73, amp: 0.3, color: "#4f6e48", color2: "#ffe9b0", seed: 9, span: 1.6, marks: [{ type: "eagles", at: 0.25, size: 0.8 }, { type: "smolenskBlonie", at: 0.7, size: 0.85 }] },
+      { kind: "trees", parallax: 0.42, base: 0.85, amp: 0.2, color: "#3a5e39", color2: "#4e7846", seed: 11 },
+    ],
+    track: { top: "#a8805a", rut: "rgba(80,55,30,0.45)", lip: "#c9a27a", berm: "#5f8a48", face: ["#77543a", "#3a281a"], strata: "rgba(40,25,12,0.35)", fence: "#f2f2f2" },
+    world: { hemiSky: "#dcefff", hemiGround: "#4f7040", hemi: 1.5, sun: "#fffaf0", sunI: 2.3, apron: "#56813f", props: "trees", propColor: "#3b6a3a", propColor2: "#4f8044", fogNear: 80, fogFar: 480 },
+  },
+  // Минск вечером: Национальная библиотека-«алмаз» в подсветке, стела «Минск — город-герой», Ворота Минска.
+  minsk: {
+    sky: ["#1b2450", "#4b4f8f", "#e09a7c"],
+    sun: { x: 0.14, y: 0.44, r: 0.05, color: "#ffd9a0", glow: "rgba(255,170,120,0.45)" },
+    layers: [
+      { kind: "buildings", parallax: 0.06, base: 0.58, amp: 0.14, color: "#575c90", color2: "rgba(255,214,140,0.55)", seed: 23 },
+      { kind: "marks", parallax: 0.12, base: 0.65, amp: 0.32, color: "#3b4070", color2: "#4fb0ff", seed: 21, span: 1.6, marks: [{ type: "nationalLibrary", at: 0.3, size: 0.9 }, { type: "minskStela", at: 0.75, size: 1.1 }] },
+      { kind: "marks", parallax: 0.2, base: 0.73, amp: 0.34, color: "#2a2c50", color2: "rgba(255,226,160,0.9)", seed: 25, span: 1.6, marks: [{ type: "minskGates", at: 0.5, size: 1 }] },
+      { kind: "trees", parallax: 0.42, base: 0.85, amp: 0.18, color: "#1d2a32", color2: "#26363e", seed: 27 },
+    ],
+    track: { top: "#9c7454", rut: "rgba(60,40,28,0.5)", lip: "#c09474", berm: "#384a52", face: ["#654634", "#2a1c14"], strata: "rgba(25,15,10,0.4)", fence: "#e6e8f2" },
+    world: { hemiSky: "#b4b8ff", hemiGround: "#2e2a40", hemi: 1.3, sun: "#ffd9b0", sunI: 1.8, apron: "#2c3342", props: "trees", propColor: "#1f2d36", propColor2: "#2a3c46", fogNear: 70, fogFar: 420 },
+  },
+  // Воронеж: чернозём, водохранилище, корабль-музей «Гото Предестинация», Чернавский мост, здание ЮВЖД.
+  voronezh: {
+    sky: ["#4f97dd", "#9cc8ee", "#f2ead0"],
+    sun: { x: 0.8, y: 0.15, r: 0.055, color: "#fffbe8", glow: "rgba(255,240,200,0.5)" },
+    layers: [
+      { kind: "hills", parallax: 0.05, base: 0.56, amp: 0.1, color: "#a7b89c", seed: 2 },
+      { kind: "marks", parallax: 0.1, base: 0.6, amp: 0.3, color: "#8a978e", color2: "rgba(255,240,200,0.75)", seed: 31, span: 1.6, marks: [{ type: "railwayHQ", at: 0.25, size: 0.9 }, { type: "riverBridge", at: 0.72, size: 0.8 }] },
+      { kind: "water", parallax: 0.15, base: 0.645, amp: 0.05, color: "#6ea3c4", color2: "#d6ecf5", seed: 5 },
+      { kind: "marks", parallax: 0.2, base: 0.7, amp: 0.36, color: "#6a9cbb", color2: "rgba(255,220,140,0.9)", seed: 33, span: 2.4, marks: [{ type: "shipGoto", at: 0.5, size: 1 }] },
+      { kind: "trees", parallax: 0.42, base: 0.85, amp: 0.2, color: "#3f6a3a", color2: "#557f45", seed: 35 },
+    ],
+    track: { top: "#4d3c2f", rut: "rgba(15,10,6,0.5)", lip: "#6d5745", berm: "#5f8a45", face: ["#3b2c22", "#1a120d"], strata: "rgba(0,0,0,0.3)", fence: "#ededed" },
+    world: { hemiSky: "#e2f0ff", hemiGround: "#54733d", hemi: 1.55, sun: "#fff6e0", sunI: 2.5, apron: "#5c8a42", props: "trees", propColor: "#3f7038", propColor2: "#558747", fogNear: 90, fogFar: 520 },
+  },
+  // Владивосток: утренний туман над морем, Русский мост, Золотой мост, подлодка С-56, сопки с домами.
+  vladivostok: {
+    sky: ["#6d9fcf", "#b9d3e6", "#f3e6da"],
+    sun: { x: 0.2, y: 0.24, r: 0.05, color: "#fff5ea", glow: "rgba(255,230,210,0.5)" },
+    layers: [
+      { kind: "ridge", parallax: 0.05, base: 0.56, amp: 0.16, color: "#a3b6c6", color2: "#c9d6e1", seed: 41 },
+      { kind: "marks", parallax: 0.08, base: 0.6, amp: 0.4, color: "#8ea3b6", color2: "rgba(255,240,220,0.9)", seed: 43, span: 1.6, marks: [{ type: "russkyBridge", at: 0.5, size: 0.85 }] },
+      { kind: "water", parallax: 0.12, base: 0.63, amp: 0.05, color: "#7fa6c2", color2: "#e3eef5", seed: 7 },
+      { kind: "marks", parallax: 0.18, base: 0.71, amp: 0.32, color: "#5f7186", color2: "#ffd68a", seed: 45, span: 1.6, marks: [{ type: "goldenBridge", at: 0.3, size: 1 }, { type: "submarine", at: 0.8, size: 0.6 }] },
+      { kind: "buildings", parallax: 0.35, base: 0.85, amp: 0.2, color: "#4a586a", color2: "rgba(255,220,170,0.6)", seed: 47 },
+    ],
+    track: { top: "#8f7d68", rut: "rgba(50,40,30,0.45)", lip: "#b3a089", berm: "#6f7f6a", face: ["#635546", "#2c241d"], strata: "rgba(25,20,15,0.35)", fence: "#2c3e50" },
+    world: { hemiSky: "#e6f0fa", hemiGround: "#5d6a5e", hemi: 1.5, sun: "#fff4e8", sunI: 2.1, apron: "#66785f", props: "rocks", propColor: "#7e7f78", propColor2: "#6a6c66", fogNear: 60, fogFar: 380 },
+  },
+  // Новосибирск: золотая осень, Обь, Оперный театр с серебряным куполом, Бугринский мост, вокзал.
+  novosibirsk: {
+    sky: ["#5a8fcf", "#a9c8e6", "#f0e2c8"],
+    sun: { x: 0.75, y: 0.18, r: 0.05, color: "#fffaea", glow: "rgba(255,236,200,0.45)" },
+    layers: [
+      { kind: "pines", parallax: 0.05, base: 0.56, amp: 0.08, color: "#71907f", color2: "#7d9a88", seed: 51 },
+      { kind: "marks", parallax: 0.1, base: 0.61, amp: 0.34, color: "#8a9298", color2: "rgba(255,226,160,0.85)", seed: 53, span: 1.6, marks: [{ type: "operaNsk", at: 0.3, size: 0.9 }, { type: "nskStation", at: 0.78, size: 0.75 }] },
+      { kind: "water", parallax: 0.16, base: 0.65, amp: 0.05, color: "#7c9fb8", color2: "#dde9f0", seed: 9 },
+      { kind: "marks", parallax: 0.2, base: 0.71, amp: 0.3, color: "#5f6b74", color2: "#ffe0a0", seed: 55, span: 1.6, marks: [{ type: "archBridge", at: 0.5, size: 0.9 }] },
+      { kind: "trees", parallax: 0.42, base: 0.85, amp: 0.21, color: "#b8862c", color2: "#e2b440", trunk: "#eeeae0", seed: 57 },
+    ],
+    track: { top: "#a07a55", rut: "rgba(70,48,28,0.45)", lip: "#c49e76", berm: "#a3893f", face: ["#715035", "#35241a"], strata: "rgba(40,25,12,0.35)", fence: "#2f6f4f" },
+    world: { hemiSky: "#e8f0ff", hemiGround: "#8a7440", hemi: 1.5, sun: "#fff3dc", sunI: 2.3, apron: "#8f8a45", props: "trees", propColor: "#d9a531", propColor2: "#c27f24", fogNear: 80, fogFar: 480 },
+  },
+  // Грозный в сумерках: снежный Кавказ, башни «Грозный-Сити» с подсветкой, «Ахмат-Арена».
+  grozny: {
+    sky: ["#1f2a55", "#6a5a8a", "#f0a070"],
+    sun: { x: 0.78, y: 0.42, r: 0.05, color: "#ffd2a0", glow: "rgba(255,160,110,0.5)" },
+    layers: [
+      { kind: "ridge", parallax: 0.04, base: 0.5, amp: 0.32, color: "#7d7fa2", color2: "#f2e6ee", seed: 61 },
+      { kind: "ridge", parallax: 0.09, base: 0.58, amp: 0.2, color: "#5e6286", color2: "#8a8db0", seed: 63 },
+      { kind: "marks", parallax: 0.14, base: 0.64, amp: 0.44, color: "#3c3f66", color2: "#7fe0ff", seed: 65, span: 1.6, marks: [{ type: "groznyCity", at: 0.35, size: 1 }, { type: "akhmatArena", at: 0.8, size: 0.6 }] },
+      { kind: "buildings", parallax: 0.26, base: 0.75, amp: 0.14, color: "#2f3156", color2: "rgba(255,214,150,0.75)", seed: 67 },
+      { kind: "trees", parallax: 0.45, base: 0.86, amp: 0.18, color: "#252640", color2: "#2e304e", seed: 69 },
+    ],
+    track: { top: "#a0664a", rut: "rgba(70,35,25,0.5)", lip: "#c08868", berm: "#3e3f5e", face: ["#6e3f2c", "#2e1812"], strata: "rgba(30,12,8,0.4)", fence: "#e8e8f0" },
+    world: { hemiSky: "#c2b4ff", hemiGround: "#3a2a3a", hemi: 1.3, sun: "#ffc9a0", sunI: 1.9, apron: "#3a3446", props: "rocks", propColor: "#6a5a62", propColor2: "#574a52", fogNear: 100, fogFar: 800 },
+  },
+  // Нижний Новгород: Волга, канатная дорога, кремль на откосе, Чкаловская лестница, стадион на Стрелке.
+  nizhny: {
+    sky: ["#4c8fd8", "#9cc6ee", "#eaf0f0"],
+    sun: { x: 0.2, y: 0.15, r: 0.05, color: "#fffcef", glow: "rgba(255,248,220,0.45)" },
+    layers: [
+      { kind: "hills", parallax: 0.05, base: 0.56, amp: 0.1, color: "#9ab0ad", seed: 4 },
+      { kind: "water", parallax: 0.08, base: 0.6, amp: 0.06, color: "#7fa8c8", color2: "#dcecf6", seed: 11 },
+      { kind: "marks", parallax: 0.12, base: 0.63, amp: 0.34, color: "#7c8c96", color2: "#e04e3c", seed: 71, span: 1.6, marks: [{ type: "nnStadium", at: 0.12, size: 0.55 }, { type: "nnCableCar", at: 0.58, size: 1 }] },
+      { kind: "marks", parallax: 0.19, base: 0.72, amp: 0.36, color: "#5d7a55", color2: "#ffe9b0", seed: 73, span: 1.6, marks: [{ type: "nnKremlin", at: 0.3, size: 1 }, { type: "chkalovStairs", at: 0.82, size: 0.8 }] },
+      { kind: "trees", parallax: 0.42, base: 0.85, amp: 0.2, color: "#3a6340", color2: "#4c7a4c", seed: 75 },
+    ],
+    track: { top: "#ad8458", rut: "rgba(85,58,30,0.45)", lip: "#cfa678", berm: "#5a8448", face: ["#7a5636", "#3c2a19"], strata: "rgba(40,25,12,0.35)", fence: "#c8372d" },
+    world: { hemiSky: "#dcefff", hemiGround: "#4f7040", hemi: 1.5, sun: "#fffaf0", sunI: 2.3, apron: "#56813f", props: "trees", propColor: "#3a6a3e", propColor2: "#4c7f48", fogNear: 80, fogFar: 480 },
   },
 };
 
@@ -174,6 +272,71 @@ function drawStands(
 }
 
 export type { Layer };
+
+// One city block for "buildings" layers: lit side, cornice, a rooftop detail and window rows.
+function building(ctx: CanvasRenderingContext2D, L: Layer, i: number, x: number, bw: number, bh: number, base: number, S: number) {
+  const top = base - bh;
+  const c = L.color;
+  ctx.fillStyle = c;
+  ctx.fillRect(x, top, bw, bh + 2);
+  ctx.fillStyle = tone(c, 0.07);
+  ctx.fillRect(x + bw * 0.74, top, bw * 0.26, bh + 2);
+  ctx.fillStyle = tone(c, 0.16);
+  ctx.fillRect(x - bw * 0.02, top, bw * 1.04, Math.max(1, bh * 0.025));
+  const roof = hash(i, L.seed + 5);
+  ctx.fillStyle = c;
+  if (roof < 0.22) {
+    ctx.fillRect(x + bw * 0.15, top - bh * 0.07, bw * 0.22, bh * 0.07); // water tank / lift room
+    ctx.fillRect(x + bw * 0.6, top - bh * 0.04, bw * 0.15, bh * 0.04);
+  } else if (roof < 0.42) {
+    ctx.fillRect(x + bw * 0.18, top - bh * 0.12, bw * 0.64, bh * 0.12 + 1); // set-back top floor
+    ctx.fillRect(x + bw * 0.34, top - bh * 0.2, bw * 0.32, bh * 0.08 + 1);
+  } else if (roof < 0.55) {
+    ctx.beginPath(); // pitched roof
+    ctx.moveTo(x - bw * 0.03, top + 1);
+    ctx.lineTo(x + bw * 0.5, top - bw * 0.3);
+    ctx.lineTo(x + bw * 1.03, top + 1);
+    ctx.fill();
+  } else if (roof < 0.72) {
+    ctx.fillRect(x + bw * 0.45, top - bh * 0.16, Math.max(2, S * 0.003), bh * 0.16); // antenna
+    ctx.fillStyle = "rgba(255,80,70,0.9)";
+    ctx.fillRect(x + bw * 0.45 - 1, top - bh * 0.17, Math.max(2, S * 0.004), Math.max(2, S * 0.004));
+  }
+  ctx.fillStyle = L.color2 ?? "#fc8";
+  const ww = Math.max(2, bw * 0.11);
+  const wh = Math.max(2, ww * 1.25);
+  let k = 0;
+  for (let wy = top + wh; wy < base - wh * 1.5; wy += wh * 2.1)
+    for (let wx = x + ww; wx < x + bw - ww; wx += ww * 2) if (hash(i * 997 + k++, L.seed + 4) < 0.42) ctx.fillRect(wx, wy, ww, wh);
+  ctx.fillStyle = tone(c, -0.25);
+  ctx.fillRect(x, base - wh * 1.6, bw, wh * 1.6); // shop floor
+}
+
+// One park tree for "trees" layers: trunk and a crown of overlapping blobs, the right side lit.
+function tree(ctx: CanvasRenderingContext2D, L: Layer, i: number, x: number, gy: number, th: number) {
+  const r = th * 0.3;
+  const tw = Math.max(2, th * 0.06);
+  ctx.fillStyle = L.trunk ?? tone(L.color, -0.4);
+  ctx.fillRect(x - tw / 2, gy - th * 0.6, tw, th * 0.6 + 2);
+  if (L.trunk) {
+    ctx.fillStyle = "rgba(30,30,30,0.6)"; // birch bark marks
+    for (let k = 0; k < 4; k++) ctx.fillRect(x - tw / 2, gy - th * (0.1 + k * 0.12) - hash(i + k, L.seed) * th * 0.05, tw * 0.7, Math.max(1, th * 0.012));
+  }
+  const hi = L.color2 ?? L.color;
+  const lean = (hash(i, L.seed + 7) - 0.5) * r * 0.4;
+  for (const [dx, dy, rr, lit] of [
+    [0, -0.72, 1, 0],
+    [-0.6, -0.55, 0.72, 0],
+    [0.58, -0.6, 0.75, 1],
+    [0.2, -1.0, 0.68, 1],
+    [-0.25, -0.95, 0.55, 0],
+  ]) {
+    ctx.fillStyle = lit ? hi : L.color;
+    ctx.beginPath();
+    ctx.arc(x + dx * r + lean * -dy, gy + dy * th, rr * r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 
 // Paints one backdrop layer as a horizontally seamless strip for the 3D renderer, which
 // maps it onto a far-away plane. Proportions match drawLayer: S is the "screen height"
@@ -312,18 +475,18 @@ export function paintLayer(L: Layer, w: number, h: number, base: number, amp: nu
       cells(S * 0.16, (i, x0) => {
         const bw = S * (0.1 + hash(i, L.seed) * 0.08);
         const bh = amp * (0.35 + hash(i, L.seed + 1) * 0.65);
-        const x = x0 + hash(i, L.seed + 2) * S * 0.05;
-        const top = base - bh;
-        ctx.fillStyle = L.color;
-        ctx.fillRect(x, top, bw, bh + 2);
-        if (hash(i, L.seed + 3) < 0.3) ctx.fillRect(x + bw * 0.45, top - bh * 0.1, Math.max(2, S * 0.003), bh * 0.1);
-        ctx.fillStyle = L.color2 ?? "#fc8";
-        const ww = Math.max(2, bw * 0.12);
-        const wh = Math.max(2, ww * 1.2);
-        let k = 0;
-        for (let wy = top + wh; wy < base - wh; wy += wh * 2.2)
-          for (let wx = x + ww; wx < x + bw - ww; wx += ww * 2.2)
-            if (hash(i * 997 + k++, L.seed + 4) < 0.45) ctx.fillRect(wx, wy, ww, wh);
+        building(ctx, L, i, x0 + hash(i, L.seed + 2) * S * 0.05, bw, bh, base, S);
+      });
+      break;
+    }
+    case "trees": {
+      const k = cyc(2 / TAU);
+      const ground = (u: number) => base - amp * 0.12 * (1 + Math.sin(TAU * k * u + L.seed));
+      fillBelow(ground, L.color);
+      cells(S * 0.07, (i, x0) => {
+        if (hash(i, L.seed) < 0.2) return;
+        const x = x0 + hash(i, L.seed + 2) * S * 0.04;
+        tree(ctx, L, i, x, ground((((x % w) + w) % w) / w) + 2, amp * (0.5 + hash(i, L.seed + 1) * 0.5));
       });
       break;
     }
@@ -563,17 +726,19 @@ function drawLayer(ctx: CanvasRenderingContext2D, L: Layer, v: View) {
       cells(h * 0.16, (i, x0) => {
         const bw = h * (0.1 + hash(i, L.seed) * 0.08);
         const bh = amp * (0.35 + hash(i, L.seed + 1) * 0.65);
-        const x = x0 + hash(i, L.seed + 2) * h * 0.05;
-        const top = baseY - bh;
-        ctx.fillStyle = L.color;
-        ctx.fillRect(x, top, bw, bh + 2);
-        if (hash(i, L.seed + 3) < 0.3) ctx.fillRect(x + bw * 0.45, top - bh * 0.1, 2, bh * 0.1); // antenna
-        ctx.fillStyle = L.color2 ?? "#fc8";
-        const ww = Math.max(2, bw * 0.12);
-        const wh = Math.max(2, ww * 1.2);
-        for (let wy = top + wh; wy < baseY - wh; wy += wh * 2.2)
-          for (let wx = x + ww; wx < x + bw - ww; wx += ww * 2.2)
-            if (hash(Math.floor(wx * 7 + wy * 13), L.seed + 4) < 0.45) ctx.fillRect(wx, wy, ww, wh);
+        building(ctx, L, i, x0 + hash(i, L.seed + 2) * h * 0.05, bw, bh, baseY, h);
+      });
+      break;
+    }
+    case "trees": {
+      const gy = (px: number) => baseY - amp * 0.12 * (1 + Math.sin((toU(px) / h) * 2 + L.seed));
+      const pts: [number, number][] = [];
+      for (let px = -10; px <= w + 10; px += 12) pts.push([px, gy(px)]);
+      fillBelow(pts, L.color);
+      cells(h * 0.07, (i, x0) => {
+        if (hash(i, L.seed) < 0.2) return;
+        const x = x0 + hash(i, L.seed + 2) * h * 0.04;
+        tree(ctx, L, i, x, gy(x) + 2, amp * (0.5 + hash(i, L.seed + 1) * 0.5));
       });
       break;
     }
