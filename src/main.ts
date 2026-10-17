@@ -1,6 +1,7 @@
 import { autopilot } from "./ai.ts";
 import { Sound } from "./audio.ts";
 import { Cloud } from "./cloud.ts";
+import { enterFullscreen, installHelp, isFullscreen, isInstalled, isTouch, onFullscreenChange } from "./fullscreen.ts";
 import { Controls } from "./input.ts";
 import {
   MAX_LEVEL,
@@ -130,6 +131,20 @@ class Game {
     });
     void this.cloud.init();
     this.renderAccount();
+
+    // Phones: full screen button (or install help where browsers can't hide their bars).
+    const fsBtn = $("btn-fullscreen");
+    const syncFsButton = () => fsBtn.classList.toggle("hidden", !isTouch() || isInstalled() || isFullscreen());
+    syncFsButton();
+    onFullscreenChange(syncFsButton);
+    fsBtn.addEventListener("click", async () => {
+      if (await enterFullscreen()) return;
+      const help = installHelp();
+      $("fs-help-text").textContent = help.text;
+      $("fs-help-steps").innerHTML = help.steps.map((s) => `<li>${s}</li>`).join("");
+      $("fs-help").classList.remove("hidden");
+    });
+    $("fs-help-close").addEventListener("click", () => $("fs-help").classList.add("hidden"));
     toggle("tgl-sfx", () => this.sound.sfxOn, (on) => this.sound.setSfx(on));
     toggle("tgl-music", () => this.sound.musicOn, (on) => this.sound.setMusic(on));
     $("btn-restart").addEventListener("click", () => this.load(this.track));

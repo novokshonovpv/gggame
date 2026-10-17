@@ -3,7 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#5aa9e6" />
+    <meta name="theme-color" content="#12161c" />
+    <!-- Installable: launched from the home screen it runs without the browser's bars. -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Moto Trials" />
     <title>Moto Trials</title>
   </head>
   <body>
@@ -42,26 +49,41 @@
     <div id="crash" class="hidden"><span>Падение!</span></div>
 
     <div id="menu" class="overlay">
+      <div class="panel menu-panel">
+        <div class="menu-side">
+          <h1>Moto Trials</h1>
+          <div class="menu-bar">
+            <span class="coins" id="menu-coins">0</span>
+            <span class="star-count" id="menu-stars">0 ★</span>
+            <button id="btn-garage" class="garage-btn">Гараж</button>
+          </div>
+          <button id="btn-fullscreen" class="fs-btn hidden">⛶ Играть во весь экран</button>
+          <div class="toggles">
+            <button id="tgl-sfx" class="tgl" aria-pressed="true">Звук</button>
+            <button id="tgl-music" class="tgl" aria-pressed="true">Музыка</button>
+          </div>
+          <div id="account" class="account hidden">
+            <span id="acc-status"></span>
+            <button id="acc-btn" class="garage-btn"></button>
+          </div>
+        </div>
+        <div class="menu-main">
+          <p class="sub">Выбери трассу</p>
+          <div id="track-list"></div>
+          <p class="keys">
+            Клавиатура: <b>↑</b> газ · <b>↓</b> тормоз · <b>← →</b> наклон · <b>R</b> заново · <b>Esc</b> меню
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shown where a page can't hide the browser's bars itself (iPhone, in-app browsers). -->
+    <div id="fs-help" class="overlay hidden">
       <div class="panel">
-        <h1>Moto Trials</h1>
-        <div class="menu-bar">
-          <span class="coins" id="menu-coins">0</span>
-          <span class="star-count" id="menu-stars">0 ★</span>
-          <button id="btn-garage" class="garage-btn">Гараж</button>
-        </div>
-        <div class="toggles">
-          <button id="tgl-sfx" class="tgl" aria-pressed="true">Звук</button>
-          <button id="tgl-music" class="tgl" aria-pressed="true">Музыка</button>
-        </div>
-        <div id="account" class="account hidden">
-          <span id="acc-status"></span>
-          <button id="acc-btn" class="garage-btn"></button>
-        </div>
-        <p class="sub">Выбери трассу</p>
-        <div id="track-list"></div>
-        <p class="keys">
-          Клавиатура: <b>↑</b> газ · <b>↓</b> тормоз · <b>← →</b> наклон · <b>R</b> заново · <b>Esc</b> меню
-        </p>
+        <h2>Игра на весь экран</h2>
+        <p id="fs-help-text" class="help-text"></p>
+        <ol id="fs-help-steps" class="help-steps"></ol>
+        <button id="fs-help-close" class="primary-wide">Понятно</button>
       </div>
     </div>
 

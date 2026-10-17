@@ -1,0 +1,15 @@
+{
+  "name": "Moto Trials",
+  "short_name": "Moto Trials",
+  "description": "2D-мотокросс с физикой: трассы российских городов, соперники, прокачка BSE T5.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#12161c",
+  "theme_color": "#12161c",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
