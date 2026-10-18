@@ -20,7 +20,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      # The Ubuntu runner image ships the Android SDK (ANDROID_HOME); Gradle fetches the rest.
       - run: npm ci
       - run: npm run build
       - run: npx cap sync android
