@@ -45,6 +45,17 @@ export async function enterFullscreen(): Promise<boolean> {
   return true;
 }
 
+// Back to the normal browser window ("свернуть"), keeping the game where it is.
+export async function exitFullscreen() {
+  const d = document as WebkitDoc & { webkitExitFullscreen?: () => Promise<void> | void };
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+    else if (d.webkitFullscreenElement && d.webkitExitFullscreen) await d.webkitExitFullscreen();
+  } catch {
+    /* already out */
+  }
+}
+
 export function installHelp(): { text: string; steps: string[] } {
   const ua = navigator.userAgent;
   const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);

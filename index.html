@@ -16,33 +16,47 @@
   <body>
     <canvas id="game"></canvas>
 
+    <!-- Race screen, MSM3 style: race bar and missions top left, pause top right,
+         progress along the bottom, throttle/brake on the left thumb, lean on the right. -->
     <div id="hud" class="hidden">
-      <div class="hud-top">
-        <button id="btn-menu" class="icon" aria-label="Меню">☰</button>
-        <div class="center">
-          <div id="track-name"></div>
-          <div class="hud-bar">
-            <div class="cell"><span class="lbl">Поз</span><b id="pos">1/4</b></div>
-            <div class="cell main"><span class="lbl">Время</span><b id="time">0:00.00</b></div>
-            <div class="cell"><span class="lbl">Круг</span><b id="lap">1/1</b></div>
-          </div>
-          <div id="progress"><div id="progress-fill"></div></div>
-        </div>
-        <button id="btn-restart" class="icon" aria-label="Заново">↻</button>
+      <div class="race-bar">
+        <div class="rb-cell"><span class="lbl">Поз</span><b id="pos">1/4</b></div>
+        <div class="rb-cell main"><span class="lbl">Время</span><b id="time">0:00.00</b></div>
+        <div class="rb-cell"><span class="lbl">Круг</span><b id="lap">1/1</b></div>
       </div>
+      <div id="track-name" class="race-track"></div>
+      <button id="btn-pause" class="pause-btn" aria-label="Пауза"><i></i><i></i></button>
       <ul id="missions"></ul>
+      <div id="progress"><div id="progress-fill"></div><span class="flag" aria-hidden="true"></span></div>
       <div id="toast" class="hidden"></div>
       <div id="countdown" class="hidden"></div>
     </div>
 
     <div id="controls" class="hidden">
       <div class="pad left">
-        <button data-action="back" aria-label="Наклон назад">◀</button>
-        <button data-action="fwd" aria-label="Наклон вперёд">▶</button>
+        <button data-action="brake" class="brake" aria-label="Тормоз"></button>
+        <button data-action="gas" class="gas" aria-label="Газ"></button>
       </div>
       <div class="pad right">
-        <button data-action="brake" class="brake" aria-label="Тормоз">■</button>
-        <button data-action="gas" class="gas" aria-label="Газ">▲</button>
+        <button data-action="back" class="lean back" aria-label="Наклон назад"><i></i></button>
+        <button data-action="fwd" class="lean fwd" aria-label="Наклон вперёд"><i></i></button>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="panel pause-panel">
+        <h2>Пауза</h2>
+        <p id="pause-track" class="sub"></p>
+        <button id="pause-resume" class="primary-wide">Продолжить</button>
+        <div class="row pause-row">
+          <button id="pause-restart">Заново</button>
+          <button id="pause-fs" class="fs-toggle">Во весь экран</button>
+        </div>
+        <div class="toggles">
+          <button id="p-sfx" class="tgl" aria-pressed="true">Звук</button>
+          <button id="p-music" class="tgl" aria-pressed="true">Музыка</button>
+        </div>
+        <button id="pause-menu" class="link">Выйти в главное меню</button>
       </div>
     </div>
 
@@ -66,6 +80,9 @@
           </button>
           <button id="hub-gear" class="icon-btn" aria-label="Экипировка" title="Экипировка">
             <svg viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 16 0v2H9l-1 3H5a1 1 0 0 1-1-1z" /><path d="M12 10h8" /></svg>
+          </button>
+          <button id="hub-fs" class="icon-btn fs-toggle-icon" aria-label="Во весь экран" title="Во весь экран">
+            <svg viewBox="0 0 24 24"><path class="fs-in" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /><path class="fs-out" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
           </button>
           <button id="btn-settings" class="icon-btn" aria-label="Настройки" title="Настройки">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg>

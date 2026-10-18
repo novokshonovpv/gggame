@@ -15,7 +15,7 @@ import {
   rewardScale,
 } from "./catalog.ts";
 import { Cloud, NICK_RE } from "./cloud.ts";
-import { enterFullscreen, installHelp, isFullscreen, isInstalled, isTouch, onFullscreenChange } from "./fullscreen.ts";
+import { enterFullscreen, exitFullscreen, installHelp, isFullscreen, isInstalled, onFullscreenChange } from "./fullscreen.ts";
 import { DAILY_REWARDS, MAX_LEVEL, UPGRADES, claimDaily, dailyState, loadProfile, lookFor, riderLevel, saveProfile, statsFor, upgradeCost } from "./garage.ts";
 import { GHOST_LOOK, type GhostBike, GhostRecorder, loadGhost, saveGhost } from "./ghost.ts";
 import { Controls } from "./input.ts";
@@ -98,6 +98,7 @@ class Game {
   boardTab: "points" | "times" = "points";
   raceLevel = 0; // difficulty of the race in progress
   nickFirst = false; // the nickname prompt can't be skipped the first time
+  paused = false;
 
   constructor() {
     migrateOldProgress();
@@ -134,23 +135,47 @@ class Game {
     void this.cloud.init();
     this.renderAccount();
 
-    // Phones: full screen button (or install help where browsers can't hide their bars).
-    const fsBtn = $("btn-fullscreen");
-    const syncFsButton = () => fsBtn.classList.toggle("hidden", !isTouch() || isInstalled() || isFullscreen());
-    syncFsButton();
-    onFullscreenChange(syncFsButton);
-    fsBtn.addEventListener("click", async () => {
-      if (await enterFullscreen()) return;
-      const help = installHelp();
-      $("fs-help-text").textContent = help.text;
-      $("fs-help-steps").innerHTML = help.steps.map((s) => `<li>${s}</li>`).join("");
-      $("fs-help").classList.remove("hidden");
-    });
+    // Full screen on and off ("свернуть") from the hub, the settings and the pause screen;
+    // where a browser can't hide its bars, show how to install the game instead. An
+    // installed game already runs full screen, so the buttons go away there.
+    const fsButtons = ["btn-fullscreen", "pause-fs", "hub-fs"].map((id) => $(id));
+    const syncFs = () => {
+      const on = isFullscreen();
+      for (const b of fsButtons) {
+        b.classList.toggle("hidden", isInstalled());
+        b.classList.toggle("on", on);
+        if (b.id !== "hub-fs") b.textContent = on ? "⤡ Свернуть" : "⛶ Во весь экран";
+        b.setAttribute("aria-label", on ? "Свернуть" : "Во весь экран");
+        b.title = on ? "Свернуть" : "Во весь экран";
+      }
+    };
+    syncFs();
+    onFullscreenChange(syncFs);
+    for (const b of fsButtons)
+      b.addEventListener("click", async () => {
+        if (isFullscreen()) return void exitFullscreen();
+        if (await enterFullscreen()) return;
+        const help = installHelp();
+        $("fs-help-text").textContent = help.text;
+        $("fs-help-steps").innerHTML = help.steps.map((s) => `<li>${s}</li>`).join("");
+        $("fs-help").classList.remove("hidden");
+      });
     $("fs-help-close").addEventListener("click", () => $("fs-help").classList.add("hidden"));
-    toggle("tgl-sfx", () => this.sound.sfxOn, (on) => this.sound.setSfx(on));
-    toggle("tgl-music", () => this.sound.musicOn, (on) => this.sound.setMusic(on));
-    $("btn-restart").addEventListener("click", () => this.load(this.track));
-    $("btn-menu").addEventListener("click", () => this.showMenu());
+    // Sound toggles live in the settings and on the pause screen; keep both in step.
+    const syncToggles = () => {
+      for (const id of ["tgl-sfx", "p-sfx"]) $(id).setAttribute("aria-pressed", String(this.sound.sfxOn));
+      for (const id of ["tgl-music", "p-music"]) $(id).setAttribute("aria-pressed", String(this.sound.musicOn));
+    };
+    for (const id of ["tgl-sfx", "p-sfx"]) toggle(id, () => this.sound.sfxOn, (on) => (this.sound.setSfx(on), syncToggles()));
+    for (const id of ["tgl-music", "p-music"]) toggle(id, () => this.sound.musicOn, (on) => (this.sound.setMusic(on), syncToggles()));
+    // Pause.
+    $("btn-pause").addEventListener("click", () => this.pause());
+    $("pause-resume").addEventListener("click", () => this.resume());
+    $("pause-restart").addEventListener("click", () => this.load(this.track));
+    $("pause-menu").addEventListener("click", () => this.showMenu());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.pause();
+    });
     $("res-retry").addEventListener("click", () => this.load(this.track));
     $("res-next").addEventListener("click", () => {
       // Next track open on this level (wraps around to the first).
@@ -250,10 +275,29 @@ class Game {
     if (!$("nick").classList.contains("hidden")) return;
     if (code === "KeyR" || code === "Enter") {
       if (this.state === "countdown" || this.state === "racing" || this.state === "finished") this.load(this.track);
-    } else if (code === "Escape") {
+    } else if (code === "Escape" || code === "KeyP") {
       if (!$("settings").classList.contains("hidden")) $("settings").classList.add("hidden");
-      else this.showMenu();
+      else if (this.paused) this.resume();
+      else if (this.state === "countdown" || this.state === "racing") this.pause();
+      else if (code === "Escape") this.showMenu();
     }
+  }
+
+  // ---------- Pause ----------
+
+  pause() {
+    if (this.paused || (this.state !== "countdown" && this.state !== "racing")) return;
+    this.paused = true;
+    $("pause-track").textContent = `${this.track.name} · ${DIFFICULTIES[this.raceLevel].name}`;
+    $("pause").classList.remove("hidden");
+    this.ui();
+  }
+
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    $("pause").classList.add("hidden");
+    this.ui();
   }
 
   trackOpen(t: Track) {
@@ -542,6 +586,8 @@ class Game {
 
   showMenu() {
     this.state = "menu";
+    this.paused = false;
+    $("pause").classList.add("hidden");
     $("settings").classList.add("hidden");
     this.renderHub();
     this.ui();
@@ -652,6 +698,8 @@ class Game {
 
   load(track: Track) {
     this.track = track;
+    this.paused = false;
+    $("pause").classList.add("hidden");
     const p = this.profile;
     // A level not yet open on this track falls back to the highest open one.
     let level = p.difficulty;
@@ -775,8 +823,14 @@ class Game {
   }
 
   renderMissions() {
+    // MSM3-style plates: an icon in a diamond, the task, live progress on the right.
+    const ICONS: Record<string, string> = { place: "🏆", time: "⏱", wheelie: "⤴", backflips: "⟲", frontflips: "⟳", air: "↗", speed: "⚡", clean: "✓" };
     $("missions").innerHTML = this.tracker.missions
-      .map((m, i) => `<li class="${this.tracker.done[i] ? "done" : ""}"><span class="txt">${missionText(m)}</span><span class="prog" id="mp-${i}"></span></li>`)
+      .map(
+        (m, i) =>
+          `<li class="${this.tracker.done[i] ? "done" : ""}"><span class="dia"><i>${ICONS[m.kind] ?? "★"}</i></span>` +
+          `<span class="txt">${missionText(m)}</span><span class="prog" id="mp-${i}"></span></li>`,
+      )
       .join("");
   }
 
@@ -796,7 +850,7 @@ class Game {
     const race = this.race;
     const player = this.player;
 
-    if (this.state === "countdown") {
+    if (this.state === "countdown" && !this.paused) {
       this.countdown -= dt;
       if (this.countdown <= 0) {
         this.state = "racing";
@@ -810,7 +864,7 @@ class Game {
     }
 
     const input = this.autopilot ? autopilot(player.bike, this.track) : this.controls.read();
-    this.acc += dt;
+    this.acc = this.paused ? 0 : this.acc + dt; // a paused race stands still
     while (this.acc >= DT) {
       race.step(DT, input);
       if (this.state === "racing" && !player.crashed && !player.finished) this.tracker.step(player.bike, DT);
@@ -837,7 +891,7 @@ class Game {
     else this.renderer.draw(this.cam, this.track, riders, this.clock);
     this.hud();
 
-    const inRace = this.state === "countdown" || this.state === "racing" || this.state === "finished";
+    const inRace = !this.paused && (this.state === "countdown" || this.state === "racing" || this.state === "finished");
     this.sound.updateEngines(
       race.racers.map((r) => ({
         bike: r.bike,
@@ -916,7 +970,7 @@ class Game {
     $("board").classList.toggle("hidden", s !== "board");
     $("results").classList.toggle("hidden", s !== "finished");
     $("hud").classList.toggle("hidden", overlay);
-    $("controls").classList.toggle("hidden", overlay || s === "finished");
+    $("controls").classList.toggle("hidden", overlay || s === "finished" || this.paused);
     $("track-name").textContent = `${this.track.name} · ${DIFFICULTIES[this.raceLevel].name}`;
   }
 }
