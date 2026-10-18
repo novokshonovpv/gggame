@@ -9,7 +9,9 @@ const doc = document as WebkitDoc;
 
 export const isTouch = () => matchMedia("(pointer: coarse)").matches;
 
+// Home-screen install, or the Android app (Capacitor), which already runs full screen.
 export const isInstalled = () =>
+  !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() ||
   matchMedia("(display-mode: fullscreen)").matches ||
   matchMedia("(display-mode: standalone)").matches ||
   (navigator as Navigator & { standalone?: boolean }).standalone === true;

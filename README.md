@@ -20,6 +20,17 @@ node tools/race.ts   # полная гонка с соперниками без 
 
 Управление: ↑ газ, ↓ тормоз, ← → наклон, R заново, Esc меню. На телефоне — экранные кнопки.
 
+## Android (APK)
+
+Приложение для Android собирается автоматически на GitHub при каждом пуше в `main`
+(`.github/workflows/android.yml`): Actions → «Android APK» → последний запуск → Artifacts →
+`moto-trials-apk`. Это debug-APK: ставится на телефон напрямую (нужно разрешить установку из
+неизвестных источников). Обёртка — Capacitor (`capacitor.config.json`, папка `android/`):
+альбомная ориентация, игра на весь экран без системных панелей.
+
+Локально (нужны JDK 21 и Android SDK): `npm run build && npx cap sync android`, затем
+`cd android && ./gradlew assembleDebug`.
+
 ## Мотоциклы, уровни, награды и очки
 
 - Мотоциклы: BSE EX 125 (1 200), BSE Z3 250 (стартовый), BSE T5 300 (8 000), BSE 2T 300 (20 000, класс «300 2T»;

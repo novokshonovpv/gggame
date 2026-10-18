@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.novokshonovpv.mototrials",
+  "appName": "Moto Trials",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#12161c"
+  }
+}
