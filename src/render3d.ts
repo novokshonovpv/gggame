@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { BikePose } from "./bike.ts";
+import { Edge, World } from "planck";
+import { Bike, type BikePose } from "./bike.ts";
 import { POINTS, PANELS, type Role, T, TUBES, WHEEL_R } from "./bikeShape.ts";
 import type { Look } from "./race.ts";
 import { Dust } from "./dust.ts";
@@ -1302,6 +1303,211 @@ function nameTag(look: Look) {
 
 // ---------- Renderer ----------
 
+// ---------- Garage showroom (main menu) ----------
+
+// The bike at rest on flat ground: a real physics bike settled on its suspension.
+function restingPose(): BikePose {
+  const world = new World({ gravity: { x: 0, y: -11 } });
+  world.createBody().createFixture(new Edge({ x: -20, y: 0 }, { x: 20, y: 0 }), { friction: 0.9 });
+  const bike = new Bike(world, { x: 0, y: 0 });
+  for (let i = 0; i < 360; i++) {
+    bike.apply({ gas: false, brake: true, lean: 0 }, 1 / 120);
+    world.step(1 / 120, 8, 3);
+  }
+  return bike;
+}
+
+// MSM3-style garage behind the main menu: concrete floor, corrugated wall, a shelf of
+// helmets, a tyre stack, a red tool chest, hanging lamps and a spotlight on the bike.
+class Showroom {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(34, 1, 0.1, 80);
+  bike: BikeModel | null = null;
+  key = "";
+  pose = restingPose();
+  holder = new THREE.Group();
+
+  constructor() {
+    const s = this.scene;
+    s.background = new THREE.Color("#0d141c");
+    s.fog = new THREE.Fog("#0d141c", 9, 22);
+    const floorTex = texture(
+      canvas(512, 512, (ctx) => {
+        ctx.fillStyle = "#4b5057";
+        ctx.fillRect(0, 0, 512, 512);
+        const r = rng(3);
+        for (let i = 0; i < 2600; i++) {
+          ctx.fillStyle = `rgba(${r() < 0.5 ? "255,255,255" : "0,0,0"},${0.03 + r() * 0.05})`;
+          ctx.fillRect(r() * 512, r() * 512, 1 + r() * 3, 1 + r() * 3);
+        }
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(0, 0, 512, 512);
+      }),
+      true,
+    );
+    floorTex.repeat.set(10, 10);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ map: floorTex }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    // A pool of light under the bike.
+    const pool = new THREE.Mesh(
+      new THREE.CircleGeometry(2.2, 48),
+      new THREE.MeshBasicMaterial({
+        map: texture(
+          canvas(256, 256, (ctx) => {
+            const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+            g.addColorStop(0, "rgba(255,240,210,0.35)");
+            g.addColorStop(1, "rgba(255,240,210,0)");
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, 256, 256);
+          }),
+          false,
+        ),
+        transparent: true,
+        depthWrite: false,
+      }),
+    );
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = 0.005;
+    const wallTex = texture(
+      canvas(512, 256, (ctx) => {
+        ctx.fillStyle = "#1d2a38";
+        ctx.fillRect(0, 0, 512, 256);
+        for (let x = 0; x < 512; x += 16) {
+          ctx.fillStyle = "rgba(255,255,255,0.06)";
+          ctx.fillRect(x, 0, 5, 256);
+          ctx.fillStyle = "rgba(0,0,0,0.18)";
+          ctx.fillRect(x + 9, 0, 3, 256);
+        }
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillRect(0, 200, 512, 56);
+      }),
+      true,
+    );
+    wallTex.repeat.set(6, 1);
+    const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(40, 8), wallMat);
+    back.position.set(0, 4, -4);
+    back.receiveShadow = true;
+    const left = new THREE.Mesh(new THREE.PlaneGeometry(16, 8), wallMat);
+    left.rotation.y = Math.PI / 2;
+    left.position.set(-7, 4, 2);
+    s.add(floor, pool, back, left);
+
+    // Shelf with helmets in many colors.
+    const shelfMat = mat("#2c3036");
+    for (const y of [1.3, 2.2]) {
+      const board = new THREE.Mesh(boxGeo, shelfMat);
+      board.scale.set(3.2, 0.06, 0.5);
+      board.position.set(-2.6, y, -3.7);
+      board.castShadow = true;
+      s.add(board);
+      ["#e23b3b", "#f4d10f", "#2d7be0", "#f2f2f2", "#30b85a"].forEach((col, i) => {
+        const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), mat(col));
+        helmet.scale.set(1.1, 0.95, 0.95);
+        helmet.position.set(-3.85 + i * 0.62, y + 0.19, -3.65);
+        helmet.castShadow = true;
+        const peak = new THREE.Mesh(boxGeo, mat(col));
+        peak.scale.set(0.2, 0.03, 0.22);
+        peak.position.set(-3.85 + i * 0.62 + 0.12, y + 0.33, -3.65);
+        peak.rotation.z = -0.3;
+        s.add(helmet, peak);
+      });
+    }
+    // Tyre stack.
+    for (let k = 0; k < 4; k++) {
+      const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.12, 10, 28), mat("#141416"));
+      tyre.rotation.x = Math.PI / 2;
+      tyre.position.set(3.3 + (k % 2) * 0.05, 0.12 + k * 0.24, -3.1);
+      tyre.castShadow = true;
+      s.add(tyre);
+    }
+    // Red tool chest with drawers.
+    const chest = new THREE.Mesh(boxGeo, mat("#b8322a"));
+    chest.scale.set(1.1, 1.0, 0.55);
+    chest.position.set(1.8, 0.5, -3.5);
+    chest.castShadow = true;
+    s.add(chest);
+    for (let k = 0; k < 4; k++) {
+      const handle = new THREE.Mesh(boxGeo, mat("#c9cdd2"));
+      handle.scale.set(0.5, 0.025, 0.04);
+      handle.position.set(1.8, 0.2 + k * 0.22, -3.21);
+      s.add(handle);
+    }
+    // Banner on the wall.
+    const banner = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.4, 0.85),
+      new THREE.MeshBasicMaterial({
+        map: texture(
+          canvas(512, 128, (ctx) => {
+            ctx.fillStyle = "#f2a516";
+            ctx.fillRect(0, 0, 512, 128);
+            ctx.fillStyle = "#111";
+            ctx.font = "italic 900 72px system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("MOTO TRIALS", 256, 68);
+          }),
+          false,
+        ),
+      }),
+    );
+    banner.position.set(1.2, 3.2, -3.95);
+    s.add(banner);
+    // Hanging lamps with warm bulbs.
+    for (const x of [-2.4, 0, 2.4]) {
+      const cord = new THREE.Mesh(rodGeo, mat("#111"));
+      cord.scale.set(0.01, 1.4, 0.01);
+      cord.position.set(x, 4.3, -1.2);
+      const shade = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.26, 20, 1, true), mat("#22262b"));
+      shade.position.set(x, 3.5, -1.2);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), new THREE.MeshBasicMaterial({ color: "#fff1c4" }));
+      bulb.position.set(x, 3.38, -1.2);
+      const glow = new THREE.PointLight("#ffd9a0", 6, 6, 1.6);
+      glow.position.set(x, 3.3, -1.2);
+      s.add(cord, shade, bulb, glow);
+    }
+
+    s.add(new THREE.HemisphereLight("#bcd4ff", "#2a2420", 1.1));
+    const spot = new THREE.SpotLight("#fff6e6", 60, 14, 0.5, 0.45, 1.2);
+    spot.position.set(1.5, 6, 3.5);
+    spot.target.position.set(0, 0.6, 0);
+    spot.castShadow = true;
+    spot.shadow.mapSize.set(1024, 1024);
+    spot.shadow.bias = -0.0005;
+    const rim = new THREE.DirectionalLight("#9ec8ff", 1.2);
+    rim.position.set(-4, 3, -3);
+    s.add(spot, spot.target, rim, this.holder);
+  }
+
+  setLook(look: Look) {
+    const key = JSON.stringify(look);
+    if (key === this.key) return;
+    this.key = key;
+    if (this.bike) {
+      this.holder.remove(this.bike.root);
+      this.bike.root.traverse((n) => {
+        const mesh = n as THREE.Mesh;
+        if (mesh.geometry && mesh.geometry !== rodGeo && mesh.geometry !== boxGeo) mesh.geometry.dispose();
+      });
+    }
+    this.bike = new BikeModel(look, true);
+    if (this.bike.marker) this.bike.marker.visible = false;
+    if (this.bike.halo) this.bike.halo.visible = false;
+    this.bike.update(this.pose, 0, 0);
+    // Center the bike on the turntable.
+    const c = this.pose.chassis.getPosition();
+    this.bike.root.position.set(-c.x - 0.15, -this.groundOffset(), 0);
+    this.holder.add(this.bike.root);
+  }
+
+  // Height of the tyres' contact patch in the pose (the ground line of the physics world).
+  private groundOffset() {
+    return Math.min(this.pose.rear.getPosition().y - WHEEL_R.rear, this.pose.front.getPosition().y - WHEEL_R.front);
+  }
+}
+
 export class Renderer3D {
   w = 0;
   h = 0;
@@ -1405,6 +1611,27 @@ export class Renderer3D {
       this.sky.add(stars);
     }
     this.trackId = track.id;
+  }
+
+  private showroom: Showroom | null = null;
+  showroomYaw = 0; // extra turn from dragging, radians
+
+  // Main menu: the player's bike in the garage, the camera drifting around it.
+  drawShowroom(look: Look, time: number) {
+    const sr = (this.showroom ??= new Showroom());
+    sr.setLook(look);
+    const cam = sr.camera;
+    if (cam.aspect !== this.w / this.h) {
+      cam.aspect = this.w / this.h;
+      cam.updateProjectionMatrix();
+    }
+    const yaw = 0.62 + Math.sin(time * 0.18) * 0.22 + this.showroomYaw;
+    // Wide screens: frame the bike a little right of center, where the menu leaves room.
+    const r = this.w / this.h > 1.5 ? 5.8 : 6.8;
+    cam.position.set(Math.sin(yaw) * r, 1.7, Math.cos(yaw) * r);
+    cam.lookAt(0, 1.0, 0);
+    cam.setViewOffset(this.w, this.h, -this.w * 0.05, 0, this.w, this.h);
+    this.gl.render(sr.scene, cam);
   }
 
   draw(cam: Camera, track: Track, riders: RiderView[], time: number) {

@@ -16,7 +16,7 @@ import {
 } from "./catalog.ts";
 import { Cloud, NICK_RE } from "./cloud.ts";
 import { enterFullscreen, installHelp, isFullscreen, isInstalled, isTouch, onFullscreenChange } from "./fullscreen.ts";
-import { MAX_LEVEL, UPGRADES, loadProfile, lookFor, saveProfile, statsFor, upgradeCost } from "./garage.ts";
+import { DAILY_REWARDS, MAX_LEVEL, UPGRADES, claimDaily, dailyState, loadProfile, lookFor, riderLevel, saveProfile, statsFor, upgradeCost } from "./garage.ts";
 import { GHOST_LOOK, type GhostBike, GhostRecorder, loadGhost, saveGhost } from "./ghost.ts";
 import { Controls } from "./input.ts";
 import { MissionTracker, missionText, missionsFor } from "./missions.ts";
@@ -43,7 +43,7 @@ import "./style.css";
 const DT = 1 / 120;
 const COUNTDOWN = 3;
 
-type State = "menu" | "garage" | "board" | "countdown" | "racing" | "finished";
+type State = "menu" | "tracks" | "garage" | "board" | "countdown" | "racing" | "finished";
 type GarageTab = "bikes" | "paint" | "gear" | "upgrades";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -160,7 +160,7 @@ class Game {
         if (this.trackOpen(t) && levelOpen(t, this.profile.difficulty)) return this.load(t);
       }
     });
-    $("res-menu").addEventListener("click", () => this.showMenu());
+    $("res-menu").addEventListener("click", () => this.showTracks());
     $("btn-garage").addEventListener("click", () => this.showGarage());
     $("garage-close").addEventListener("click", () => this.showMenu());
     $("garage-tabs").addEventListener("click", (e) => {
@@ -185,6 +185,45 @@ class Game {
       if (b) void this.removeNick(b.dataset.uid!, b.dataset.nick!);
     });
     $("btn-nick").addEventListener("click", () => this.showNick());
+    // Hub buttons.
+    const openGarage = (tab: GarageTab) => () => {
+      this.garageTab = tab;
+      this.showGarage();
+    };
+    $("hub-bikes").addEventListener("click", openGarage("bikes"));
+    $("hub-gear").addEventListener("click", openGarage("gear"));
+    $("hub-upgrades").addEventListener("click", openGarage("upgrades"));
+    $("btn-race").addEventListener("click", () => this.showTracks());
+    $("tracks-close").addEventListener("click", () => this.showMenu());
+    $("btn-settings").addEventListener("click", () => $("settings").classList.remove("hidden"));
+    $("settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
+    $("set-nick").addEventListener("click", () => {
+      $("settings").classList.add("hidden");
+      this.showNick();
+    });
+    $("daily-claim").addEventListener("click", () => {
+      const got = claimDaily(this.profile);
+      if (!got) return;
+      this.saveProfile();
+      this.sound.coin();
+      this.renderHub();
+    });
+    // Drag the garage to turn the bike.
+    let dragX: number | null = null;
+    const canvasEl = $("game");
+    canvasEl.addEventListener("pointerdown", (e) => {
+      if (this.state === "menu" || this.state === "garage") dragX = e.clientX;
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (dragX === null || !(this.renderer instanceof Renderer3D)) return;
+      this.renderer.showroomYaw += (e.clientX - dragX) * 0.008;
+      dragX = e.clientX;
+    });
+    window.addEventListener("pointerup", () => (dragX = null));
+    // The daily reward timer ticks while the hub is open.
+    window.setInterval(() => {
+      if (this.state === "menu") this.renderDaily();
+    }, 30000);
     $("nick-save").addEventListener("click", () => void this.saveNick());
     $("nick-input").addEventListener("keydown", (e) => {
       if (e.key === "Enter") void this.saveNick();
@@ -212,7 +251,8 @@ class Game {
     if (code === "KeyR" || code === "Enter") {
       if (this.state === "countdown" || this.state === "racing" || this.state === "finished") this.load(this.track);
     } else if (code === "Escape") {
-      this.showMenu();
+      if (!$("settings").classList.contains("hidden")) $("settings").classList.add("hidden");
+      else this.showMenu();
     }
   }
 
@@ -502,14 +542,71 @@ class Game {
 
   showMenu() {
     this.state = "menu";
+    $("settings").classList.add("hidden");
+    this.renderHub();
+    this.ui();
+  }
+
+  // The MSM3-style hub over the garage: player card, balances, daily reward, progress
+  // towards the next track, upgrades, rider level and the bike.
+  renderHub() {
     const p = this.profile;
+    const points = totalPoints();
+    const earned = totalStars();
+    const lvl = riderLevel(points);
     $("menu-coins").textContent = String(p.coins);
     $("menu-nick").textContent = p.nick ?? "Без ника";
-    const earned = totalStars();
     $("menu-stars").textContent = `${earned} ★`;
-    $("menu-points").textContent = `${totalPoints()} очк.`;
-    $("menu-bike").textContent = `Мотоцикл: ${bikeSpec(p.bike).name}`;
+    $("menu-points").textContent = `${points} очк.`;
+    $("hub-avatar").textContent = lookFor(p).number ?? "7";
+    $("hub-avatar").style.background = lookFor(p).plastic;
+    $("hub-level").textContent = `Уровень ${lvl.level}`;
+    $("rl-title").textContent = `Уровень гонщика ${lvl.level}`;
+    $("rl-bar").style.width = `${Math.round(lvl.progress * 100)}%`;
+    $("rl-info").textContent = `${points} / ${lvl.to} очк. до уровня ${lvl.level + 1}`;
+    $("menu-bike").textContent = bikeSpec(p.bike).name;
+    const upg = Object.values(p.levels).reduce((s, v) => s + v, 0);
+    $("hub-upg-info").textContent = `${upg} / ${UPGRADES.length * MAX_LEVEL} улучшений`;
 
+    // Next goal: the next locked track, or the next level to win.
+    const next = TRACKS.find((t) => earned < t.stars);
+    if (next) {
+      const prev = [...TRACKS].reverse().find((t) => t.stars <= earned && t.stars < next.stars)?.stars ?? 0;
+      $("next-tag").textContent = "Новая трасса";
+      $("next-title").textContent = next.name;
+      $("next-info").textContent = `Звёзды: ${earned} / ${next.stars} ★`;
+      $("next-bar").style.width = `${Math.round(Math.min(1, (earned - prev) / Math.max(1, next.stars - prev)) * 100)}%`;
+    } else {
+      const total = TRACKS.length * DIFFICULTIES.length * 5;
+      $("next-tag").textContent = "Все трассы открыты";
+      $("next-title").textContent = "Собери все звёзды";
+      $("next-info").textContent = `Звёзды: ${earned} / ${total} ★`;
+      $("next-bar").style.width = `${Math.round((earned / total) * 100)}%`;
+    }
+    this.renderDaily();
+  }
+
+  renderDaily() {
+    const d = dailyState(this.profile);
+    const btn = $<HTMLButtonElement>("daily-claim");
+    btn.disabled = d.claimed;
+    if (d.claimed) {
+      const h = Math.floor(d.msLeft / 3600000);
+      const m = Math.floor((d.msLeft % 3600000) / 60000);
+      btn.textContent = `${h} ч ${m} мин`;
+      $("daily-info").textContent = `День ${d.streak}: получено. Следующая через`;
+    } else {
+      btn.innerHTML = `Забрать <span class="coins">${d.reward}</span>`;
+      $("daily-info").textContent = `День ${d.streak} из ${DAILY_REWARDS.length}: заходи каждый день — награда растёт`;
+    }
+  }
+
+  // Track selection: difficulty levels and the track list.
+  showTracks() {
+    this.state = "tracks";
+    const p = this.profile;
+    const earned = totalStars();
+    $("tracks-stars").textContent = `${earned} ★`;
     const levels = $("levels");
     levels.innerHTML = "";
     for (const d of DIFFICULTIES) {
@@ -520,7 +617,7 @@ class Game {
       b.addEventListener("click", () => {
         p.difficulty = d.id;
         saveProfile(p);
-        this.showMenu();
+        this.showTracks();
       });
       levels.appendChild(b);
     }
@@ -551,7 +648,6 @@ class Game {
     });
     this.ui();
   }
-
   // ---------- Race ----------
 
   load(track: Track) {
@@ -736,7 +832,9 @@ class Game {
       this.ghost.setTime(race.time);
       riders.push({ bike: this.ghost, look: GHOST_LOOK, isPlayer: false, ghost: true });
     }
-    this.renderer.draw(this.cam, this.track, riders, this.clock);
+    // The hub and the garage show the bike in the 3D garage; everything else the track.
+    if ((this.state === "menu" || this.state === "garage") && this.renderer instanceof Renderer3D) this.renderer.drawShowroom(lookFor(this.profile), this.clock);
+    else this.renderer.draw(this.cam, this.track, riders, this.clock);
     this.hud();
 
     const inRace = this.state === "countdown" || this.state === "racing" || this.state === "finished";
@@ -810,10 +908,11 @@ class Game {
 
   ui() {
     const s = this.state;
-    const overlay = s === "menu" || s === "garage" || s === "board";
+    const overlay = s === "menu" || s === "tracks" || s === "garage" || s === "board";
     this.sound.setMusicLevel(overlay || s === "finished" ? 0.35 : 0.14);
     $("menu").classList.toggle("hidden", s !== "menu");
     $("garage").classList.toggle("hidden", s !== "garage");
+    $("tracks").classList.toggle("hidden", s !== "tracks");
     $("board").classList.toggle("hidden", s !== "board");
     $("results").classList.toggle("hidden", s !== "finished");
     $("hud").classList.toggle("hidden", overlay);

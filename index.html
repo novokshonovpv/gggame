@@ -48,38 +48,91 @@
 
     <div id="crash" class="hidden"><span>Падение!</span></div>
 
-    <div id="menu" class="overlay">
-      <div class="panel menu-panel">
-        <div class="menu-side">
-          <h1>Moto Trials</h1>
-          <button id="btn-nick" class="nick-btn"><span id="menu-nick">Без ника</span> ✎</button>
-          <div class="menu-bar">
-            <span class="coins" id="menu-coins">0</span>
-            <span class="star-count" id="menu-stars">0 ★</span>
-            <span class="points" id="menu-points">0 очк.</span>
-          </div>
-          <div class="menu-bar">
-            <button id="btn-garage" class="garage-btn">Гараж</button>
-            <button id="btn-board" class="garage-btn">Рекорды</button>
-          </div>
-          <div id="menu-bike" class="menu-bike"></div>
-          <button id="btn-fullscreen" class="fs-btn hidden">⛶ Играть во весь экран</button>
-          <div class="toggles">
-            <button id="tgl-sfx" class="tgl" aria-pressed="true">Звук</button>
-            <button id="tgl-music" class="tgl" aria-pressed="true">Музыка</button>
-          </div>
-          <div id="account" class="account hidden">
-            <span id="acc-status"></span>
-            <button id="acc-btn" class="garage-btn"></button>
-          </div>
+    <!-- Main menu: MSM3-style hub over the 3D garage. Empty areas let drags reach the canvas. -->
+    <div id="menu" class="hub">
+      <div class="hub-top">
+        <button id="btn-nick" class="player-card" aria-label="Сменить ник">
+          <span class="avatar" id="hub-avatar">7</span>
+          <span class="pc-text"><b id="menu-nick">Без ника</b><small id="hub-level">Уровень 1</small></span>
+        </button>
+        <div class="hub-stats">
+          <span class="pill"><span class="coins" id="menu-coins">0</span></span>
+          <span class="pill"><span class="star-count" id="menu-stars">0 ★</span></span>
+          <span class="pill"><span class="points" id="menu-points">0 очк.</span></span>
         </div>
-        <div class="menu-main">
-          <div id="levels" class="levels"></div>
-          <div id="track-list"></div>
-          <p class="keys">
-            Клавиатура: <b>↑</b> газ · <b>↓</b> тормоз · <b>← →</b> наклон · <b>R</b> заново · <b>Esc</b> меню
-          </p>
+        <div class="hub-icons">
+          <button id="hub-bikes" class="icon-btn" aria-label="Мотоциклы" title="Мотоциклы">
+            <svg viewBox="0 0 24 24"><circle cx="5.5" cy="16" r="3.5" /><circle cx="18.5" cy="16" r="3.5" /><path d="M5.5 16l4-6h5l4 6M9.5 10l-1.5-3h3M14.5 10l1-3h2.5" /></svg>
+          </button>
+          <button id="hub-gear" class="icon-btn" aria-label="Экипировка" title="Экипировка">
+            <svg viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 16 0v2H9l-1 3H5a1 1 0 0 1-1-1z" /><path d="M12 10h8" /></svg>
+          </button>
+          <button id="btn-settings" class="icon-btn" aria-label="Настройки" title="Настройки">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg>
+          </button>
         </div>
+      </div>
+
+      <div class="hub-left">
+        <div class="card daily">
+          <span class="tag">Бесплатно</span>
+          <span class="card-art coins-art" aria-hidden="true"></span>
+          <b>Ежедневная награда</b>
+          <small id="daily-info"></small>
+          <button id="daily-claim" class="claim">Забрать</button>
+        </div>
+        <div class="card next">
+          <span class="tag blue" id="next-tag">Прогресс</span>
+          <b id="next-title"></b>
+          <small id="next-info"></small>
+          <div class="bar"><i id="next-bar"></i></div>
+        </div>
+      </div>
+
+      <div class="hub-right">
+        <button id="hub-upgrades" class="slant-btn side"><span class="slant-in"><i class="ico">⚙</i><span><b>Прокачка</b><small id="hub-upg-info"></small></span></span></button>
+        <button id="btn-board" class="slant-btn side"><span class="slant-in"><i class="ico">🏆</i><span><b>Рекорды</b><small>Общий зачёт и трассы</small></span></span></button>
+      </div>
+
+      <div class="hub-bottom">
+        <button id="btn-garage" class="slant-btn store"><span class="slant-in"><i class="ico">🛒</i><b>Магазин</b></span></button>
+        <div class="rider-level">
+          <div class="rl-head"><b id="rl-title">Уровень 1</b><span id="menu-bike"></span></div>
+          <div class="bar"><i id="rl-bar"></i></div>
+          <small id="rl-info"></small>
+        </div>
+        <button id="btn-race" class="slant-btn race"><span class="slant-in"><b>Гонка</b><i class="ico">▶</i></span></button>
+      </div>
+    </div>
+
+    <!-- Track selection: levels and tracks, opened by the race button. -->
+    <div id="tracks" class="overlay hidden">
+      <div class="panel wide tracks-panel">
+        <div class="garage-head">
+          <h2>Выбор трассы</h2>
+          <span class="star-count" id="tracks-stars"></span>
+        </div>
+        <div id="levels" class="levels"></div>
+        <div id="track-list"></div>
+        <p class="keys">Клавиатура: <b>↑</b> газ · <b>↓</b> тормоз · <b>← →</b> наклон · <b>R</b> заново · <b>Esc</b> меню</p>
+        <button id="tracks-close" class="primary-wide">Назад</button>
+      </div>
+    </div>
+
+    <div id="settings" class="overlay hidden">
+      <div class="panel">
+        <h2>Настройки</h2>
+        <div class="toggles">
+          <button id="tgl-sfx" class="tgl" aria-pressed="true">Звук</button>
+          <button id="tgl-music" class="tgl" aria-pressed="true">Музыка</button>
+        </div>
+        <button id="btn-fullscreen" class="fs-btn hidden">⛶ Играть во весь экран</button>
+        <button id="set-nick" class="garage-btn set-row">Сменить ник</button>
+        <div id="account" class="account hidden">
+          <span id="acc-status"></span>
+          <button id="acc-btn" class="garage-btn"></button>
+        </div>
+        <button id="settings-close" class="primary-wide">Готово</button>
       </div>
     </div>
 
@@ -124,7 +177,7 @@
           <button data-tab="upgrades">Прокачка</button>
         </div>
         <div id="garage-body"></div>
-        <button id="garage-close" class="primary-wide">К трассам</button>
+        <button id="garage-close" class="primary-wide">Назад</button>
       </div>
     </div>
 

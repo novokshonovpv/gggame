@@ -53,6 +53,7 @@ export interface Profile {
   owned: string[]; // paints and gear items you own
   gear: Record<GearSlot, string>; // gear you wear
   difficulty: number; // last chosen difficulty level
+  daily?: { day: string; streak: number }; // last daily reward claimed (local date) and streak
   nick?: string;
   updatedAt?: number;
 }
@@ -146,3 +147,40 @@ export function lookFor(p: Profile): Look {
 }
 
 export { GEAR };
+
+// ---------- Daily free reward ----------
+//
+// Once per calendar day; coming back on consecutive days climbs the ladder, a missed day
+// starts it again. A week of play earns 2 000 coins: a little more than one first-pass
+// Iron track, so it helps without replacing racing.
+export const DAILY_REWARDS = [100, 150, 200, 250, 300, 400, 600];
+
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export function dailyState(p: Profile, now = new Date()) {
+  const today = dayKey(now);
+  const yesterday = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const last = p.daily;
+  const claimed = last?.day === today;
+  const streak = claimed ? last!.streak : last?.day === yesterday ? last.streak + 1 : 1;
+  const reward = DAILY_REWARDS[Math.min(streak, DAILY_REWARDS.length) - 1];
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return { claimed, streak, reward, msLeft: tomorrow.getTime() - now.getTime() };
+}
+
+export function claimDaily(p: Profile, now = new Date()) {
+  const s = dailyState(p, now);
+  if (s.claimed) return 0;
+  p.daily = { day: dayKey(now), streak: s.streak };
+  p.coins += s.reward;
+  return s.reward;
+}
+
+// ---------- Rider level ----------
+// Grows with leaderboard points: level n needs 50·(n−1)² points.
+export function riderLevel(points: number) {
+  const level = Math.floor(Math.sqrt(points / 50)) + 1;
+  const from = 50 * (level - 1) ** 2;
+  const to = 50 * level ** 2;
+  return { level, from, to, progress: (points - from) / (to - from) };
+}

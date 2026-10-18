@@ -1142,3 +1142,455 @@ h1 {
     gap: 4px;
   }
 }
+/* ---------- Main menu hub (MSM3 style) ---------- */
+.hub {
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* empty areas pass drags to the garage behind */
+  --safe-t: max(10px, env(safe-area-inset-top));
+  --safe-r: max(12px, env(safe-area-inset-right));
+  --safe-b: max(12px, env(safe-area-inset-bottom));
+  --safe-l: max(12px, env(safe-area-inset-left));
+  --hub-blue: linear-gradient(180deg, #1d5674, #0f2f45);
+  --hub-edge: #6fd8ff;
+}
+
+.hub button,
+.hub .pill,
+.hub .card,
+.hub .rider-level {
+  pointer-events: auto;
+}
+
+.hub-top {
+  position: absolute;
+  top: var(--safe-t);
+  left: var(--safe-l);
+  right: var(--safe-r);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 4px 18px 4px 4px;
+  border: 0;
+  border-radius: 30px 10px 10px 30px;
+  background: linear-gradient(90deg, rgba(8, 22, 34, 0.92), rgba(8, 22, 34, 0.6));
+  box-shadow: 0 0 0 2px rgba(111, 216, 255, 0.25);
+}
+
+.avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  color: #111;
+  font-size: 18px;
+  font-weight: 900;
+  font-style: italic;
+}
+
+.pc-text {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.pc-text b {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pc-text small {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hub-stats {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.pill {
+  display: inline-flex;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(8, 22, 34, 0.8);
+  box-shadow: 0 0 0 2px rgba(111, 216, 255, 0.18);
+  transform: skewX(-12deg);
+}
+
+.pill > * {
+  transform: skewX(12deg);
+}
+
+.hub-icons {
+  display: flex;
+  gap: 6px;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hub-blue);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(111, 216, 255, 0.4);
+}
+
+.icon-btn svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hub-left {
+  position: absolute;
+  top: calc(var(--safe-t) + 62px);
+  left: var(--safe-l);
+  display: grid;
+  gap: 10px;
+  width: clamp(170px, 21vw, 240px);
+}
+
+.card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(22, 64, 86, 0.94), rgba(8, 22, 34, 0.94));
+  box-shadow: 0 0 0 2px rgba(111, 216, 255, 0.25), 0 8px 20px rgba(0, 0, 0, 0.35);
+  text-align: left;
+}
+
+.card .tag {
+  justify-self: start;
+  padding: 2px 10px;
+  border-radius: 3px;
+  background: #2fae4f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  transform: skewX(-12deg);
+}
+
+.card .tag.blue {
+  background: #2a7fe0;
+}
+
+.card b {
+  font-size: 15px;
+  font-style: italic;
+  text-transform: uppercase;
+}
+
+.card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.coins-art {
+  height: 44px;
+  background:
+    radial-gradient(circle at 28% 62%, #ffe58a 0 12px, #c48a00 13px 15px, transparent 16px),
+    radial-gradient(circle at 52% 42%, #ffe58a 0 14px, #c48a00 15px 17px, transparent 18px),
+    radial-gradient(circle at 76% 64%, #ffe58a 0 12px, #c48a00 13px 15px, transparent 16px);
+}
+
+.claim {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #5fd36e, #2a9b3e);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+}
+
+.claim .coins {
+  color: #fff6c8;
+}
+
+.claim:disabled {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  color: var(--muted);
+  cursor: default;
+}
+
+.hub .bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.hub .bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #8a5cff, #d07bff);
+}
+
+.slant-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  transform: skewX(-10deg);
+}
+
+.slant-in {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  transform: skewX(10deg);
+}
+
+.slant-btn b {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.slant-btn .ico {
+  font-size: 24px;
+  font-style: normal;
+}
+
+.slant-btn.side,
+.slant-btn.store {
+  border-left: 5px solid var(--hub-edge);
+  border-radius: 6px;
+  background: var(--hub-blue);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.3);
+}
+
+.slant-btn.side .slant-in > span {
+  display: grid;
+  text-align: left;
+}
+
+.slant-btn.side b {
+  font-size: 18px;
+}
+
+.slant-btn.side small {
+  color: #a9d6ea;
+  font-size: 11px;
+}
+
+.hub-right {
+  position: absolute;
+  top: 45%;
+  right: var(--safe-r);
+  display: grid;
+  gap: 12px;
+  width: clamp(190px, 24vw, 270px);
+  transform: translateY(-50%);
+}
+
+.hub-bottom {
+  position: absolute;
+  left: var(--safe-l);
+  right: var(--safe-r);
+  bottom: var(--safe-b);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.slant-btn.store b {
+  font-size: 22px;
+}
+
+.slant-btn.store .slant-in {
+  padding: 14px 26px;
+}
+
+.slant-btn.race {
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffd84a, #f2a516);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4), inset 0 -4px 0 rgba(0, 0, 0, 0.2), 0 0 0 3px rgba(17, 17, 17, 0.85);
+  color: #111;
+}
+
+.slant-btn.race .slant-in {
+  padding: 14px 34px;
+}
+
+.slant-btn.race b {
+  font-size: 36px;
+}
+
+.slant-btn.race .ico {
+  font-size: 30px;
+}
+
+.rider-level {
+  flex: 0 1 360px;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(48, 22, 96, 0.92), rgba(22, 12, 54, 0.92));
+  box-shadow: 0 0 0 2px rgba(200, 140, 255, 0.35);
+  transform: skewX(-10deg);
+}
+
+.rider-level > * {
+  transform: skewX(10deg);
+}
+
+.rl-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.rl-head b {
+  font-style: italic;
+  text-transform: uppercase;
+}
+
+.rl-head span,
+.rider-level small {
+  overflow: hidden;
+  color: #cdbcf2;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracks-panel #track-list {
+  max-height: min(48vh, 420px);
+}
+
+.set-row {
+  display: block;
+  margin: 12px auto 0;
+}
+
+/* Phones in landscape: everything a notch smaller so the bike stays visible. */
+@media (max-height: 500px) {
+  .avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+  }
+  .pill {
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+  .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .icon-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+  .hub-left {
+    top: calc(var(--safe-t) + 50px);
+    gap: 8px;
+    width: 175px;
+  }
+  .card {
+    gap: 2px;
+    padding: 7px 10px 9px;
+  }
+  .card b {
+    font-size: 13px;
+  }
+  .coins-art {
+    display: none;
+  }
+  .claim {
+    padding: 5px;
+  }
+  .hub-right {
+    width: 180px;
+    gap: 8px;
+  }
+  .slant-in {
+    padding: 7px 14px;
+  }
+  .slant-btn.side b {
+    font-size: 15px;
+  }
+  .slant-btn.side small {
+    display: none;
+  }
+  .slant-btn.store .slant-in {
+    padding: 9px 16px;
+  }
+  .slant-btn.store b {
+    font-size: 17px;
+  }
+  .slant-btn.race .slant-in {
+    padding: 9px 22px;
+  }
+  .slant-btn.race b {
+    font-size: 26px;
+  }
+  .rider-level {
+    padding: 5px 12px;
+  }
+  .tracks-panel #track-list {
+    max-height: calc(100vh - 175px);
+    max-height: calc(100dvh - 175px);
+  }
+  .tracks-panel .keys {
+    display: none;
+  }
+  .tracks-panel .primary-wide {
+    margin-top: 8px;
+    padding: 9px;
+  }
+}
+
+/* Narrow screens: the stats move under the player card. */
+@media (max-width: 700px) {
+  .hub-stats {
+    position: absolute;
+    top: 52px;
+    left: 0;
+    margin: 0;
+  }
+  .hub-left {
+    top: calc(var(--safe-t) + 92px);
+  }
+}

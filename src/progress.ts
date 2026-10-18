@@ -143,6 +143,8 @@ export function merge(a: Snapshot, b: Snapshot): Snapshot {
     levels,
     owned: [...new Set([...pa.owned, ...pb.owned])],
     bikes: [...new Set([...pa.bikes, ...pb.bikes])],
+    // The latest daily claim wins, so one day can't be claimed twice on two devices.
+    daily: [pa.daily, pb.daily].filter((d) => d).sort((x, y) => (x!.day < y!.day ? 1 : -1))[0],
     updatedAt: Math.max(pa.updatedAt ?? 0, pb.updatedAt ?? 0),
   });
 
