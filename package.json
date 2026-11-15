@@ -12,6 +12,7 @@
   "dependencies": {
     "@capacitor/android": "^8.5.3",
     "@capacitor/core": "^8.5.3",
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "firebase": "^13.0.0",
     "planck": "^1.5.1",
     "three": "^0.186.1"
