@@ -40,6 +40,15 @@ import { Renderer3D } from "./render3d.ts";
 import { TRACKS, type Track, groundY } from "./track.ts";
 import "./style.css";
 
+// Catalogue photos of the BSE bikes and the logo of the 67MOTO shop (from its site).
+const BIKE_PHOTOS: Record<string, string> = {
+  "125": new URL("./assets/67moto/bikes/125.jpg", import.meta.url).href,
+  "250": new URL("./assets/67moto/bikes/250.jpg", import.meta.url).href,
+  "300": new URL("./assets/67moto/bikes/300.jpg", import.meta.url).href,
+  "450": new URL("./assets/67moto/bikes/450.jpg", import.meta.url).href,
+};
+const SHOP_LOGO = new URL("./assets/67moto/logo-512.png", import.meta.url).href;
+
 const DT = 1 / 120;
 const COUNTDOWN = 3;
 
@@ -460,6 +469,7 @@ class Game {
 
   renderGarage() {
     const p = this.profile;
+    ($("shop-logo") as HTMLImageElement).src ||= SHOP_LOGO;
     $("garage-coins").textContent = String(p.coins);
     document.querySelectorAll<HTMLButtonElement>("#garage-tabs button").forEach((b) => b.classList.toggle("sel", b.dataset.tab === this.garageTab));
     const body = $("garage-body");
@@ -484,6 +494,7 @@ class Game {
         card.className = "bike-card" + (sel ? " sel" : "");
         card.disabled = !owned && p.coins < b.price;
         card.innerHTML =
+          `<span class="photo"><img src="${BIKE_PHOTOS[b.id] ?? ""}" alt="" loading="lazy" /></span>` +
           `<span class="cls">${b.label}</span><b>${b.name}</b><small>${b.desc}</small>` +
           `<span class="stat">Мощность ${bar(b.power / maxPower)}</span>` +
           `<span class="stat">Вращение ${bar((4.3 + b.airSpin) / 4.9)}</span>` +

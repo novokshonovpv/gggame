@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { Earcut } from "three/src/extras/Earcut.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { Edge, World } from "planck";
 import { Bike, type BikePose } from "./bike.ts";
@@ -591,6 +592,162 @@ function extrude(poly: number[], depth: number, color: string) {
   return new THREE.Mesh(g, mat(color));
 }
 
+// ---------- Moulded plastics ----------
+// The bike's panels are traced from a side photo. Instead of extruding them straight
+// across (flat slabs), each becomes a rounded shell: its two faces bulge out from the outline
+// like moulded plastic, and the half-width can vary along the bike (the tank narrows towards
+// the seat, the shrouds flare at the front, the fender tapers to the tail). Graphics panels
+// lie on the surface of the panel under them.
+
+type ZFn = (x: number, y: number) => number;
+
+function polyDist(px: number, py: number, p: number[]) {
+  let best = Infinity;
+  for (let i = 0; i < p.length; i += 2) {
+    const ax = p[i];
+    const ay = p[i + 1];
+    const bx = p[(i + 2) % p.length];
+    const by = p[(i + 3) % p.length];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)));
+    best = Math.min(best, Math.hypot(px - ax - dx * t, py - ay - dy * t));
+  }
+  return best;
+}
+
+// half: half-width of the panel at a point; round: how far in from the edge the surface
+// reaches full width; host: lie on another panel's surface instead (graphics).
+function pillow(pts: number[], half: ZFn, round: number, host?: ZFn) {
+  const p = pts.slice();
+  let area = 0;
+  for (let i = 0; i < p.length; i += 2) area += p[i] * p[(i + 3) % p.length] - p[(i + 2) % p.length] * p[i + 1];
+  if (area < 0) {
+    const r: number[] = [];
+    for (let i = p.length - 2; i >= 0; i -= 2) r.push(p[i], p[i + 1]);
+    p.splice(0, p.length, ...r);
+  }
+  // Outline every ~4 cm, earcut, then split every triangle in four, three times over: the
+  // surface gets evenly spread vertices to bulge, and the outline gets 8x finer.
+  const LEVELS = 3;
+  const outline: THREE.Vector2[] = [];
+  for (let i = 0; i < p.length; i += 2) {
+    const ax = p[i];
+    const ay = p[i + 1];
+    const bx = p[(i + 2) % p.length];
+    const by = p[(i + 3) % p.length];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 0.04));
+    for (let k = 0; k < n; k++) outline.push(new THREE.Vector2(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n));
+  }
+  const all = outline.slice();
+  let tris: number[] = Earcut.triangulate(
+    outline.flatMap((v) => [v.x, v.y]),
+    [],
+    2,
+  );
+  for (let lv = 0; lv < LEVELS; lv++) {
+    const mids = new Map<number, number>();
+    const mid = (a: number, b: number) => {
+      const key = a < b ? a * 100000 + b : b * 100000 + a;
+      let m = mids.get(key);
+      if (m === undefined) {
+        m = all.length;
+        all.push(all[a].clone().add(all[b]).multiplyScalar(0.5));
+        mids.set(key, m);
+      }
+      return m;
+    };
+    const next: number[] = [];
+    for (let t = 0; t < tris.length; t += 3) {
+      const [a, b, c] = [tris[t], tris[t + 1], tris[t + 2]];
+      const [ab, bc, ca] = [mid(a, b), mid(b, c), mid(c, a)];
+      next.push(a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca);
+    }
+    tris = next;
+  }
+  // Counter-clockwise in the xy plane (faces +z).
+  for (let t = 0; t < tris.length; t += 3) {
+    const [a, b, c] = [all[tris[t]], all[tris[t + 1]], all[tris[t + 2]]];
+    if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0) [tris[t + 1], tris[t + 2]] = [tris[t + 2], tris[t + 1]];
+  }
+  const edge = 0.3;
+  const zAt: ZFn = (x, y) => {
+    if (host) return host(x, y) + 0.005;
+    const t = Math.min(1, polyDist(x, y, p) / round);
+    return half(x, y) * (edge + (1 - edge) * Math.sqrt(1 - (1 - t) * (1 - t)));
+  };
+  const zs = all.map((v) => zAt(v.x, v.y));
+  const sheet = (side: number) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(all.flatMap((v, i) => [v.x, v.y, zs[i] * side]), 3));
+    const idx = side > 0 ? tris : tris.map((_, k) => tris[k - (k % 3) + [0, 2, 1][k % 3]]);
+    g.setIndex(idx);
+    g.computeVertexNormals(); // shared vertices: smooth shading
+    return g.toNonIndexed();
+  };
+  const parts = [sheet(1), sheet(-1)];
+  if (!host) {
+    // The rim between the two faces, along the outline at the subdivided spacing.
+    const rim: THREE.Vector2[] = [];
+    for (let i = 0; i < outline.length; i++) {
+      const a = outline[i];
+      const b = outline[(i + 1) % outline.length];
+      for (let k = 0; k < 1 << LEVELS; k++) rim.push(a.clone().lerp(b, k / (1 << LEVELS)));
+    }
+    const pos: number[] = [];
+    for (let i = 0; i < rim.length; i++) {
+      const a = rim[i];
+      const b = rim[(i + 1) % rim.length];
+      const za = zAt(a.x, a.y);
+      const zb = zAt(b.x, b.y);
+      // Outline is counter-clockwise, so outward is to the right of a->b.
+      pos.push(a.x, a.y, za, a.x, a.y, -za, b.x, b.y, -zb, a.x, a.y, za, b.x, b.y, -zb, b.x, b.y, zb);
+    }
+    const w = new THREE.BufferGeometry();
+    w.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    w.computeVertexNormals();
+    parts.push(w);
+  }
+  const geo = mergeGeometries(parts)!;
+  return { geo, zAt };
+}
+// How wide each traced panel is along the bike (fraction of its depth), by index in PANELS.
+function panelShape(i: number, pts: number[]): { width: ZFn; round: number; host?: number } {
+  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+  for (let k = 0; k < pts.length; k += 2) {
+    x0 = Math.min(x0, pts[k]);
+    x1 = Math.max(x1, pts[k]);
+    y0 = Math.min(y0, pts[k + 1]);
+    y1 = Math.max(y1, pts[k + 1]);
+  }
+  const fx = (x: number) => Math.max(0, Math.min(1, (x - x0) / (x1 - x0))); // 0 rear .. 1 front
+  const fy = (y: number) => Math.max(0, Math.min(1, (y - y0) / (y1 - y0))); // 0 bottom .. 1 top
+  switch (i) {
+    case 0: // engine cases
+      return { width: () => 1, round: 0.07 };
+    case 2: // skid plate
+      return { width: () => 1, round: 0.03 };
+    case 3: // rear fender: narrow tail
+      return { width: (x) => 0.4 + 0.6 * fx(x), round: 0.03 };
+    case 4: // side panel
+      return { width: (x) => 0.7 + 0.3 * fx(x), round: 0.05 };
+    case 5: // side panel graphic
+      return { width: () => 1, round: 0.05, host: 4 };
+    case 6: // tank and shrouds: slim at the seat, flaring at the radiators
+      return { width: (x, y) => 0.55 + 0.45 * Math.max(fx(x) ** 1.4, (1 - fy(y)) * 0.7), round: 0.09 };
+    case 7: // shroud graphic
+      return { width: () => 1, round: 0.09, host: 6 };
+    case 8: // seat: narrow at the tank, wider under the rider
+      return { width: (x) => 0.62 + 0.38 * Math.sin(Math.PI * (0.15 + 0.7 * (1 - fx(x)))), round: 0.05 };
+    case 9: // front fender
+      return { width: (x) => 0.75 + 0.25 * Math.sin(Math.PI * fx(x)), round: 0.05 };
+    case 10: // headlight mask
+      return { width: () => 1, round: 0.05 };
+    default:
+      return { width: () => 1, round: 0.04 };
+  }
+}
+
 // A rod along its local Y axis, length 1 (scale.y sets the real length).
 const rodGeo = new THREE.CylinderGeometry(1, 1, 1, 14);
 function rod(radius: number, color: string) {
@@ -903,6 +1060,7 @@ export class BikeModel {
   bootShafts: THREE.Mesh[];
   braces: THREE.Mesh[];
   gloves: THREE.Mesh[];
+  shoulders: THREE.Mesh[];
   tag: THREE.Sprite | null = null;
   marker: THREE.Sprite | null = null;
   halo: THREE.Mesh | null = null;
@@ -913,11 +1071,34 @@ export class BikeModel {
     const b = this.body;
     const st = new THREE.Group(); // static bike parts, merged by material below
     // BSE T5 body: plastics, seat, air-cooled engine, frame, exhaust (see bikeShape.ts).
-    for (const p of PANELS) {
-      const mesh = extrude(p.pts, p.depth, partColor(p.role, look));
-      if (p.role === "light") (mesh as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: "#f4f8ff" });
+    // Plastics, seat, engine cases and skid plate as moulded shells; the fins stay a block,
+    // the lamp lens lies on the mask.
+    const panelZ: ZFn[] = [];
+    PANELS.forEach((p, i) => {
+      const color = partColor(p.role, look);
+      if (p.role === "fins") {
+        st.add(extrude(p.pts, p.depth, color));
+        panelZ[i] = () => p.depth / 2;
+        return;
+      }
+      const sh = p.role === "light" ? { width: () => 1, round: 0.03, host: 10 } : panelShape(i, p.pts);
+      const { geo, zAt } = pillow(p.pts, (x, y) => (p.depth / 2 + 0.012) * sh.width(x, y), sh.round, sh.host !== undefined ? panelZ[sh.host] : undefined);
+      panelZ[i] = zAt;
+      const mesh = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(geo, mat(color));
+      if (p.role === "light") mesh.material = new THREE.MeshPhysicalMaterial({ color: "#eef3f8", roughness: 0.05, metalness: 0.6, clearcoat: 1, emissive: "#ffffff", emissiveIntensity: 0.15 });
       st.add(mesh);
-    }
+    });
+    // Decals on both sides, lying on the panel under them.
+    const onPanel = (make: () => THREE.Mesh, i: number, at: P2, w: number, h: number, rz: number) => {
+      for (const side of [1, -1]) {
+        const m = make();
+        let z = 0;
+        for (const dx of [-w / 2, 0, w / 2]) for (const dy of [-h / 2, 0, h / 2]) z = Math.max(z, panelZ[i](at[0] + dx, at[1] + dy));
+        m.position.set(at[0], at[1], side * (z + 0.006));
+        m.rotation.set(0, side > 0 ? 0 : Math.PI, side > 0 ? rz : -rz);
+        st.add(m);
+      }
+    };
     // Cooling fins across the cylinder.
     const [c0, c1] = [T(840, 490), T(1000, 600)];
     for (let k = 0; k < 6; k++) {
@@ -977,13 +1158,37 @@ export class BikeModel {
     bar.scale.y = 0.8;
     bar.position.set(POINTS.bar[0], POINTS.bar[1], 0);
     st.add(bar);
-    for (const z of [-0.36, 0.36]) {
-      const guard = new THREE.Mesh(boxGeo, mat("#b8bcc2"));
-      guard.position.set(POINTS.bar[0] + 0.07, POINTS.bar[1] + 0.02, z);
-      guard.scale.set(0.16, 0.02, 0.05);
-      guard.rotation.z = -0.25;
-      st.add(guard);
+    // Hand guards: a plastic shell curving forward round each grip on an alloy spar.
+    const [bx, by] = POINTS.bar;
+    for (const side of [-1, 1]) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(bx - 0.01, by + 0.005, side * 0.24),
+        new THREE.Vector3(bx + 0.07, by + 0.035, side * 0.3),
+        new THREE.Vector3(bx + 0.095, by + 0.03, side * 0.37),
+        new THREE.Vector3(bx + 0.06, by + 0.0, side * 0.425),
+        new THREE.Vector3(bx + 0.0, by - 0.01, side * 0.43),
+      ]);
+      const shell = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.028, 8, false), mat(look.plasticDark));
+      shell.scale.y = 1;
+      const spar = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.009, 6, false), mat("#b8bcc2"));
+      spar.position.y = -0.03;
+      st.add(shell, spar);
     }
+    // Brake hose and throttle cables from the bars down to the frame (follow the steering
+    // head, simplified as fixed), the brake pedal and the gear lever by the footpegs.
+    const cable = (pts: P2[], z: number[], r: number, color: string) => {
+      const c = new THREE.CatmullRomCurve3(pts.map(([x, y], k) => new THREE.Vector3(x, y, z[k])));
+      st.add(new THREE.Mesh(new THREE.TubeGeometry(c, 30, r, 6, false), mat(color)));
+    };
+    const [lx, ly] = POINTS.lowerClamp;
+    cable([[bx + 0.03, by - 0.01], [bx + 0.12, by - 0.06], [lx + 0.04, ly + 0.02], [lx + 0.06, ly - 0.12]], [0.2, 0.17, 0.12, 0.11], 0.006, "#141416");
+    cable([[bx + 0.02, by - 0.01], [bx + 0.09, by - 0.08], [lx - 0.02, ly + 0.03], [lx - 0.12, ly - 0.06], T(1000, 470)], [-0.22, -0.17, -0.12, -0.1, -0.08], 0.005, "#141416");
+    const [px, py] = POINTS.peg;
+    const pedal = rod(0.011, "#9aa0a8");
+    span(pedal, [px - 0.02, py + 0.02], [px + 0.2, py + 0.03], 0.13);
+    const lever = rod(0.011, "#9aa0a8");
+    span(lever, [px + 0.03, py + 0.07], [px + 0.2, py + 0.05], -0.14);
+    st.add(pedal, lever);
     // Upside-down fork (thick outer tubes on top), fork guards and the swingarm move
     // with the suspension, see update().
     for (let side = 0; side < 2; side++) {
@@ -1029,7 +1234,7 @@ export class BikeModel {
     // C-frame knee braces, a 5.5 neck brace and a Moto 7.5 helmet with Velocity goggles.
     const kit = kitTextures(look);
     // Kit fabric is matte; boots, guards and the helmet are moulded plastic.
-    const kitMat = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ map, roughness: 0.88 });
+    const kitMat = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ map, roughness: 0.88, normalMap: FABRIC_NORMAL(), normalScale: new THREE.Vector2(0.55, 0.55) });
     const jerseyM = kitMat(kit.jersey);
     const sleeveM = kitMat(kit.sleeve);
     const pantsM = kitMat(kit.pants);
@@ -1066,8 +1271,14 @@ export class BikeModel {
       brace.scale.z = 0.6;
       return brace;
     });
-    this.uppers = two(() => new THREE.Mesh(taper(0.064, 0.054, 0.3, 1.08), sleeveM));
-    this.fores = two(() => new THREE.Mesh(taper(0.056, 0.046, 0.3, 1.1), sleeveM));
+    this.uppers = two(() => new THREE.Mesh(taper(0.07, 0.058, 0.3, 1.08), sleeveM));
+    this.fores = two(() => new THREE.Mesh(taper(0.063, 0.05, 0.3, 1.1), sleeveM));
+    // Shoulders: rounded caps where the sleeves meet the jersey.
+    this.shoulders = two(() => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 12), sleeveM);
+      m.scale.set(0.95, 0.85, 0.9);
+      return m;
+    });
     // Gloves closed round the grips, with a hard knuckle guard.
     this.gloves = two(() => {
       const fist = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), pbr(look.jerseyDark, 0.8));
@@ -1200,6 +1411,7 @@ export class BikeModel {
       ...this.uppers,
       ...this.fores,
       ...this.gloves,
+      ...this.shoulders,
       this.torso,
       this.pelvis,
       this.neck,
@@ -1207,26 +1419,14 @@ export class BikeModel {
     );
 
     // Bike details: BSE / T5 decals, footpegs, levers, engine covers.
-    const decalSide = 0.215;
-    const bse = decal(look, look.brand ?? "BSE", 0.42, 0.11);
-    bse.position.set(...T(925, 432), decalSide);
-    bse.rotation.z = 0.06;
+    onPanel(() => decal(look, look.brand ?? "BSE", 0.42, 0.11), 6, T(925, 432), 0.42, 0.11, 0.06);
     const model = look.model ?? "T5";
-    const t5 = decal(look, model, 0.06 * Math.max(2, model.length), 0.07);
-    t5.position.set(...T(1020, 478), decalSide);
-    st.add(bse, t5);
+    onPanel(() => decal(look, model, 0.06 * Math.max(2, model.length), 0.07), 6, T(1020, 478), 0.06 * Math.max(2, model.length), 0.07, 0);
     if (look.number) {
       // On the plain plastic below the side panel graphic, clear of the rider's leg.
-      const plate = numberPlate(look.number, 0.17, 0.1);
-      plate.position.set(...T(515, 458), 0.183);
-      plate.rotation.z = -0.2;
-      st.add(plate);
-    } else {
-      const side = decal(look, look.brand ?? "BSE", 0.22, 0.06);
-      side.position.set(...T(470, 400), 0.155);
-      side.rotation.z = 0.03;
-      st.add(side);
-    }
+      const num = look.number;
+      onPanel(() => numberPlate(num, 0.17, 0.1), 4, T(515, 458), 0.17, 0.1, -0.2);
+    } else onPanel(() => decal(look, look.brand ?? "BSE", 0.22, 0.06), 4, T(470, 400), 0.22, 0.06, 0.03);
     for (const z of [-0.17, 0.17]) {
       const peg = new THREE.Mesh(boxGeo, mat("#9aa0a8"));
       peg.position.set(POINTS.peg[0], POINTS.peg[1], z);
@@ -1293,6 +1493,11 @@ export class BikeModel {
     for (const m of this.fadeMats) m.opacity = this.fadeBase * k;
   }
 
+  // Just the bike (a showroom display).
+  hideRider() {
+    for (const m of [...this.thighs, ...this.shins, ...this.bootShafts, ...this.boots, ...this.braces, ...this.uppers, ...this.fores, ...this.gloves, ...this.shoulders, this.torso, this.pelvis, this.neck, this.helmet]) m.visible = false;
+  }
+
   update(bike: BikePose, time = 0, highlight = 0) {
     const ch = bike.chassis;
     const p = ch.getPosition();
@@ -1341,6 +1546,7 @@ export class BikeModel {
       span(this.bootShafts[i], [foot[0] + (knee[0] - foot[0]) * 0.12, foot[1] + (knee[1] - foot[1]) * 0.12], bootTop, z, false);
       span(this.braces[i], [knee[0] + (hip[0] - knee[0]) * 0.25, knee[1] + (hip[1] - knee[1]) * 0.25], [knee[0] + (foot[0] - knee[0]) * 0.25, knee[1] + (foot[1] - knee[1]) * 0.25], z + Math.sign(z) * 0.09, false);
       span(this.uppers[i], shoulder, elbow, z * 1.35, false);
+      this.shoulders[i].position.set(shoulder[0], shoulder[1] - 0.01, z * 1.2);
       span(this.fores[i], elbow, hand, z * 1.35, false);
       this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.02, z);
       this.gloves[i].position.set(hand[0], hand[1], z * 1.35);
@@ -1455,6 +1661,47 @@ function numberPlate(num: string, w: number, h: number) {
     false,
   );
   return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }));
+}
+
+// Fabric relief for the kit: a fine weave and soft folds, as a normal map (shared).
+let fabricNormal: THREE.Texture | null = null;
+function FABRIC_NORMAL() {
+  if (fabricNormal) return fabricNormal;
+  const S = 256;
+  const h = new Float32Array(S * S);
+  const r = rng(31);
+  const waves = Array.from({ length: 7 }, () => ({ a: r() * Math.PI, f: 2 + Math.floor(r() * 4), p: r() * 6.3, k: 0.4 + r() * 0.6 }));
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const u = (x / S) * Math.PI * 2;
+      const v = (y / S) * Math.PI * 2;
+      // Weave.
+      let z = 0.08 * Math.sin(u * 48) * Math.sin(v * 48);
+      // Folds: a few long soft creases running round the limb, bent a little.
+      for (const w of waves) z += w.k * 0.35 * Math.pow(Math.abs(Math.sin(v * w.f + Math.sin(u * 2 + w.p) * 0.6 + w.p)), 6);
+      h[y * S + x] = z;
+    }
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const dx = h[y * S + ((x + 1) % S)] - h[y * S + ((x - 1 + S) % S)];
+      const dy = h[((y + 1) % S) * S + x] - h[((y - 1 + S) % S) * S + x];
+      const l = Math.hypot(dx * 3, dy * 3, 1);
+      const o = (y * S + x) * 4;
+      img.data[o] = ((-dx * 3) / l) * 127 + 128;
+      img.data[o + 1] = ((-dy * 3) / l) * 127 + 128;
+      img.data[o + 2] = (1 / l) * 127 + 128;
+      img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 2);
+  fabricNormal = t;
+  return t;
 }
 
 // Leatt-style kit textures. Capsules map u around and v along the bone (v = 1 at the far
@@ -1611,8 +1858,53 @@ export function restingPose(): BikePose {
   return bike;
 }
 
-// MSM3-style garage behind the main menu: concrete floor, corrugated wall, a shelf of
-// helmets, a tyre stack, a red tool chest, hanging lamps and a spotlight on the bike.
+// The garage behind the main menu, after the 67MOTO showroom in Smolensk: a glossy floor of
+// cream and white tiles, light walls with the big BSE sign, a dark stone wall with the
+// 67MOTO logo, lightboxes with photos from the shop, ceiling light panels and a row of
+// bikes along the wall. The player's bike stands on a blue mat in the middle.
+function photoTex(url: string) {
+  const t = new THREE.TextureLoader().load(url);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+// A logo on white: load it and make the white see-through, so it sits on the wall like
+// cut-out lettering.
+function cutoutTex(url: string) {
+  const c = document.createElement("canvas");
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const img = new Image();
+  img.onload = () => {
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const v = Math.min(d.data[i], d.data[i + 1], d.data[i + 2]);
+      if (v > 238) d.data[i + 3] = 0;
+    }
+    ctx.putImageData(d, 0, 0);
+    t.dispose(); // the canvas changed size: allocate the GPU texture afresh
+    t.needsUpdate = true;
+  };
+  img.src = url;
+  return t;
+}
+
+// Background bikes in the showroom: different colourways of the same model, no rider.
+const SHOWROOM_BIKES: { plastic: string; plasticDark: string; accent: string; x: number; z: number; yaw: number }[] = [
+  { plastic: "#f2f2f2", plasticDark: "#1b1b1d", accent: "#ef7d1a", x: 2.4, z: -3.1, yaw: -0.6 },
+  { plastic: "#ef7d1a", plasticDark: "#1b1b1d", accent: "#f2f2f2", x: 3.6, z: -3.0, yaw: -0.6 },
+  { plastic: "#1f4fbf", plasticDark: "#f2f2f2", accent: "#f2f2f2", x: 4.8, z: -2.9, yaw: -0.6 },
+  { plastic: "#d4202a", plasticDark: "#1b1b1d", accent: "#f2f2f2", x: 6.0, z: -2.8, yaw: -0.6 },
+  { plastic: "#1b1b1d", plasticDark: "#1b1b1d", accent: "#e6e21c", x: -6.0, z: -1.2, yaw: 1.0 },
+  { plastic: "#e6e21c", plasticDark: "#1b1b1d", accent: "#1b1b1d", x: -6.1, z: 0.3, yaw: 1.0 },
+  { plastic: "#2fa84f", plasticDark: "#f2f2f2", accent: "#1b1b1d", x: -6.2, z: 1.8, yaw: 1.0 },
+];
+
 class Showroom {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(34, 1, 0.1, 80);
@@ -1620,161 +1912,184 @@ class Showroom {
   key = "";
   pose = restingPose();
   holder = new THREE.Group();
+  private extras = false;
 
   constructor() {
     const s = this.scene;
-    s.background = new THREE.Color("#0d141c");
-    s.fog = new THREE.Fog("#0d141c", 9, 22);
-    const floorTex = texture(
-      canvas(512, 512, (ctx) => {
-        ctx.fillStyle = "#4b5057";
-        ctx.fillRect(0, 0, 512, 512);
-        const r = rng(3);
-        for (let i = 0; i < 2600; i++) {
-          ctx.fillStyle = `rgba(${r() < 0.5 ? "255,255,255" : "0,0,0"},${0.03 + r() * 0.05})`;
-          ctx.fillRect(r() * 512, r() * 512, 1 + r() * 3, 1 + r() * 3);
+    s.background = new THREE.Color("#d9dbdc");
+    s.fog = new THREE.Fog("#d9dbdc", 11, 26);
+    // Floor: 60 cm porcelain tiles, cream and white in a chequer, polished.
+    const tiles = texture(
+      canvas(1024, 1024, (ctx) => {
+        const r = rng(5);
+        for (let y = 0; y < 2; y++)
+          for (let x = 0; x < 2; x++) {
+            const cream = (x + y) % 2 === 0;
+            ctx.fillStyle = cream ? "#d8c39c" : "#e9e7e2";
+            ctx.fillRect(x * 512, y * 512, 512, 512);
+            // Faint stone grain.
+            for (let k = 0; k < 900; k++) {
+              ctx.fillStyle = `rgba(${cream ? "120,90,50" : "150,150,150"},${0.03 + r() * 0.05})`;
+              ctx.fillRect(x * 512 + r() * 512, y * 512 + r() * 512, 2 + r() * 6, 1 + r() * 3);
+            }
+          }
+        ctx.strokeStyle = "#b9b2a6";
+        ctx.lineWidth = 5;
+        for (const p of [0, 512, 1024]) {
+          ctx.beginPath();
+          ctx.moveTo(p, 0);
+          ctx.lineTo(p, 1024);
+          ctx.moveTo(0, p);
+          ctx.lineTo(1024, p);
+          ctx.stroke();
         }
-        ctx.strokeStyle = "rgba(0,0,0,0.35)";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(0, 0, 512, 512);
       }),
       true,
     );
-    floorTex.repeat.set(10, 10);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ map: floorTex }));
+    tiles.repeat.set(40 / 1.2, 40 / 1.2);
+    tiles.anisotropy = 8;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.22, metalness: 0, envMapIntensity: 0.6 }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
-    // A pool of light under the bike.
-    const pool = new THREE.Mesh(
-      new THREE.CircleGeometry(2.2, 48),
-      new THREE.MeshBasicMaterial({
-        map: texture(
-          canvas(256, 256, (ctx) => {
-            const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-            g.addColorStop(0, "rgba(255,240,210,0.35)");
-            g.addColorStop(1, "rgba(255,240,210,0)");
-            ctx.fillStyle = g;
-            ctx.fillRect(0, 0, 256, 256);
-          }),
-          false,
-        ),
-        transparent: true,
-        depthWrite: false,
+    // The blue display mat under the player's bike, with the shop's name.
+    const matTex = texture(
+      canvas(1024, 448, (ctx) => {
+        ctx.fillStyle = "#1c2f86";
+        ctx.fillRect(0, 0, 1024, 448);
+        ctx.strokeStyle = "#e9e7e2";
+        ctx.lineWidth = 10;
+        ctx.strokeRect(22, 22, 980, 404);
+        ctx.fillStyle = "#e9e7e2";
+        ctx.font = "italic 900 78px system-ui, Arial, sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText("67МОТО", 970, 380);
       }),
+      false,
     );
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.y = 0.005;
-    const wallTex = texture(
-      canvas(512, 256, (ctx) => {
-        ctx.fillStyle = "#1d2a38";
-        ctx.fillRect(0, 0, 512, 256);
-        for (let x = 0; x < 512; x += 16) {
-          ctx.fillStyle = "rgba(255,255,255,0.06)";
-          ctx.fillRect(x, 0, 5, 256);
-          ctx.fillStyle = "rgba(0,0,0,0.18)";
-          ctx.fillRect(x + 9, 0, 3, 256);
+    const mat67 = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.5), new THREE.MeshStandardMaterial({ map: matTex, roughness: 0.95 }));
+    mat67.rotation.x = -Math.PI / 2;
+    mat67.position.set(-0.1, 0.006, 0);
+    mat67.receiveShadow = true;
+    s.add(floor, mat67);
+
+    // Walls: light painted back wall, a dark stone feature wall on the left.
+    const wall = new THREE.MeshStandardMaterial({ color: "#b9bcbd", roughness: 0.85 });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(40, 8), wall);
+    back.position.set(0, 4, -4);
+    back.receiveShadow = true;
+    const stoneTex = texture(
+      canvas(512, 512, (ctx) => {
+        ctx.fillStyle = "#2a2722";
+        ctx.fillRect(0, 0, 512, 512);
+        const r = rng(9);
+        for (let k = 0; k < 2600; k++) {
+          const g = 25 + r() * 45;
+          ctx.fillStyle = `rgba(${g + 12},${g + 8},${g},${0.25 + r() * 0.4})`;
+          ctx.beginPath();
+          ctx.ellipse(r() * 512, r() * 512, 2 + r() * 14, 1 + r() * 6, r() * 3, 0, Math.PI * 2);
+          ctx.fill();
         }
-        ctx.fillStyle = "rgba(0,0,0,0.3)";
-        ctx.fillRect(0, 200, 512, 56);
+        for (let k = 0; k < 40; k++) {
+          ctx.strokeStyle = `rgba(200,180,140,${0.05 + r() * 0.06})`;
+          ctx.lineWidth = 1 + r() * 2;
+          ctx.beginPath();
+          let x = r() * 512;
+          let y = r() * 512;
+          ctx.moveTo(x, y);
+          for (let q = 0; q < 6; q++) ctx.lineTo((x += (r() - 0.5) * 80), (y += (r() - 0.3) * 60));
+          ctx.stroke();
+        }
       }),
       true,
     );
-    wallTex.repeat.set(6, 1);
-    const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(40, 8), wallMat);
-    back.position.set(0, 4, -4);
-    back.receiveShadow = true;
-    const left = new THREE.Mesh(new THREE.PlaneGeometry(16, 8), wallMat);
+    stoneTex.repeat.set(4, 2);
+    const left = new THREE.Mesh(new THREE.PlaneGeometry(16, 8), new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.6 }));
     left.rotation.y = Math.PI / 2;
     left.position.set(-7, 4, 2);
-    s.add(floor, pool, back, left);
+    left.receiveShadow = true;
+    // A white pillar where the walls meet, and a skirting line.
+    const pillar = new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial({ color: "#eeeeec", roughness: 0.7 }));
+    pillar.scale.set(0.7, 8, 0.7);
+    pillar.position.set(-6.7, 4, -3.7);
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(40, 20), new THREE.MeshStandardMaterial({ color: "#e4e4e2", roughness: 0.9 }));
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(0, 3.7, 4);
+    s.add(back, left, pillar, ceiling);
 
-    // Shelf with helmets in many colors.
-    const shelfMat = mat("#2c3036");
-    for (const y of [1.3, 2.2]) {
-      const board = new THREE.Mesh(boxGeo, shelfMat);
-      board.scale.set(3.2, 0.06, 0.5);
-      board.position.set(-2.6, y, -3.7);
-      board.castShadow = true;
-      s.add(board);
-      ["#e23b3b", "#f4d10f", "#2d7be0", "#f2f2f2", "#30b85a"].forEach((col, i) => {
-        const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), mat(col));
-        helmet.scale.set(1.1, 0.95, 0.95);
-        helmet.position.set(-3.85 + i * 0.62, y + 0.19, -3.65);
-        helmet.castShadow = true;
-        const peak = new THREE.Mesh(boxGeo, mat(col));
-        peak.scale.set(0.2, 0.03, 0.22);
-        peak.position.set(-3.85 + i * 0.62 + 0.12, y + 0.33, -3.65);
-        peak.rotation.z = -0.3;
-        s.add(helmet, peak);
-      });
-    }
-    // Tyre stack.
-    for (let k = 0; k < 4; k++) {
-      const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.12, 10, 28), mat("#141416"));
-      tyre.rotation.x = Math.PI / 2;
-      tyre.position.set(3.3 + (k % 2) * 0.05, 0.12 + k * 0.24, -3.1);
-      tyre.castShadow = true;
-      s.add(tyre);
-    }
-    // Red tool chest with drawers.
-    const chest = new THREE.Mesh(boxGeo, mat("#b8322a"));
-    chest.scale.set(1.1, 1.0, 0.55);
-    chest.position.set(1.8, 0.5, -3.5);
-    chest.castShadow = true;
-    s.add(chest);
-    for (let k = 0; k < 4; k++) {
-      const handle = new THREE.Mesh(boxGeo, mat("#c9cdd2"));
-      handle.scale.set(0.5, 0.025, 0.04);
-      handle.position.set(1.8, 0.2 + k * 0.22, -3.21);
-      s.add(handle);
-    }
-    // Banner on the wall.
-    const banner = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.4, 0.85),
-      new THREE.MeshBasicMaterial({
-        map: texture(
-          canvas(512, 128, (ctx) => {
-            ctx.fillStyle = "#f2a516";
-            ctx.fillRect(0, 0, 512, 128);
-            ctx.fillStyle = "#111";
-            ctx.font = "italic 900 72px system-ui, sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText("MOTO TRIALS", 256, 68);
-          }),
-          false,
-        ),
-      }),
-    );
-    banner.position.set(1.2, 3.2, -3.95);
-    s.add(banner);
-    // Hanging lamps with warm bulbs.
-    for (const x of [-2.4, 0, 2.4]) {
-      const cord = new THREE.Mesh(rodGeo, mat("#111"));
-      cord.scale.set(0.01, 1.4, 0.01);
-      cord.position.set(x, 4.3, -1.2);
-      const shade = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.26, 20, 1, true), mat("#22262b"));
-      shade.position.set(x, 3.5, -1.2);
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), new THREE.MeshBasicMaterial({ color: "#fff1c4" }));
-      bulb.position.set(x, 3.38, -1.2);
-      const glow = new THREE.PointLight("#ffd9a0", 6, 6, 1.6);
-      glow.position.set(x, 3.3, -1.2);
-      s.add(cord, shade, bulb, glow);
-    }
+    // Signs: the big BSE lettering on the back wall, the 67MOTO logo on the stone.
+    const bse = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.1), new THREE.MeshBasicMaterial({ map: cutoutTex(new URL("./assets/67moto/bse-logo.png", import.meta.url).href), transparent: true, toneMapped: false }));
+    bse.position.set(-0.9, 2.95, -3.97);
+    const logo = new THREE.Mesh(new THREE.CircleGeometry(0.85, 48), new THREE.MeshBasicMaterial({ map: photoTex(new URL("./assets/67moto/logo-512.png", import.meta.url).href), transparent: true, toneMapped: false }));
+    logo.rotation.y = Math.PI / 2;
+    logo.position.set(-6.97, 2.55, -1.2);
+    s.add(bse, logo);
 
-    s.add(new THREE.HemisphereLight("#bcd4ff", "#2a2420", 1.1));
-    const spot = new THREE.SpotLight("#fff6e6", 60, 14, 0.5, 0.45, 1.2);
-    spot.position.set(1.5, 6, 3.5);
+    // Lightboxes with photos from the shop: a slim aluminium frame round a glowing print.
+    const frameMat = new THREE.MeshStandardMaterial({ color: "#9ea3a9", roughness: 0.3, metalness: 0.9 });
+    const lightbox = (url: string, w: number, h: number, pos: [number, number, number], yaw: number) => {
+      const g = new THREE.Group();
+      const frame = new THREE.Mesh(boxGeo, frameMat);
+      frame.scale.set(w + 0.08, h + 0.08, 0.05);
+      const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: photoTex(url), toneMapped: false, color: "#f2f2f2" }));
+      photo.position.z = 0.027;
+      g.add(frame, photo);
+      g.position.set(...pos);
+      g.rotation.y = yaw;
+      s.add(g);
+    };
+    lightbox(new URL("./assets/67moto/showroom.jpg", import.meta.url).href, 2.6, 1.12, [-4.5, 2.1, -3.96], 0);
+    lightbox(new URL("./assets/67moto/bse-t5.webp", import.meta.url).href, 1.25, 1.29, [1.9, 2.05, -3.96], 0);
+    lightbox(new URL("./assets/67moto/showroom-3.jpg", import.meta.url).href, 1.9, 1.42, [-6.96, 2.3, 1.6], Math.PI / 2);
+    lightbox(new URL("./assets/67moto/showroom-2.jpg", import.meta.url).href, 1.45, 1.3, [-6.96, 2.3, 3.8], Math.PI / 2);
+    lightbox(new URL("./assets/67moto/service.jpg", import.meta.url).href, 1.7, 1.27, [4.2, 2.05, -3.96], 0);
+
+    // Ceiling light panels (and the light they give).
+    const panelMat = new THREE.MeshBasicMaterial({ color: "#fbfbf6", toneMapped: false });
+    for (const x of [-4.5, -1.5, 1.5, 4.5])
+      for (const z of [-2, 1.5, 5]) {
+        const p = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6), panelMat);
+        p.rotation.x = Math.PI / 2;
+        p.position.set(x, 3.69, z);
+        s.add(p);
+      }
+    s.add(new THREE.HemisphereLight("#ffffff", "#b9a98b", 0.75));
+    for (const [x, z] of [
+      [-3, -1],
+      [2.5, -1],
+      [0, 3],
+    ]) {
+      const l = new THREE.PointLight("#fff7ea", 3.2, 10, 1.4);
+      l.position.set(x, 3.4, z);
+      s.add(l);
+    }
+    const spot = new THREE.SpotLight("#fff6e6", 26, 14, 0.55, 0.5, 1.2);
+    spot.position.set(1.2, 6, 3);
     spot.target.position.set(0, 0.6, 0);
     spot.castShadow = true;
-    spot.shadow.mapSize.set(1024, 1024);
-    spot.shadow.bias = -0.0005;
-    const rim = new THREE.DirectionalLight("#9ec8ff", 1.2);
-    rim.position.set(-4, 3, -3);
-    s.add(spot, spot.target, rim, this.holder);
+    spot.shadow.mapSize.set(2048, 2048);
+    spot.shadow.bias = -0.0004;
+    spot.shadow.normalBias = 0.025;
+    s.add(spot, spot.target, this.holder);
   }
 
+  // The row of bikes along the walls (built once, from the first look, without riders).
+  private addRow(look: Look) {
+    for (const b of SHOWROOM_BIKES) {
+      const m = new BikeModel({ ...look, plastic: b.plastic, plasticDark: b.plasticDark, accent: b.accent, number: undefined }, true);
+      if (m.marker) m.marker.visible = false;
+      if (m.halo) m.halo.visible = false;
+      m.update(this.pose, 0, 0);
+      m.hideRider();
+      const c = this.pose.chassis.getPosition();
+      const inner = new THREE.Group();
+      inner.add(m.root);
+      m.root.position.set(-c.x, -this.groundOffset(), 0);
+      inner.position.set(b.x, 0, b.z);
+      inner.rotation.y = b.yaw;
+      this.scene.add(inner);
+    }
+  }
   setLook(look: Look) {
     const key = JSON.stringify(look);
     if (key === this.key) return;
@@ -1785,6 +2100,10 @@ class Showroom {
         const mesh = n as THREE.Mesh;
         if (mesh.geometry && mesh.geometry !== rodGeo && mesh.geometry !== boxGeo) mesh.geometry.dispose();
       });
+    }
+    if (!this.extras) {
+      this.extras = true;
+      this.addRow(look);
     }
     this.bike = new BikeModel(look, true);
     if (this.bike.marker) this.bike.marker.visible = false;
@@ -1837,6 +2156,7 @@ export class Renderer3D {
     sc.near = 1;
     sc.far = 90;
     this.sun.shadow.bias = -0.0005;
+    this.sun.shadow.normalBias = 0.03;
     this.fg.renderOrder = 10;
     this.camera.add(this.fg);
     // A soft studio environment for reflections on the bikes' paint, metal and helmets
@@ -1923,7 +2243,7 @@ export class Renderer3D {
     if (!this.showroom) {
       this.showroom = new Showroom();
       this.showroom.scene.environment = this.env;
-      this.showroom.scene.environmentIntensity = 1.1;
+      this.showroom.scene.environmentIntensity = 0.55;
     }
     const sr = this.showroom;
     sr.setLook(look);

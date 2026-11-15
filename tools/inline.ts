@@ -15,7 +15,8 @@ const ref = (re: RegExp) => {
   return m[1].replace(/^\.?\//, "");
 };
 const js = ref(/<script[^>]*src="([^"]+\.js)"/);
-const css = readFileSync(join(dist, ref(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+\.css)"/)), "utf8");
+// The CSS moves from assets/ into the page, so its relative urls (fonts) gain the folder.
+const css = readFileSync(join(dist, ref(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+\.css)"/)), "utf8").replace(/url\(\.\//g, "url(assets/");
 const title = html.match(/<title>(.*?)<\/title>/)![1];
 const body = html.match(/<body>([\s\S]*?)<\/body>/)![1].replace(/<script[\s\S]*?<\/script>/g, "").trim();
 
