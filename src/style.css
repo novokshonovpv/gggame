@@ -2345,3 +2345,56 @@ h1 {
     bottom: calc(var(--ob) + 150px);
   }
 }
+
+/* Speaker (mute) buttons: menu, race, open world */
+.mute-btn svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mute-btn svg path:first-child {
+  fill: #fff;
+}
+
+.mute-btn .snd-off,
+.mute-btn.muted .snd-on {
+  display: none;
+}
+
+.mute-btn.muted .snd-off {
+  display: inline;
+  stroke: #ff6a5c;
+}
+
+.pause-btn.race-mute {
+  right: calc(var(--rr) + 68px);
+}
+
+.pause-btn.race-mute svg,
+.o-mute svg {
+  transform: skewX(12deg);
+}
+
+.o-mute {
+  top: var(--ot);
+  left: calc(var(--ol) + 62px);
+  width: 52px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-height: 500px) {
+  .pause-btn.race-mute {
+    right: calc(var(--rr) + 58px);
+  }
+  .mute-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+}

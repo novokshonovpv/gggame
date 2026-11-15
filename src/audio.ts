@@ -1,4 +1,4 @@
-import { BIKE, type Bike } from "./bike.ts";
+﻿import { BIKE, type Bike } from "./bike.ts";
 
 // All game audio is synthesized with Web Audio: no sound files to load or license.
 // Browsers only allow audio after a user gesture, so everything waits for unlock().
@@ -224,15 +224,18 @@ export class Sound {
   private musicLevel = 0.35;
   sfxOn = true;
   musicOn = true;
+  muted = false; // everything off at once (the speaker button)
+  private muteListeners: ((muted: boolean) => void)[] = [];
   private airTime = 0;
   private lastVy = 0;
   private wasGrounded = true;
 
   constructor() {
     try {
-      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as { sfx?: boolean; music?: boolean };
+      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as { sfx?: boolean; music?: boolean; muted?: boolean };
       this.sfxOn = s.sfx ?? true;
       this.musicOn = s.music ?? true;
+      this.muted = s.muted ?? false;
     } catch {
       /* defaults */
     }
@@ -249,7 +252,7 @@ export class Sound {
 
   private save() {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn, muted: this.muted }));
     } catch {
       /* not persisted */
     }
@@ -297,6 +300,24 @@ export class Sound {
     this.applyToggles();
   }
 
+  // The speaker button: silences engines, effects and music together.
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    this.save();
+    this.applyToggles();
+    for (const f of this.muteListeners) f(muted);
+  }
+
+  toggleMute() {
+    this.setMuted(!this.muted);
+  }
+
+  onMuteChange(f: (muted: boolean) => void) {
+    this.muteListeners.push(f);
+    f(this.muted);
+    return () => (this.muteListeners = this.muteListeners.filter((g) => g !== f));
+  }
+
   // Music is louder in menus and sits under the engines during a race.
   setMusicLevel(level: number) {
     this.musicLevel = level;
@@ -306,6 +327,7 @@ export class Sound {
   private applyToggles() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
+    this.master.gain.setTargetAtTime(this.muted ? 0 : 0.8, t, 0.03);
     this.sfx.gain.setTargetAtTime(this.sfxOn ? 1 : 0, t, 0.05);
     this.music.gain.setTargetAtTime(this.musicOn ? this.musicLevel : 0, t, 0.3);
   }

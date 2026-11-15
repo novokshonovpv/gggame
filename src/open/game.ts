@@ -63,6 +63,7 @@ export async function startOpenWorld(opts: OpenOptions) {
 const HUD = `
   <canvas class="o-canvas"></canvas>
   <button class="o-btn o-pause" data-k="pause" aria-label="Пауза"><i></i><i></i></button>
+  <button class="o-btn o-mute mute-btn" data-k="mute" aria-label="Звук" title="Звук (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path class="snd-on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4" /><path class="snd-off" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg></button>
   <div class="o-race hidden"></div>
   <div class="o-hint"></div>
   <div class="o-count hidden"></div>
@@ -89,7 +90,7 @@ const HUD = `
         <button data-k="home">На старт</button>
       </div>
       <button class="o-cancel hidden" data-k="cancel">Прервать заезд</button>
-      <p class="keys">Клавиатура: <b>W/↑</b> газ · <b>S/↓</b> тормоз · <b>Пробел</b> задний тормоз (занос) · <b>A D / ← →</b> наклон в поворот · <b>C</b> камера · <b>R</b> на ноги · <b>Esc</b> пауза</p>
+      <p class="keys">Клавиатура: <b>W/↑</b> газ · <b>S/↓</b> тормоз · <b>Пробел</b> задний тормоз (занос) · <b>A D / ← →</b> наклон в поворот · <b>C</b> камера · <b>M</b> звук · <b>R</b> на ноги · <b>Esc</b> пауза</p>
       <p class="keys">Мотоцикл ведёт себя как настоящий: в поворот его наклоняют, на газу в первой передаче поднимается переднее колесо, резкий задний тормоз срывает заднее колесо в занос, а в воздухе газ поднимает нос, тормоз опускает.</p>
       <button class="link" data-k="exit">Выйти в главное меню</button>
     </div>
@@ -266,6 +267,13 @@ class OpenWorld {
     } as unknown as Bike;
 
     this.wireInput();
+    const muteBtn = this.$(".o-mute");
+    this.offs.push(
+      o.sound.onMuteChange((m) => {
+        muteBtn.classList.toggle("muted", m);
+        muteBtn.title = m ? "Включить звук (M)" : "Выключить звук (M)";
+      }),
+    );
     this.resize();
     const onResize = () => this.resize();
     window.addEventListener("resize", onResize);
@@ -349,6 +357,7 @@ class OpenWorld {
       if (e.code === "KeyC") this.toggleCam();
       else if (e.code === "KeyR") this.respawn(this.safe);
       else if (e.code === "Escape" || e.code === "KeyP") this.setPaused(!this.paused);
+      else if (e.code === "KeyM") this.o.sound.toggleMute();
       e.stopImmediatePropagation();
     };
     const up = (e: KeyboardEvent) => {
@@ -390,6 +399,7 @@ class OpenWorld {
           if (k === "pause") this.setPaused(true);
           else if (k === "resume") this.setPaused(false);
           else if (k === "cam") this.toggleCam();
+          else if (k === "mute") this.o.sound.toggleMute();
           else if (k === "home") {
             this.endRace();
             this.respawn({ x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw });

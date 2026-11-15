@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { Edge, World } from "planck";
 import { Bike, type BikePose } from "./bike.ts";
@@ -578,19 +579,20 @@ function extrude(poly: number[], depth: number, color: string) {
     if (i === 0) shape.moveTo(poly[0], poly[1]);
     else shape.lineTo(poly[i], poly[i + 1]);
   }
+  // Rounded edges, like moulded plastic.
   const g = new THREE.ExtrudeGeometry(shape, {
     depth,
     bevelEnabled: true,
-    bevelThickness: 0.015,
-    bevelSize: 0.015,
-    bevelSegments: 1,
+    bevelThickness: 0.02,
+    bevelSize: 0.016,
+    bevelSegments: 3,
   });
   g.translate(0, 0, -depth / 2);
   return new THREE.Mesh(g, mat(color));
 }
 
 // A rod along its local Y axis, length 1 (scale.y sets the real length).
-const rodGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
+const rodGeo = new THREE.CylinderGeometry(1, 1, 1, 14);
 function rod(radius: number, color: string) {
   const m = new THREE.Mesh(rodGeo, mat(color));
   m.scale.set(radius, 1, radius);
@@ -607,8 +609,8 @@ function span(m: THREE.Object3D, a: P2, b: P2, z: number, stretch = true) {
 }
 
 // Spoked wheel with a knobby tyre: black rim, 16 spokes, wave brake disc on the camera side.
-const knobGeo = new THREE.BoxGeometry(0.05, 0.028, 0.12);
-const spokeGeo = new THREE.CylinderGeometry(0.0035, 0.0035, 1, 4);
+const knobGeo = new THREE.BoxGeometry(0.036, 0.026, 0.044);
+const spokeGeo = new THREE.CylinderGeometry(0.0024, 0.0024, 1, 5);
 // Toothed sprocket in the xy plane, with lightening holes when it is big enough.
 function sprocketGeo(r: number, teeth: number) {
   const s = new THREE.Shape();
@@ -634,46 +636,222 @@ function sprocketGeo(r: number, teeth: number) {
 const CHAIN_Z = 0.14; // outside the swingarm
 const FRONT_SPROCKET: P2 = [POINTS.pivot[0] + 0.06, POINTS.pivot[1] + 0.01]; // countershaft
 
+// Physically based materials for the bike and rider (the scenery keeps its flat look).
+const pbrCache = new Map<string, THREE.MeshStandardMaterial>();
+function pbr(color: string, roughness: number, metalness = 0, clearcoat = 0) {
+  const key = `${color}|${roughness}|${metalness}|${clearcoat}`;
+  let m = pbrCache.get(key);
+  if (!m) {
+    m = clearcoat
+      ? new THREE.MeshPhysicalMaterial({ color, roughness, metalness, clearcoat, clearcoatRoughness: 0.18 })
+      : new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    pbrCache.set(key, m);
+  }
+  return m;
+}
+
+// A tapered capsule along y (like CapsuleGeometry(r, len)): radius r0 at the near end, r1 at
+// the far one, a slight swell in between. uv: u round, v from the near end (0) to the far (1).
+function taper(r0: number, r1: number, len: number, swell = 1.05, seg = 18) {
+  const pts: THREE.Vector2[] = [];
+  const n = 5;
+  for (let i = 0; i <= n; i++) {
+    const a = -Math.PI / 2 + (i / n) * (Math.PI / 2);
+    pts.push(new THREE.Vector2(Math.cos(a) * r0, -len / 2 + Math.sin(a) * r0));
+  }
+  for (const t of [0.3, 0.55]) pts.push(new THREE.Vector2((r0 + (r1 - r0) * t) * swell, -len / 2 + len * t));
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * (Math.PI / 2);
+    pts.push(new THREE.Vector2(Math.cos(a) * r1, len / 2 + Math.sin(a) * r1));
+  }
+  return new THREE.LatheGeometry(pts, seg);
+}
+
+// A lathe about z (the wheel axle) from (radius, z) pairs.
+function axleLathe(pairs: number[][], seg = 48) {
+  const g = new THREE.LatheGeometry(
+    pairs.map(([r, z]) => new THREE.Vector2(r, z)),
+    seg,
+  );
+  g.rotateX(Math.PI / 2);
+  return g;
+}
+
+// A cylinder of length 1 along y placed between two 3D points.
+function span3(m: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3) {
+  const d = b.clone().sub(a);
+  m.position.copy(a).addScaledVector(d, 0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize());
+  m.scale.y = d.length();
+}
+
+// Wave brake rotor with drilled holes.
+function discGeo(r: number) {
+  const s = new THREE.Shape();
+  for (let i = 0; i <= 96; i++) {
+    const a = (i / 96) * Math.PI * 2;
+    const rr = r * (1 + 0.045 * Math.sin(a * 12));
+    if (i) s.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    else s.moveTo(rr, 0);
+  }
+  for (let k = 0; k < 18; k++) {
+    const a = (k / 18) * Math.PI * 2;
+    const hole = new THREE.Path();
+    hole.absarc(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8, r * 0.045, 0, Math.PI * 2, true);
+    s.holes.push(hole);
+  }
+  const inner = new THREE.Path();
+  inner.absarc(0, 0, r * 0.62, 0, Math.PI * 2, true);
+  s.holes.push(inner);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.005, bevelEnabled: false, curveSegments: 6 });
+  g.translate(0, 0, -0.0025);
+  return g;
+}
+
+// Wheel: knobby tyre (profiled carcass with three rows of knobs), anodised rim, 36 spokes
+// laced from the hub flanges, wave disc on its carrier; the rear also carries the sprocket.
 function wheelModel(r: number, rear = false) {
   const g = new THREE.Group();
-  const tire = new THREE.Mesh(new THREE.TorusGeometry(r - 0.07, 0.066, 10, 32), mat("#1a1a1a"));
-  const knobs = new THREE.InstancedMesh(knobGeo, mat("#222222"), 30);
+  const rubber = pbr("#1b1b1c", 0.93);
+  const W = rear ? 0.064 : 0.052; // tyre half-width
+  const rimR = r - 0.115;
+  const tire = new THREE.Mesh(
+    axleLathe([
+      [rimR + 0.01, -W * 0.7],
+      [rimR + 0.03, -W * 0.98],
+      [r - 0.055, -W * 1.06],
+      [r - 0.03, -W * 0.98],
+      [r - 0.018, -W * 0.7],
+      [r - 0.014, -W * 0.3],
+      [r - 0.013, 0],
+      [r - 0.014, W * 0.3],
+      [r - 0.018, W * 0.7],
+      [r - 0.03, W * 0.98],
+      [r - 0.055, W * 1.06],
+      [rimR + 0.03, W * 0.98],
+      [rimR + 0.01, W * 0.7],
+    ]),
+    rubber,
+  );
+  // Knobs: a centre row and two staggered shoulder rows, tilted outwards.
+  const N = 34;
+  const knobs = new THREE.InstancedMesh(knobGeo, rubber, N * 3);
   const m = new THREE.Matrix4();
-  for (let i = 0; i < 30; i++) {
-    const a = (i / 30) * Math.PI * 2;
-    m.compose(
-      new THREE.Vector3(Math.cos(a) * (r - 0.012), Math.sin(a) * (r - 0.012), 0),
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a + Math.PI / 2),
-      new THREE.Vector3(1, 1, 1),
-    );
-    knobs.setMatrixAt(i, m);
-  }
-  const rimR = r - 0.13;
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(rimR, 0.016, 6, 32), mat("#1f1f22"));
+  const q = new THREE.Quaternion();
+  const tilt = new THREE.Quaternion();
+  let k = 0;
+  for (let i = 0; i < N; i++)
+    for (const row of [-1, 0, 1]) {
+      const a = ((i + (row ? 0.5 : 0)) / N) * Math.PI * 2;
+      const rr = row ? r - 0.026 : r - 0.017;
+      q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), a + Math.PI / 2);
+      tilt.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -row * 0.5);
+      m.compose(new THREE.Vector3(Math.cos(a) * rr, Math.sin(a) * rr, row * W * 0.78), q.clone().multiply(tilt), new THREE.Vector3(1, 1, row ? 0.8 : 1));
+      knobs.setMatrixAt(k++, m);
+    }
+  const rim = new THREE.Mesh(
+    axleLathe([
+      [rimR - 0.012, -0.026],
+      [rimR + 0.012, -0.03],
+      [rimR + 0.016, -0.024],
+      [rimR + 0.004, -0.018],
+      [rimR + 0.004, 0.018],
+      [rimR + 0.016, 0.024],
+      [rimR + 0.012, 0.03],
+      [rimR - 0.012, 0.026],
+      [rimR - 0.012, -0.026],
+    ]),
+    pbr("#232428", 0.32, 0.75),
+  );
   g.add(tire, knobs, rim);
-  for (let i = 0; i < 16; i++) {
-    const s = new THREE.Mesh(spokeGeo, mat("#b8bec6"));
-    const a = (i / 16) * Math.PI * 2;
-    // Alternate sides of the hub, like a real laced wheel.
-    s.position.set((Math.cos(a) * rimR) / 2, (Math.sin(a) * rimR) / 2, i % 2 ? 0.035 : -0.035);
-    s.rotation.z = a - Math.PI / 2;
-    s.scale.y = rimR;
+  // Spokes: alternate flanges, each leaning ahead or behind (crossed lacing).
+  const spokeMat = pbr("#c5cad1", 0.22, 1);
+  const flange = 0.05;
+  const fz = rear ? 0.045 : 0.038;
+  for (let i = 0; i < 36; i++) {
+    const side = i % 2 ? 1 : -1;
+    const a = (i / 36) * Math.PI * 2;
+    const lead = (Math.floor(i / 2) % 2 ? 1 : -1) * 0.42;
+    const s = new THREE.Mesh(spokeGeo, spokeMat);
+    span3(s, new THREE.Vector3(Math.cos(a) * flange, Math.sin(a) * flange, side * fz), new THREE.Vector3(Math.cos(a + lead) * (rimR - 0.008), Math.sin(a + lead) * (rimR - 0.008), side * 0.012));
     g.add(s);
   }
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 12), mat("#9a9ea4"));
+  const hubMat = pbr("#8f959d", 0.35, 0.85);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.15, 16), hubMat);
   hub.rotation.x = Math.PI / 2;
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.006, 10), mat("#c8ccd2"));
-  disc.rotation.x = Math.PI / 2;
-  disc.position.z = rear ? -0.085 : 0.085;
-  g.add(hub, disc);
+  g.add(hub);
+  for (const z of [-fz, fz]) {
+    const fl = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.056, 0.008, 20), hubMat);
+    fl.rotation.x = Math.PI / 2;
+    fl.position.z = z;
+    g.add(fl);
+  }
+  const dz = rear ? -0.085 : 0.085;
+  const disc = new THREE.Mesh(discGeo(rear ? 0.11 : 0.13), pbr("#c9cdd2", 0.28, 1));
+  disc.position.z = dz;
+  const carrier = new THREE.Mesh(new THREE.CylinderGeometry(rear ? 0.06 : 0.07, rear ? 0.06 : 0.07, 0.007, 24), pbr("#2b2c30", 0.35, 0.7));
+  carrier.rotation.x = Math.PI / 2;
+  carrier.position.z = dz;
+  g.add(disc, carrier);
   if (rear) {
-    const sprocket = new THREE.Mesh(sprocketGeo(0.105, 24), mat("#c3c8cf"));
+    const sprocket = new THREE.Mesh(sprocketGeo(0.105, 48), pbr("#e8641e", 0.32, 0.7));
     sprocket.position.z = CHAIN_Z;
     g.add(sprocket);
   }
   const wheel = new THREE.Group();
   wheel.add(mergeStatic(g)); // spokes, rim, hub and disc as a few meshes
   return shadowed(wheel);
+}
+
+// After a bike is built from flat colours, give each part what it is made of: glossy
+// plastics, painted or bare metal, rubber, the seat cover.
+function realMaterials(root: THREE.Object3D, look: Look) {
+  const hex = (c: string | undefined) => (c ? new THREE.Color(c).getHexString() : "");
+  const plastics = new Set([hex(look.plastic), hex(look.plasticDark), hex(look.accent), hex(look.helmet)]);
+  const metal: Record<string, [number, number]> = {
+    c9cdd2: [1, 0.16], // header pipes
+    b4b9bf: [0.9, 0.3], // silencer
+    b8bcc2: [0.85, 0.28], // clamps, levers, guards
+    "9aa0a8": [0.85, 0.32],
+    c3c8cf: [0.9, 0.3],
+    "7f868f": [0.8, 0.35],
+    d6c48a: [0.8, 0.22], // gold fork tubes
+    "1c1c20": [0.6, 0.3], // fork outer tubes
+    "3a3a3f": [0.75, 0.45], // chain
+    "1f1f22": [0.55, 0.38], // swingarm
+    "2c2d31": [0.6, 0.35], // engine covers
+    "1e1f22": [0.6, 0.35],
+    e8641e: [0.6, 0.3],
+    "232326": [0.45, 0.48], // engine
+    "2a2b2e": [0.5, 0.42], // fins
+    "45474c": [0.5, 0.42],
+    "2b2c30": [0.7, 0.3], // shock body
+    d9a514: [0.55, 0.32], // shock spring
+  };
+  const conv = new Map<THREE.Material, THREE.Material>();
+  root.traverse((n) => {
+    const mesh = n as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const swap = (m: THREE.Material) => {
+      const l = m as THREE.MeshLambertMaterial;
+      if (!l.isMeshLambertMaterial || l.map) return m;
+      let out = conv.get(m);
+      if (!out) {
+        const h = l.color.getHexString();
+        const c = "#" + h;
+        if (h === hex(look.visor)) out = pbr(c, 0.06, 0.9); // mirrored goggle lens
+        else if (plastics.has(h)) out = pbr(c, 0.38, 0, 0.5);
+        else if (h === hex(look.frame ?? "#202022")) out = pbr(c, 0.3, 0.35, 0.5);
+        else if (metal[h]) out = pbr(c, metal[h][1], metal[h][0]);
+        else if (h === "18181a") out = pbr(c, 0.8); // seat cover
+        else if (["1a1a1a", "222222", "141416"].includes(h)) out = pbr(c, 0.9); // rubber
+        else out = pbr(c, 0.55, 0.05);
+        conv.set(m, out);
+      }
+      return out;
+    };
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
+  });
 }
 
 function partColor(role: Role, look: Look) {
@@ -720,6 +898,7 @@ export class BikeModel {
   torso: THREE.Mesh;
   helmet = new THREE.Group();
   neck = new THREE.Group();
+  pelvis = new THREE.Group();
   boots: THREE.Mesh[];
   bootShafts: THREE.Mesh[];
   braces: THREE.Mesh[];
@@ -751,12 +930,37 @@ export class BikeModel {
     }
     for (const t of TUBES) {
       for (const z of t.z) {
+        if (t.role === "shock") {
+          // Rear shock: a dark damper body inside a coil spring, with a piggyback reservoir.
+          const body = rod(t.r * 0.62, "#2b2c30");
+          span(body, t.a, t.b, z);
+          const len = Math.hypot(t.b[0] - t.a[0], t.b[1] - t.a[1]);
+          const turns = 8;
+          const coil = new THREE.CatmullRomCurve3(
+            Array.from({ length: turns * 12 + 1 }, (_, i) => {
+              const u = i / (turns * 12);
+              const a = u * turns * Math.PI * 2;
+              return new THREE.Vector3(Math.cos(a) * t.r * 1.45, (u - 0.5) * len * 0.7, Math.sin(a) * t.r * 1.45);
+            }),
+          );
+          const spring = new THREE.Mesh(new THREE.TubeGeometry(coil, turns * 14, 0.0075, 6, false), mat(TUBE_COLORS.shock));
+          span(spring, [t.a[0] + (t.b[0] - t.a[0]) * 0.08, t.a[1] + (t.b[1] - t.a[1]) * 0.08], [t.b[0] - (t.b[0] - t.a[0]) * 0.08, t.b[1] - (t.b[1] - t.a[1]) * 0.08], z, false);
+          const res = rod(0.022, "#2b2c30");
+          span(res, [t.a[0] + 0.03, t.a[1] - 0.01], [t.a[0] + 0.1, t.a[1] - 0.06], z + 0.05);
+          st.add(body, spring, res);
+          continue;
+        }
         const color = t.role === "frame" ? (look.frame ?? "#202022") : TUBE_COLORS[t.role];
         const m = rod(t.r, color);
         span(m, t.a, t.b, z);
         st.add(m);
       }
     }
+    // Crossbar pad on the handlebar.
+    const pad = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, 0.14, 4, 10), mat(look.accent ?? look.plasticDark));
+    pad.rotation.x = Math.PI / 2;
+    pad.position.set(POINTS.bar[0] - 0.015, POINTS.bar[1] + 0.035, 0);
+    st.add(pad);
     // Triple clamps, handlebar with hand guards.
     for (const [pt, w] of [
       [POINTS.crown, 0.09],
@@ -824,41 +1028,90 @@ export class BikeModel {
     // logo and sleeve piping, matching pants with black knee panels, tall boots, gloves,
     // C-frame knee braces, a 5.5 neck brace and a Moto 7.5 helmet with Velocity goggles.
     const kit = kitTextures(look);
-    const kitMat = (map: THREE.Texture) => new THREE.MeshLambertMaterial({ map });
-    const cap = (r: number, len: number, m: THREE.Material) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 12), m);
+    // Kit fabric is matte; boots, guards and the helmet are moulded plastic.
+    const kitMat = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ map, roughness: 0.88 });
     const jerseyM = kitMat(kit.jersey);
     const sleeveM = kitMat(kit.sleeve);
     const pantsM = kitMat(kit.pants);
+    const bootM = pbr(look.boots ?? "#ececec", 0.45, 0, 0.3);
+    const blackM = pbr("#1b1b1d", 0.6);
     const two = <T>(f: () => T) => [f(), f()];
-    this.thighs = two(() => cap(0.088, 0.45, pantsM));
-    this.shins = two(() => cap(0.07, 0.42, mat(look.pants)));
-    this.bootShafts = two(() => cap(0.086, 0.22, mat(look.boots ?? "#ececec")));
+    // Limbs taper from the near joint to the far one (thigh: hip to knee, etc.).
+    this.thighs = two(() => new THREE.Mesh(taper(0.096, 0.074, 0.44, 1.07), pantsM));
+    this.shins = two(() => new THREE.Mesh(taper(0.072, 0.058, 0.42, 1.06), pbr(look.pants, 0.9)));
+    this.bootShafts = two(() => new THREE.Mesh(taper(0.084, 0.09, 0.22, 1), bootM));
+    // Boots: a moulded foot with a toe cap and a black sole.
+    const bootGeo = (() => {
+      const s = new THREE.Shape();
+      const p = [-0.135, -0.04, 0.115, -0.04, 0.16, -0.022, 0.165, 0.0, 0.125, 0.032, 0.03, 0.05, -0.12, 0.06, -0.142, 0.02];
+      s.moveTo(p[0], p[1]);
+      for (let i = 2; i < p.length; i += 2) s.lineTo(p[i], p[i + 1]);
+      const g = new THREE.ExtrudeGeometry(s, { depth: 0.09, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.012, bevelSegments: 3 });
+      g.translate(0, 0, -0.045);
+      return g;
+    })();
     this.boots = two(() => {
-      const foot = new THREE.Mesh(boxGeo, mat("#1b1b1d"));
-      foot.scale.set(0.29, 0.1, 0.12);
+      const foot = new THREE.Mesh(bootGeo, bootM);
+      const sole = new THREE.Mesh(boxGeo, blackM);
+      sole.position.set(0.012, -0.055, 0);
+      sole.scale.set(0.31, 0.024, 0.12);
+      const heel = new THREE.Mesh(boxGeo, pbr("#7f868f", 0.35, 0.8));
+      heel.position.set(-0.05, 0.0, 0.064);
+      heel.scale.set(0.12, 0.04, 0.006);
+      foot.add(sole, heel);
       return foot;
     });
     this.braces = two(() => {
-      const brace = new THREE.Mesh(boxGeo, mat("#2a2a2e"));
-      brace.scale.set(0.05, 0.2, 0.025);
+      const brace = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.18, 4, 8), pbr("#2a2a2e", 0.4, 0.4));
+      brace.scale.z = 0.6;
       return brace;
     });
-    this.uppers = two(() => cap(0.064, 0.32, sleeveM));
-    this.fores = two(() => cap(0.056, 0.32, sleeveM));
-    this.gloves = two(() => new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), mat(look.jerseyDark)));
-    this.torso = cap(0.15, 0.4, jerseyM);
-    this.torso.scale.z = 0.85;
+    this.uppers = two(() => new THREE.Mesh(taper(0.064, 0.054, 0.3, 1.08), sleeveM));
+    this.fores = two(() => new THREE.Mesh(taper(0.056, 0.046, 0.3, 1.1), sleeveM));
+    // Gloves closed round the grips, with a hard knuckle guard.
+    this.gloves = two(() => {
+      const fist = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), pbr(look.jerseyDark, 0.8));
+      fist.scale.set(0.058, 0.05, 0.068);
+      const knuckle = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), blackM);
+      knuckle.position.set(0.55, 0.45, 0);
+      knuckle.scale.set(0.35, 0.3, 0.7);
+      fist.add(knuckle);
+      return fist;
+    });
+    // Torso: shoulders wider than the waist, flatter front to back than side to side.
+    const torsoGeo = new THREE.LatheGeometry(
+      [
+        [0, -0.335],
+        [0.1, -0.315],
+        [0.14, -0.27],
+        [0.142, -0.16],
+        [0.134, -0.06],
+        [0.146, 0.05],
+        [0.162, 0.15],
+        [0.168, 0.22],
+        [0.152, 0.28],
+        [0.1, 0.325],
+        [0.05, 0.345],
+        [0, 0.35],
+      ].map(([r, y]) => new THREE.Vector2(r, y)),
+      22,
+    );
+    this.torso = new THREE.Mesh(torsoGeo, jerseyM);
+    this.torso.scale.set(0.8, 1, 1.18);
+    // Hips: the pants round the seat, joining the thighs.
+    this.pelvis.add(new THREE.Mesh(new THREE.SphereGeometry(1, 18, 12), pantsM));
+    this.pelvis.children[0].scale.set(0.14, 0.12, 0.21);
     // Hard elbow guards on the outside of the elbows and three alloy buckles on each boot.
     this.uppers.forEach((u, i) => {
-      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat("#1b1b1d"));
-      guard.position.set(-0.01, 0.14, i ? 0.035 : -0.035);
-      guard.scale.set(1, 1.35, 0.9);
+      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 10), blackM);
+      guard.position.set(-0.012, 0.13, i ? 0.022 : -0.022);
+      guard.scale.set(0.75, 1.4, 0.8);
       u.add(guard);
     });
     this.bootShafts.forEach((s, i) => {
       for (const y of [-0.08, -0.01, 0.06]) {
-        const buckle = new THREE.Mesh(boxGeo, mat("#7f868f"));
-        buckle.position.set(0.035, y, i ? 0.08 : -0.08);
+        const buckle = new THREE.Mesh(boxGeo, pbr("#7f868f", 0.35, 0.8));
+        buckle.position.set(0.035, y, i ? 0.085 : -0.085);
         buckle.scale.set(0.1, 0.02, 0.025);
         s.add(buckle);
       }
@@ -876,29 +1129,68 @@ export class BikeModel {
     this.neck.add(ringPlane, strut);
 
     // Helmet: long shell, angular peak, protruding chin bar, goggles with a colored strap.
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.175, 20, 14), new THREE.MeshLambertMaterial({ map: kit.helmet }));
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.175, 32, 22), new THREE.MeshPhysicalMaterial({ map: kit.helmet, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.08 }));
     shell.scale.set(1.1, 1, 0.92);
-    const peak = extrude(poly2(0.0, 0.17, 0.27, 0.21, 0.31, 0.165, 0.1, 0.12), 0.22, look.helmet);
-    const chin = extrude(poly2(0.08, -0.03, 0.23, -0.06, 0.25, -0.13, 0.13, -0.19, 0.02, -0.16), 0.19, look.helmet);
-    const vent = new THREE.Mesh(boxGeo, mat("#151517"));
-    vent.position.set(0.235, -0.1, 0);
-    vent.scale.set(0.02, 0.05, 0.08);
-    const frame = new THREE.Mesh(boxGeo, mat("#1b1b1d"));
-    frame.position.set(0.165, 0.035, 0);
-    frame.scale.set(0.06, 0.08, 0.27);
-    const lens = new THREE.Mesh(boxGeo, mat(look.visor));
-    lens.position.set(0.198, 0.035, 0);
-    lens.scale.set(0.012, 0.06, 0.2);
-    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.178, 0.014, 4, 28), mat(look.jersey));
+    // Peak: a curved visor that follows the shell's brow and sweeps forward and up.
+    const helmetM = pbr(look.helmet, 0.32, 0, 1);
+    const peak = (() => {
+      const nu = 18;
+      const nv = 6;
+      const pos: number[] = [];
+      const idx: number[] = [];
+      for (let j = 0; j <= nv; j++)
+        for (let i = 0; i <= nu; i++) {
+          const u = -1 + (2 * i) / nu;
+          const v = j / nv;
+          const phi = u * 0.95;
+          const bx = Math.cos(phi) * 0.188;
+          const bz = Math.sin(phi) * 0.158;
+          const reach = 0.135 * (1 - 0.35 * u * u);
+          pos.push(bx + v * reach * Math.cos(phi * 0.6), 0.125 + v * 0.05 + 0.012 * Math.sin(Math.PI * v), bz * (1 - 0.12 * v) + v * reach * Math.sin(phi * 0.6) * 0.5);
+        }
+      for (let j = 0; j < nv; j++)
+        for (let i = 0; i < nu; i++) {
+          const a = j * (nu + 1) + i;
+          idx.push(a, a + nu + 1, a + 1, a + 1, a + nu + 1, a + nu + 2);
+        }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      const m = pbr(look.helmet, 0.32, 0, 1).clone();
+      m.side = THREE.DoubleSide;
+      return new THREE.Mesh(g, m);
+    })();
+    // Chin bar: a rounded beak below the goggles, with a dark mouth vent.
+    const chin = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), helmetM);
+    chin.position.set(0.135, -0.1, 0);
+    chin.scale.set(0.115, 0.075, 0.125);
+    chin.rotation.z = -0.35;
+    const vent = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.06, 4, 8), pbr("#151517", 0.6));
+    vent.rotation.x = Math.PI / 2;
+    vent.position.set(0.245, -0.115, 0);
+    // Goggles: a curved band round the face opening with a mirrored lens, and the strap.
+    const goggles = new THREE.Group();
+    const band = (r: number, h: number, arc: number, m: THREE.Material) => {
+      const g = new THREE.CylinderGeometry(r, r, h, 20, 1, true, Math.PI / 2 - arc / 2, arc);
+      return new THREE.Mesh(g, m);
+    };
+    const frame = band(0.2, 0.072, 1.9, pbr("#1b1b1d", 0.55));
+    (frame.material as THREE.Material).side = THREE.DoubleSide;
+    const lens = band(0.204, 0.05, 1.45, pbr(look.visor, 0.06, 0.9));
+    goggles.add(frame, lens);
+    goggles.position.y = 0.04;
+    goggles.scale.z = 0.92;
+    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.178, 0.014, 6, 32), pbr(look.jersey, 0.8));
     strap.rotation.x = Math.PI / 2;
-    strap.position.y = 0.035;
+    strap.position.y = 0.04;
     strap.scale.set(1.1, 0.92, 1);
     // A glint across the goggle lens.
-    const glint = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.8 }));
-    glint.position.set(0.206, 0.05, 0.05);
-    glint.scale.set(0.004, 0.014, 0.08);
+    const glint = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 }));
+    glint.position.set(0.207, 0.055, 0.04);
+    glint.scale.set(0.004, 0.012, 0.07);
     glint.rotation.x = 0.45;
-    this.helmet.add(shell, peak, chin, vent, frame, lens, strap, glint);
+    this.helmet.add(shell, peak, chin, vent, goggles, strap, glint);
     b.add(
       ...this.thighs,
       ...this.shins,
@@ -909,6 +1201,7 @@ export class BikeModel {
       ...this.fores,
       ...this.gloves,
       this.torso,
+      this.pelvis,
       this.neck,
       this.helmet,
     );
@@ -958,6 +1251,7 @@ export class BikeModel {
 
     b.add(mergeStatic(st));
     this.root.add(b, this.rear, this.front);
+    realMaterials(this.root, look);
     if (!isPlayer) {
       // Ghost and rivals are see-through and cast no shadow, so they never hide the player.
       const kind = ghost ? "ghost" : "rival";
@@ -1048,10 +1342,12 @@ export class BikeModel {
       span(this.braces[i], [knee[0] + (hip[0] - knee[0]) * 0.25, knee[1] + (hip[1] - knee[1]) * 0.25], [knee[0] + (foot[0] - knee[0]) * 0.25, knee[1] + (foot[1] - knee[1]) * 0.25], z + Math.sign(z) * 0.09, false);
       span(this.uppers[i], shoulder, elbow, z * 1.35, false);
       span(this.fores[i], elbow, hand, z * 1.35, false);
-      this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.03, z);
+      this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.02, z);
       this.gloves[i].position.set(hand[0], hand[1], z * 1.35);
     });
     span(this.torso, hip, shoulder, 0, false);
+    this.pelvis.position.set(hip[0], hip[1], 0);
+    this.pelvis.rotation.z = this.torso.rotation.z;
     this.neck.position.set(shoulder[0] + Math.sin(tilt) * 0.09, shoulder[1] + Math.cos(tilt) * 0.09, 0);
     this.neck.rotation.z = -tilt;
     this.helmet.position.set(head[0], head[1], 0);
@@ -1080,8 +1376,6 @@ export class BikeModel {
     }
   }
 }
-
-const poly2 = (...pts: number[]) => pts;
 
 // Bakes a bike's static parts into one mesh per material (dozens of draw calls -> a few).
 // Textured parts (decals) stay separate.
@@ -1520,6 +1814,7 @@ export class Renderer3D {
   sky = new THREE.Group();
   trackId = "";
   bikes = new Map<BikePose, BikeModel>();
+  env: THREE.Texture;
   dust = new Dust();
   dustPts = dustPoints(this.dust);
   drifting: THREE.Mesh[] = []; // cloud strips
@@ -1544,6 +1839,13 @@ export class Renderer3D {
     this.sun.shadow.bias = -0.0005;
     this.fg.renderOrder = 10;
     this.camera.add(this.fg);
+    // A soft studio environment for reflections on the bikes' paint, metal and helmets
+    // (the scenery uses flat materials and ignores it).
+    const pm = new THREE.PMREMGenerator(this.gl);
+    this.env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    pm.dispose();
+    this.scene.environment = this.env;
+    this.scene.environmentIntensity = 0.8;
     this.scene.add(this.hemi, this.sun, this.sun.target, this.world, this.sky, this.dustPts, this.camera);
     this.resize();
   }
@@ -1618,7 +1920,12 @@ export class Renderer3D {
 
   // Main menu: the player's bike in the garage, the camera drifting around it.
   drawShowroom(look: Look, time: number) {
-    const sr = (this.showroom ??= new Showroom());
+    if (!this.showroom) {
+      this.showroom = new Showroom();
+      this.showroom.scene.environment = this.env;
+      this.showroom.scene.environmentIntensity = 1.1;
+    }
+    const sr = this.showroom;
     sr.setLook(look);
     const cam = sr.camera;
     if (cam.aspect !== this.w / this.h) {

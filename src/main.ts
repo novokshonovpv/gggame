@@ -1,4 +1,4 @@
-import { autopilot } from "./ai.ts";
+﻿import { autopilot } from "./ai.ts";
 import { Sound } from "./audio.ts";
 import {
   BIKES,
@@ -168,6 +168,21 @@ class Game {
     };
     for (const id of ["tgl-sfx", "p-sfx"]) toggle(id, () => this.sound.sfxOn, (on) => (this.sound.setSfx(on), syncToggles()));
     for (const id of ["tgl-music", "p-music"]) toggle(id, () => this.sound.musicOn, (on) => (this.sound.setMusic(on), syncToggles()));
+    // The speaker buttons (menu and race) mute everything; the open world has its own.
+    const muteBtns = ["hub-mute", "race-mute"].map((id) => $(id));
+    this.sound.onMuteChange((m) => {
+      for (const b of muteBtns) {
+        b.classList.toggle("muted", m);
+        b.title = m ? "Включить звук (M)" : "Выключить звук (M)";
+        b.setAttribute("aria-label", b.title);
+      }
+    });
+    for (const b of muteBtns)
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.sound.unlock();
+        this.sound.toggleMute();
+      });
     // Pause.
     $("btn-pause").addEventListener("click", () => this.pause());
     $("pause-resume").addEventListener("click", () => this.resume());
@@ -274,6 +289,7 @@ class Game {
 
   onKey(code: string) {
     if (this.state === "open" || !$("nick").classList.contains("hidden")) return;
+    if (code === "KeyM") return this.sound.toggleMute();
     if (code === "KeyR" || code === "Enter") {
       if (this.state === "countdown" || this.state === "racing" || this.state === "finished") this.load(this.track);
     } else if (code === "Escape" || code === "KeyP") {
