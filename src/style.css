@@ -2278,3 +2278,70 @@ h1 {
     font-size: 11px;
   }
 }
+/* Open world: tacho, gear, rear brake */
+.o-speed {
+  flex-wrap: wrap;
+  justify-content: center;
+  min-width: 150px;
+}
+
+.o-rpm {
+  flex-basis: 100%;
+  height: 5px;
+  margin: 2px 0 1px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.o-rpm span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #4fd06a, #f2c12e 70%, #e2453b);
+  transition: width 0.06s linear;
+}
+
+.o-rpm.red span {
+  filter: brightness(1.3);
+}
+
+.o-gear {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  border-radius: 5px;
+  background: #f2c12e;
+  color: #11161f;
+  font-weight: 900;
+  font-style: italic;
+}
+
+.o-pad button.o-rear {
+  right: 50px;
+  bottom: 112px;
+  width: 92px;
+  height: 52px;
+  border: 3px solid #e2453b;
+  border-radius: 14px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+@media (max-height: 500px) {
+  .o-pad button.o-rear {
+    right: 40px;
+    bottom: 88px;
+    width: 76px;
+    height: 44px;
+    font-size: 10px;
+  }
+  .o-cam {
+    bottom: calc(var(--ob) + 150px);
+  }
+}

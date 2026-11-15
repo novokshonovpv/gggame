@@ -313,7 +313,9 @@ export class Sound {
   // ---------- engines ----------
 
   // Called every frame. `racing` is false in menus; rivals fade with distance from the player.
-  updateEngines(bikes: { bike: Bike; isPlayer: boolean; gas: boolean; active: boolean }[], playerX: number, racing: boolean, dt: number) {
+  // `rpm` (0 = idle .. 1 = redline) and `throttle` (0..1), when given, come from a simulated
+  // engine (the open world) instead of being guessed from wheel speed.
+  updateEngines(bikes: { bike: Bike; isPlayer: boolean; gas: boolean; active: boolean; rpm?: number; throttle?: number }[], playerX: number, racing: boolean, dt: number) {
     const ctx = this.ctx;
     if (!ctx) return;
     const live = new Set<Bike>();
@@ -325,11 +327,13 @@ export class Sound {
         v = this.engineKind === "thumper" ? new ThumperVoice(ctx, this.sfx) : new EngineVoice(ctx, this.sfx, this.noise);
         this.engines.set(b.bike, v);
       }
-      v.drive(b.bike, b.gas && b.active, dt);
+      if (b.rpm === undefined) v.drive(b.bike, b.gas && b.active, dt);
+      else v.rpm = b.rpm;
       const dx = b.bike.chassis.getPosition().x - playerX;
       const near = b.isPlayer ? 1 : Math.max(0, 1 - Math.abs(dx) / 45) * 0.3;
       const vol = racing && b.active ? 0.14 * near : racing ? 0.06 * near : 0;
-      v.set(ctx, v.rpm, b.gas && b.active ? 1 : 0.1, vol, b.isPlayer ? 0 : Math.max(-0.8, Math.min(0.8, dx / 25)), b.bike.twoStroke);
+      const throttle = b.throttle ?? (b.gas ? 1 : 0.1);
+      v.set(ctx, v.rpm, b.active ? Math.max(0.1, throttle) : 0.1, vol, b.isPlayer ? 0 : Math.max(-0.8, Math.min(0.8, dx / 25)), b.bike.twoStroke);
     }
     for (const [bike, v] of this.engines)
       if (!live.has(bike)) {
