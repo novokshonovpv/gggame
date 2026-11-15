@@ -702,7 +702,7 @@ const TUBE_COLORS = { chrome: "#c9cdd2", muffler: "#b4b9bf", shock: "#d9a514" } 
 
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 
-class BikeModel {
+export class BikeModel {
   root = new THREE.Group();
   body = new THREE.Group();
   rear = wheelModel(WHEEL_R.rear, true);
@@ -1306,7 +1306,7 @@ function nameTag(look: Look) {
 // ---------- Garage showroom (main menu) ----------
 
 // The bike at rest on flat ground: a real physics bike settled on its suspension.
-function restingPose(): BikePose {
+export function restingPose(): BikePose {
   const world = new World({ gravity: { x: 0, y: -11 } });
   world.createBody().createFixture(new Edge({ x: -20, y: 0 }, { x: 20, y: 0 }), { friction: 0.9 });
   const bike = new Bike(world, { x: 0, y: 0 });

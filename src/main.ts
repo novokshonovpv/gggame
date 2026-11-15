@@ -43,7 +43,7 @@ import "./style.css";
 const DT = 1 / 120;
 const COUNTDOWN = 3;
 
-type State = "menu" | "tracks" | "garage" | "board" | "countdown" | "racing" | "finished";
+type State = "menu" | "tracks" | "garage" | "board" | "countdown" | "racing" | "finished" | "open";
 type GarageTab = "bikes" | "paint" | "gear" | "upgrades";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -272,7 +272,7 @@ class Game {
   }
 
   onKey(code: string) {
-    if (!$("nick").classList.contains("hidden")) return;
+    if (this.state === "open" || !$("nick").classList.contains("hidden")) return;
     if (code === "KeyR" || code === "Enter") {
       if (this.state === "countdown" || this.state === "racing" || this.state === "finished") this.load(this.track);
     } else if (code === "Escape" || code === "KeyP") {
@@ -283,6 +283,39 @@ class Game {
     }
   }
 
+  // ---------- Open world ----------
+
+  async enterOpenWorld() {
+    if (this.state === "open") return;
+    this.state = "open";
+    this.paused = false;
+    this.sound.updateEngines([], 0, false, 0); // silence the race engines behind it
+    this.ui();
+    $("loading").classList.remove("hidden");
+    // Let the loading screen paint before the heavy lifting.
+    await new Promise((r) => setTimeout(r, 50));
+    try {
+      const m = await import("./open/game.ts");
+      const spec = bikeSpec(this.profile.bike);
+      await m.startOpenWorld({
+        look: lookFor(this.profile),
+        power: statsFor(this.profile).power,
+        twoStroke: spec.twoStroke,
+        sound: this.sound,
+        onCoins: (n) => {
+          this.addCoins(n);
+          this.sound.coin();
+        },
+        onExit: () => this.showMenu(),
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Не получилось загрузить открытый мир на этом устройстве.");
+      this.showMenu();
+    } finally {
+      $("loading").classList.add("hidden");
+    }
+  }
   // ---------- Pause ----------
 
   pause() {
@@ -845,6 +878,8 @@ class Game {
   }
 
   update(dt: number) {
+    // The open world runs its own loop and canvas.
+    if (this.state === "open") return;
     this.clock += dt;
     this.frame++;
     const race = this.race;
@@ -962,7 +997,7 @@ class Game {
 
   ui() {
     const s = this.state;
-    const overlay = s === "menu" || s === "tracks" || s === "garage" || s === "board";
+    const overlay = s === "menu" || s === "tracks" || s === "garage" || s === "board" || s === "open";
     this.sound.setMusicLevel(overlay || s === "finished" ? 0.35 : 0.14);
     $("menu").classList.toggle("hidden", s !== "menu");
     $("garage").classList.toggle("hidden", s !== "garage");
