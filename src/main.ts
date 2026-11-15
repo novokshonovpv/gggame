@@ -1026,7 +1026,7 @@ class Game {
   ui() {
     const s = this.state;
     const overlay = s === "menu" || s === "tracks" || s === "garage" || s === "board" || s === "open";
-    this.sound.setMusicLevel(overlay || s === "finished" ? 0.35 : 0.14);
+    this.sound.setMusicLevel(s === "open" ? 0.1 : overlay || s === "finished" ? 0.22 : 0.07);
     $("menu").classList.toggle("hidden", s !== "menu");
     $("garage").classList.toggle("hidden", s !== "garage");
     $("tracks").classList.toggle("hidden", s !== "tracks");

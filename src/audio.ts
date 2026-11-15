@@ -1,4 +1,4 @@
-﻿import { BIKE, type Bike } from "./bike.ts";
+import { BIKE, type Bike } from "./bike.ts";
 
 // All game audio is synthesized with Web Audio: no sound files to load or license.
 // Browsers only allow audio after a user gesture, so everything waits for unlock().
@@ -221,7 +221,7 @@ export class Sound {
   private engineKind: "pending" | "thumper" | "fallback" = "pending";
   private nextStep = 0;
   private step = 0;
-  private musicLevel = 0.35;
+  private musicLevel = 0.22;
   sfxOn = true;
   musicOn = true;
   muted = false; // everything off at once (the speaker button)
@@ -467,63 +467,101 @@ export class Sound {
 
   // ---------- music ----------
 
-  // A driving 120 BPM loop: kick/snare/hats, a saw bass and a filtered pad over Am-F-C-G.
+  // Quiet ambient background: slow soft chords (Cmaj7 - Am7 - Fmaj7 - G6), one every 8 s,
+  // a round low note under them and now and then a soft bell-like note with an echo.
+  // No drums, nothing sharp: it should sit under the engines without being noticed.
+  private echo: GainNode | null = null;
   private scheduleMusic() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== "running") return;
-    const stepDur = 60 / 120 / 4; // sixteenth notes
-    const roots = [110, 87.31, 130.81, 98]; // A2 F2 C3 G2
+    if (!this.echo) {
+      // A gentle feedback delay, darkened, back into the music bus.
+      const input = ctx.createGain();
+      const delay = ctx.createDelay(1);
+      delay.delayTime.value = 0.48;
+      const fb = ctx.createGain();
+      fb.gain.value = 0.32;
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 1800;
+      input.connect(delay).connect(tone).connect(fb).connect(delay);
+      tone.connect(this.music);
+      this.echo = input;
+    }
+    const beat = 1; // seconds
     const chords = [
-      [220, 261.63, 329.63],
-      [174.61, 220, 261.63],
-      [261.63, 329.63, 392],
-      [196, 246.94, 293.66],
+      { bass: 130.81, notes: [261.63, 329.63, 392.0, 493.88] }, // Cmaj7
+      { bass: 110.0, notes: [220.0, 261.63, 329.63, 392.0] }, // Am7
+      { bass: 87.31, notes: [174.61, 220.0, 261.63, 329.63] }, // Fmaj7
+      { bass: 98.0, notes: [196.0, 246.94, 293.66, 329.63] }, // G6
     ];
-    while (this.nextStep < ctx.currentTime + 0.12) {
+    const m = this.music;
+    while (this.nextStep < ctx.currentTime + 0.2) {
       const t = this.nextStep;
-      const s = this.step % 16;
-      const bar = Math.floor(this.step / 16) % 4;
-      const m = this.music;
-      if (s % 4 === 0 || s === 10) this.tone(t, "sine", 140, 42, 0.9, 0.22, m);
-      if (s === 4 || s === 12) {
-        this.noiseBurst(t, "highpass", 1400, 0.45, 0.14, m);
-        this.tone(t, "triangle", 190, 140, 0.25, 0.08, m);
-      }
-      if (s % 2 === 0) this.noiseBurst(t, "highpass", 7000, s % 4 === 2 ? 0.18 : 0.08, s % 4 === 2 ? 0.08 : 0.03, m);
-      if (s % 2 === 0 && s !== 6 && s !== 14) {
+      const b = this.step % 8;
+      const chord = chords[Math.floor(this.step / 8) % chords.length];
+      if (b === 0) {
+        // Pad: each note a sine with a quiet triangle an octave up, swelling in and out.
+        const len = beat * 9;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = 1100;
+        lp.connect(m);
+        for (const f0 of chord.notes)
+          for (const [type, mul, vol] of [
+            ["sine", 1, 0.03],
+            ["triangle", 2, 0.006],
+          ] as const) {
+            const o = ctx.createOscillator();
+            o.type = type;
+            o.frequency.value = f0 * mul;
+            o.detune.value = (Math.random() - 0.5) * 8;
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(vol, t + 2.5);
+            g.gain.setValueAtTime(vol, t + len - 3);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+            o.connect(g).connect(lp);
+            o.start(t);
+            o.stop(t + len + 0.05);
+          }
+        // Low note.
         const o = ctx.createOscillator();
-        o.type = "sawtooth";
-        o.frequency.value = roots[bar] * (s === 8 ? 2 : 1);
-        const f = ctx.createBiquadFilter();
-        f.type = "lowpass";
-        f.frequency.value = 420;
-        f.Q.value = 6;
+        o.type = "sine";
+        o.frequency.value = chord.bass;
         const g = ctx.createGain();
-        this.env(g, t, 0.28, 0.005, stepDur * 1.8);
-        o.connect(f).connect(g).connect(m);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.045, t + 1.5);
+        g.gain.setValueAtTime(0.045, t + len - 3);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        o.connect(g).connect(m);
         o.start(t);
-        o.stop(t + stepDur * 2);
+        o.stop(t + len + 0.05);
       }
-      if (s === 0)
-        for (const f0 of chords[bar]) {
+      // Bell: a chord tone an octave up on some beats, fading over a few seconds.
+      if ((b === 2 || b === 5 || b === 7) && Math.random() < 0.45) {
+        const f0 = chord.notes[Math.floor(Math.random() * chord.notes.length)] * 2;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.022, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 3);
+        for (const [mul, vol] of [
+          [1, 1],
+          [2, 0.12],
+        ]) {
           const o = ctx.createOscillator();
-          o.type = "sawtooth";
-          o.frequency.value = f0;
-          o.detune.value = (Math.random() - 0.5) * 14;
-          const f = ctx.createBiquadFilter();
-          f.type = "lowpass";
-          f.frequency.value = 900;
-          const g = ctx.createGain();
-          const len = stepDur * 16;
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(0.05, t + 0.25);
-          g.gain.setValueAtTime(0.05, t + len - 0.3);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + len);
-          o.connect(f).connect(g).connect(m);
+          o.type = "sine";
+          o.frequency.value = f0 * mul;
+          const og = ctx.createGain();
+          og.gain.value = vol;
+          o.connect(og).connect(g);
           o.start(t);
-          o.stop(t + len + 0.05);
+          o.stop(t + 3.1);
         }
-      this.nextStep += stepDur;
+        g.connect(m);
+        g.connect(this.echo);
+      }
+      this.nextStep += beat;
       this.step++;
     }
   }
