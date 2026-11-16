@@ -1339,90 +1339,110 @@ export class BikeModel {
     strut.scale.set(0.04, 0.2, 0.07);
     this.neck.add(ringPlane, strut);
 
-    // Helmet: one moulded motocross shell - long front to back, the chin bar growing out of
-    // it forward and down, a recessed dark eye port where the goggles sit, the peak on the
-    // brow, the goggle strap round the back. x forward, y up, z to the side.
+    // Helmet after the JUST1 J22 / J40 sold at 67MOTO: a long shell; a long, angular chin
+    // bar with a flat vent panel on its nose; a tall eye port, dark inside; the lower edge
+    // sweeping up from the chin to the nape; and a big peak with real thickness, rising
+    // forward and narrowing to its tip. x forward, y up, z to the side; R = shell radius.
     const R = 0.168;
     const sm = (a: number, b: number, v: number) => {
       const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
       return t * t * (3 - 2 * t);
     };
-    const shellGeo = new THREE.SphereGeometry(1, 56, 40);
+    const shellGeo = new THREE.SphereGeometry(1, 64, 44);
     {
       const pos = shellGeo.getAttribute("position");
       const col = new Float32Array(pos.count * 3);
-      const lining = new THREE.Color("#18181a");
+      const lining = new THREE.Color("#141416");
       const c = new THREE.Color();
       for (let k = 0; k < pos.count; k++) {
         const x = pos.getX(k);
         const y = pos.getY(k);
         const z = pos.getZ(k);
-        let px = x * 1.08;
-        let py = y * 0.97;
-        let pz = z * 0.9;
-        // Chin bar: the lower front pulled forward and down, narrower than the shell.
-        const chinK = sm(0.1, 0.8, x) * sm(0.05, -0.6, y);
-        px += 0.5 * chinK;
-        py -= 0.14 * chinK;
-        pz *= 1 - 0.3 * chinK;
-        // Open underneath at the neck: the bottom flattened.
-        if (py < -0.7) py = -0.7 + (py + 0.7) * 0.25;
-        // Eye port: a recess between the brow and the chin bar, dark lining inside.
-        const port = sm(0.35, 0.7, x) * sm(-0.24, -0.1, y) * sm(0.38, 0.22, y) * sm(0.8, 0.55, Math.abs(z));
-        px -= 0.24 * port;
+        let px = x * 1.06;
+        let py = y;
+        let pz = z * 0.88;
+        // Chin bar: the lower front pulled far forward and down, narrowing...
+        const chinK = sm(0.0, 0.75, x) * sm(0.1, -0.55, y);
+        px += 0.78 * chinK;
+        py -= 0.18 * chinK;
+        pz *= 1 - 0.4 * chinK;
+        // ...with a flat nose.
+        if (px > 1.52) px = 1.52 + (px - 1.52) * 0.12;
+        // Lower edge: low under the chin, rising to the back of the neck.
+        const cut = -0.62 - 0.4 * sm(-0.3, 0.9, x);
+        if (py < cut) py = cut + (py - cut) * 0.12;
+        // A brow ridge over the eye port, and a crisp spoiler line at the back.
+        px += 0.06 * sm(0.35, 0.8, x) * sm(0.38, 0.5, y) * sm(0.75, 0.6, y);
+        px -= 0.04 * sm(-0.6, -0.9, x) * sm(0.1, -0.2, y);
+        // Eye port: a tall recess between the brow and the chin bar, dark lining inside.
+        const port = sm(0.3, 0.6, x) * sm(-0.3, -0.17, y) * sm(0.45, 0.32, y) * sm(0.8, 0.62, Math.abs(z));
+        px -= 0.34 * port;
         pos.setXYZ(k, px * R, py * R, pz * R);
-        c.setRGB(1, 1, 1).lerp(lining, sm(0.35, 0.7, port));
+        c.setRGB(1, 1, 1).lerp(lining, sm(0.3, 0.65, port));
         col.set([c.r, c.g, c.b], k * 3);
       }
       shellGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
       shellGeo.computeVertexNormals();
     }
-    const shell = new THREE.Mesh(shellGeo, new THREE.MeshPhysicalMaterial({ map: kit.helmet, vertexColors: true, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 }));
-    // Peak: on the brow, following the shell round, reaching forward and a little up, its
-    // front edge turned down.
+    const shell = new THREE.Mesh(shellGeo, new THREE.MeshPhysicalMaterial({ map: kit.helmet, vertexColors: true, roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.25 }));
+    // Peak: a solid visor (top, underside and edge) on the brow, long and wide, rising
+    // forward, narrowing to a slightly pointed tip.
     const peak = (() => {
-      const nu = 20;
-      const nv = 7;
-      const pos: number[] = [];
-      const idx: number[] = [];
+      const nu = 24;
+      const nv = 10;
+      const T = 0.008; // thickness
+      const top: THREE.Vector3[] = [];
       for (let j = 0; j <= nv; j++)
         for (let i = 0; i <= nu; i++) {
           const u = -1 + (2 * i) / nu;
           const v = j / nv;
-          const phi = u * 0.78;
-          const reach = 0.13 * (1 - 0.55 * u * u);
-          const bx = Math.cos(phi) * 0.15;
-          const bz = Math.sin(phi) * 0.126;
-          // Raised along the middle, rising towards the tip, the edge slightly turned down.
-          const ridge = 0.016 * (1 - Math.abs(u)) * v;
-          pos.push(bx + v * reach * Math.cos(phi * 0.4), 0.1 + v * 0.06 - 0.014 * v ** 4 + ridge + 0.006 * Math.sin(Math.PI * v), bz * (1 - 0.25 * v) + v * reach * Math.sin(phi * 0.4) * 0.3);
+          const phi = u * 0.85;
+          const ring = 0.84; // shell radius at the brow height
+          const bx = Math.cos(phi) * ring * 1.06 * R;
+          const bz = Math.sin(phi) * ring * 0.88 * R;
+          const reach = 0.165 * (1 - 0.5 * u * u) * (1 + 0.06 * (1 - Math.abs(u)));
+          const x = bx + v * reach * Math.cos(phi * 0.35);
+          const zz = bz * (1 - 0.35 * v) + v * reach * Math.sin(phi * 0.35) * 0.25;
+          // Rises about 16 degrees, a soft crest along the middle, the tip edge dipping.
+          const y = 0.55 * R + v * 0.05 + 0.012 * (1 - u * u) * v - 0.01 * v ** 5;
+          top.push(new THREE.Vector3(x, y, zz));
         }
+      const pos: number[] = [];
+      const quad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
+      const at = (i: number, j: number, under = false) => {
+        const p = top[j * (nu + 1) + i];
+        return under ? new THREE.Vector3(p.x, p.y - T, p.z) : p;
+      };
       for (let j = 0; j < nv; j++)
         for (let i = 0; i < nu; i++) {
-          const a = j * (nu + 1) + i;
-          idx.push(a, a + nu + 1, a + 1, a + 1, a + nu + 1, a + nu + 2);
+          quad(at(i, j), at(i, j + 1), at(i + 1, j + 1), at(i + 1, j));
+          quad(at(i, j, true), at(i + 1, j, true), at(i + 1, j + 1, true), at(i, j + 1, true));
         }
+      // Edges: the tip and the two sides.
+      for (let i = 0; i < nu; i++) quad(at(i, nv), at(i, nv, true), at(i + 1, nv, true), at(i + 1, nv));
+      for (let j = 0; j < nv; j++) {
+        quad(at(0, j), at(0, j, true), at(0, j + 1, true), at(0, j + 1));
+        quad(at(nu, j), at(nu, j + 1), at(nu, j + 1, true), at(nu, j, true));
+      }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-      g.setIndex(idx);
       g.computeVertexNormals();
-      const m = pbr(look.helmet, 0.3, 0, 1).clone();
+      const m = pbr(look.helmet, 0.42, 0, 0.6).clone();
       m.side = THREE.DoubleSide;
       return new THREE.Mesh(g, m);
     })();
-    // Mouth vent on the front of the chin bar and two side vents.
+    // Vent panel on the nose of the chin bar, and a vent slot on the top of the peak.
     const ventM = pbr("#151517", 0.6);
-    const vent = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.055, 4, 8), ventM);
-    vent.rotation.x = Math.PI / 2;
-    vent.position.set(0.205, -0.078, 0);
+    const vent = new THREE.Mesh(boxGeo, ventM);
+    vent.position.set(1.53 * R, -0.6 * R, 0);
+    vent.scale.set(0.01, 0.075, 0.06);
+    vent.rotation.z = 0.12;
     const chin = new THREE.Group();
-    for (const side of [-1, 1]) {
-      const sv = new THREE.Mesh(new THREE.CapsuleGeometry(0.007, 0.035, 3, 6), ventM);
-      sv.position.set(0.17, -0.07, side * 0.085);
-      sv.rotation.set(0, side * 0.6, Math.PI / 2 - 0.4);
-      chin.add(sv);
-    }
-    // Goggles in the eye port: frame, mirrored lens, a glint.
+    const slot = new THREE.Mesh(boxGeo, ventM);
+    slot.position.set(0.17, 0.112, 0);
+    slot.scale.set(0.05, 0.004, 0.025);
+    slot.rotation.z = 0.3;
+    chin.add(slot);    // Goggles in the eye port: frame, mirrored lens, a glint.
     const goggles = new THREE.Group();
     const band = (r: number, h: number, arc: number, m: THREE.Material) => {
       const g = new THREE.CylinderGeometry(r, r, h, 24, 1, true, Math.PI / 2 - arc / 2, arc);
@@ -1813,21 +1833,66 @@ function kitTextures(look: Look) {
     }),
     true,
   );
+  // Helmet graphics after the JUST1 J22: angular slashes sweeping back from the eye port,
+  // big lettering low on each side, a thin accent line. Sphere uv: u = 0 at the back,
+  // 0.25 on the right side, 0.5 at the front, 0.75 on the left; v = 1 at the crown.
   const helmet = texture(
-    canvas(256, 128, (ctx) => {
+    canvas(1024, 512, (ctx) => {
+      const W = 1024;
+      const H = 512;
       ctx.fillStyle = look.helmet;
-      ctx.fillRect(0, 0, 256, 128);
-      ctx.fillStyle = look.jersey;
-      ctx.fillRect(0, 14, 256, 14); // stripe over the crown
-      ctx.fillStyle = look.jerseyDark;
-      ctx.fillRect(0, 34, 256, 6);
-      logo(ctx, 0, 62, 18, look.jerseyDark);
-      logo(ctx, 128, 62, 18, look.jerseyDark);
-      logo(ctx, 256, 62, 18, look.jerseyDark);
+      ctx.fillRect(0, 0, W, H);
+      const light = luminance(look.helmet) < 0.45;
+      const ink = light ? "#f2f2f0" : "#141416";
+      for (const [cx, dir] of [
+        [W * 0.25, 1],
+        [W * 0.75, -1],
+      ] as const) {
+        // Slashes from the brow back over the crown and down the side.
+        ctx.fillStyle = ink;
+        for (const [y0, h, len] of [
+          [0.18, 0.05, 0.3],
+          [0.27, 0.035, 0.22],
+        ]) {
+          ctx.beginPath();
+          ctx.moveTo(cx + dir * W * 0.2, H * y0);
+          ctx.lineTo(cx + dir * W * (0.2 - len), H * (y0 + 0.06));
+          ctx.lineTo(cx + dir * W * (0.2 - len - 0.02), H * (y0 + 0.06 + h));
+          ctx.lineTo(cx + dir * W * 0.2, H * (y0 + h));
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Accent line in the kit colour.
+        ctx.fillStyle = look.jersey;
+        ctx.beginPath();
+        ctx.moveTo(cx + dir * W * 0.18, H * 0.4);
+        ctx.lineTo(cx - dir * W * 0.16, H * 0.5);
+        ctx.lineTo(cx - dir * W * 0.16, H * 0.52);
+        ctx.lineTo(cx + dir * W * 0.18, H * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        // Big lettering low on the side, reading front to back on both sides.
+        ctx.save();
+        ctx.translate(cx + dir * W * 0.03, H * 0.66);
+        ctx.transform(1, 0, -0.2, 1, 0, 0);
+        ctx.font = `italic 900 ${H * 0.16}px 'Arial Black', system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.lineWidth = H * 0.018;
+        ctx.strokeStyle = light ? "#141416" : "#f2f2f0";
+        ctx.strokeText("JUST1", 0, 0, W * 0.3);
+        ctx.fillStyle = ink;
+        ctx.fillText("JUST1", 0, 0, W * 0.3);
+        ctx.restore();
+      }
+      // A small logo on the brow, under the peak.
+      ctx.fillStyle = ink;
+      ctx.font = `900 ${H * 0.05}px 'Arial Black', system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("J1", W * 0.5, H * 0.28);
     }),
     true,
-  );
-  return { jersey, sleeve, pants, helmet };
+  );  return { jersey, sleeve, pants, helmet };
 }
 
 function playerMarker() {
