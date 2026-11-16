@@ -1271,12 +1271,18 @@ export class BikeModel {
       brace.scale.z = 0.6;
       return brace;
     });
-    this.uppers = two(() => new THREE.Mesh(taper(0.07, 0.058, 0.3, 1.08), sleeveM));
-    this.fores = two(() => new THREE.Mesh(taper(0.063, 0.05, 0.3, 1.1), sleeveM));
+    this.uppers = two(() => new THREE.Mesh(taper(0.079, 0.061, 0.3, 1.12), sleeveM));
+    this.fores = two(() => new THREE.Mesh(taper(0.069, 0.052, 0.3, 1.12), sleeveM));
     // Shoulders: rounded caps where the sleeves meet the jersey.
     this.shoulders = two(() => {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 12), sleeveM);
-      m.scale.set(0.95, 0.85, 0.9);
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.096, 20, 14), sleeveM);
+      m.scale.set(1, 0.9, 0.95);
+      // Shoulder cup of the chest protector.
+      const cupM = pbr("#1c1c1f", 0.45, 0, 0.35).clone();
+      cupM.side = THREE.DoubleSide;
+      const cup = new THREE.Mesh(new THREE.SphereGeometry(0.112, 20, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), cupM);
+      cup.position.y = -0.004;
+      m.add(cup);
       return m;
     });
     // Gloves closed round the grips, with a hard knuckle guard.
@@ -1289,29 +1295,62 @@ export class BikeModel {
       fist.add(knuckle);
       return fist;
     });
-    // Torso: shoulders wider than the waist, flatter front to back than side to side.
+    // Torso: a man's build - broad chest and shoulders over a narrower waist, flatter front
+    // to back than side to side.
+    const torsoProfile = [
+      [0, -0.335],
+      [0.1, -0.315],
+      [0.135, -0.27],
+      [0.136, -0.16],
+      [0.13, -0.06],
+      [0.152, 0.05],
+      [0.176, 0.15],
+      [0.188, 0.22],
+      [0.172, 0.28],
+      [0.12, 0.325],
+      [0.06, 0.345],
+      [0, 0.35],
+    ];
     const torsoGeo = new THREE.LatheGeometry(
-      [
-        [0, -0.335],
-        [0.1, -0.315],
-        [0.14, -0.27],
-        [0.142, -0.16],
-        [0.134, -0.06],
-        [0.146, 0.05],
-        [0.162, 0.15],
-        [0.168, 0.22],
-        [0.152, 0.28],
-        [0.1, 0.325],
-        [0.05, 0.345],
-        [0, 0.35],
-      ].map(([r, y]) => new THREE.Vector2(r, y)),
-      22,
+      torsoProfile.map(([r, y]) => new THREE.Vector2(r, y)),
+      24,
     );
     this.torso = new THREE.Mesh(torsoGeo, jerseyM);
-    this.torso.scale.set(0.8, 1, 1.18);
-    // Hips: the pants round the seat, joining the thighs.
+    this.torso.scale.set(0.84, 1, 1.24);
+    // Chest protector over the jersey: front and back shells following the chest, a strap
+    // round the waist; shoulder cups on the shoulders (below). Children of the torso, so
+    // they share its shape.
+    {
+      const rAt = (y: number) => {
+        for (let k = 1; k < torsoProfile.length; k++) {
+          const [r0, y0] = torsoProfile[k - 1];
+          const [r1, y1] = torsoProfile[k];
+          if (y <= y1) return r0 + ((r1 - r0) * (y - y0)) / (y1 - y0);
+        }
+        return 0;
+      };
+      const plate = (y0: number, y1: number, phi0: number, len: number, grow: number) => {
+        const pts: THREE.Vector2[] = [];
+        for (let k = 0; k <= 10; k++) {
+          const y = y0 + ((y1 - y0) * k) / 10;
+          pts.push(new THREE.Vector2(rAt(y) * grow + 0.012, y));
+        }
+        return new THREE.LatheGeometry(pts, 16, phi0, len);
+      };
+      const armour = pbr("#1c1c1f", 0.45, 0, 0.35).clone();
+      armour.side = THREE.DoubleSide;
+      const front = new THREE.Mesh(plate(-0.12, 0.31, Math.PI / 2 - 1.05, 2.1, 1.06), armour);
+      const back = new THREE.Mesh(plate(-0.2, 0.31, (3 * Math.PI) / 2 - 1.15, 2.3, 1.06), armour);
+      // Two light panels on the chest, like the moulded plates of a real roost guard.
+      const panelM = pbr("#d9dadc", 0.4, 0, 0.3).clone();
+      panelM.side = THREE.DoubleSide;
+      const pecs = [-1, 1].map((side) => new THREE.Mesh(plate(0.06, 0.25, Math.PI / 2 + (side < 0 ? -0.82 : 0.12), 0.7, 1.075), panelM));
+      const strap = new THREE.Mesh(plate(-0.13, -0.09, 0, Math.PI * 2, 1.04), pbr("#151517", 0.7));
+      this.torso.add(front, back, ...pecs, strap);
+    }
+    // Hips: the pants round the seat, joining the thighs; narrower than the shoulders.
     this.pelvis.add(new THREE.Mesh(new THREE.SphereGeometry(1, 18, 12), pantsM));
-    this.pelvis.children[0].scale.set(0.14, 0.12, 0.21);
+    this.pelvis.children[0].scale.set(0.135, 0.12, 0.195);
     // Hard elbow guards on the outside of the elbows and three alloy buckles on each boot.
     this.uppers.forEach((u, i) => {
       const guard = new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 10), blackM);
@@ -1328,16 +1367,10 @@ export class BikeModel {
       }
     });
 
-    // Neck brace: an open ring around the neck (gap at the front) with a strut down the back.
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.03, 6, 20, Math.PI * 1.5), mat("#151517"));
-    ring.rotation.z = Math.PI / 4;
-    const ringPlane = new THREE.Group();
-    ringPlane.rotation.x = Math.PI / 2;
-    ringPlane.add(ring);
-    const strut = new THREE.Mesh(boxGeo, mat("#151517"));
-    strut.position.set(-0.13, -0.1, 0);
-    strut.scale.set(0.04, 0.2, 0.07);
-    this.neck.add(ringPlane, strut);
+    // Neck: a strong neck in the jersey collar, up into the helmet.
+    const neckMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.07, 4, 14), pbr(look.jerseyDark, 0.85));
+    neckMesh.position.set(0.01, 0.02, 0);
+    this.neck.add(neckMesh);
 
     // Helmet after the JUST1 J22 / J40 sold at 67MOTO: a long shell; a long, angular chin
     // bar with a flat vent panel on its nose; a tall eye port, dark inside; the lower edge
@@ -1610,8 +1643,8 @@ export class BikeModel {
       span(this.shins[i], knee, foot, z, false);
       span(this.bootShafts[i], [foot[0] + (knee[0] - foot[0]) * 0.12, foot[1] + (knee[1] - foot[1]) * 0.12], bootTop, z, false);
       span(this.braces[i], [knee[0] + (hip[0] - knee[0]) * 0.25, knee[1] + (hip[1] - knee[1]) * 0.25], [knee[0] + (foot[0] - knee[0]) * 0.25, knee[1] + (foot[1] - knee[1]) * 0.25], z + Math.sign(z) * 0.09, false);
-      span(this.uppers[i], shoulder, elbow, z * 1.35, false);
-      this.shoulders[i].position.set(shoulder[0], shoulder[1] - 0.01, z * 1.2);
+      span(this.uppers[i], shoulder, elbow, z * 1.42, false);
+      this.shoulders[i].position.set(shoulder[0], shoulder[1] - 0.01, z * 1.3);
       span(this.fores[i], elbow, hand, z * 1.35, false);
       this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.02, z);
       this.gloves[i].position.set(hand[0], hand[1], z * 1.35);
