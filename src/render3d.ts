@@ -756,6 +756,18 @@ function rod(radius: number, color: string) {
   return m;
 }
 
+// Points a limb (a capsule along its y axis, fixed length) from a to b in 3D: xy from the
+// 2D pose, plus a sideways offset at each end.
+const limbA = new THREE.Vector3();
+const limbB = new THREE.Vector3();
+const limbY = new THREE.Vector3(0, 1, 0);
+function limb(m: THREE.Object3D, a: P2, za: number, b: P2, zb: number) {
+  limbA.set(a[0], a[1], za);
+  limbB.set(b[0], b[1], zb);
+  m.position.copy(limbA).add(limbB).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(limbY, limbB.sub(limbA).normalize());
+}
+
 // Places a rod or capsule between two points in its parent's xy plane.
 function span(m: THREE.Object3D, a: P2, b: P2, z: number, stretch = true) {
   const dx = b[0] - a[0];
@@ -1350,7 +1362,7 @@ export class BikeModel {
     }
     // Hips: the pants round the seat, joining the thighs; narrower than the shoulders.
     this.pelvis.add(new THREE.Mesh(new THREE.SphereGeometry(1, 18, 12), pantsM));
-    this.pelvis.children[0].scale.set(0.135, 0.12, 0.195);
+    this.pelvis.children[0].scale.set(0.13, 0.11, 0.17);
     // Hard elbow guards on the outside of the elbows and three alloy buckles on each boot.
     this.uppers.forEach((u, i) => {
       const guard = new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 10), blackM);
@@ -1638,15 +1650,21 @@ export class BikeModel {
     const { hip, knee, foot, shoulder, elbow, hand, head, tilt } = pose;
     // Boot shaft covers the lower part of the shin; knee brace hinges on the outside.
     const bootTop: P2 = [foot[0] + (knee[0] - foot[0]) * 0.58, foot[1] + (knee[1] - foot[1]) * 0.58];
+    // Legs in 3D: hip joints close together, knees out round the tank, boots on the pegs.
     [-0.16, 0.16].forEach((z, i) => {
-      span(this.thighs[i], hip, knee, z, false);
-      span(this.shins[i], knee, foot, z, false);
-      span(this.bootShafts[i], [foot[0] + (knee[0] - foot[0]) * 0.12, foot[1] + (knee[1] - foot[1]) * 0.12], bootTop, z, false);
-      span(this.braces[i], [knee[0] + (hip[0] - knee[0]) * 0.25, knee[1] + (hip[1] - knee[1]) * 0.25], [knee[0] + (foot[0] - knee[0]) * 0.25, knee[1] + (foot[1] - knee[1]) * 0.25], z + Math.sign(z) * 0.09, false);
+      const s = Math.sign(z);
+      const zH = s * 0.095;
+      const zK = s * 0.215;
+      const zF = s * 0.2;
+      const at = (p: P2, t: number, q: P2): P2 => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+      limb(this.thighs[i], hip, zH, knee, zK);
+      limb(this.shins[i], knee, zK, foot, zF);
+      limb(this.bootShafts[i], at(foot, 0.12, knee), zF, bootTop, zF + (zK - zF) * 0.58);
+      limb(this.braces[i], at(knee, 0.25, hip), zK + s * 0.075, at(knee, 0.25, foot), zK + s * 0.08);
       span(this.uppers[i], shoulder, elbow, z * 1.42, false);
       this.shoulders[i].position.set(shoulder[0], shoulder[1] - 0.01, z * 1.3);
       span(this.fores[i], elbow, hand, z * 1.35, false);
-      this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.02, z);
+      this.boots[i].position.set(foot[0] + 0.05, foot[1] - 0.02, zF);
       this.gloves[i].position.set(hand[0], hand[1], z * 1.35);
     });
     span(this.torso, hip, shoulder, 0, false);
