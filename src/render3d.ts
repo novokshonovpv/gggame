@@ -1339,25 +1339,63 @@ export class BikeModel {
     strut.scale.set(0.04, 0.2, 0.07);
     this.neck.add(ringPlane, strut);
 
-    // Helmet: long shell, angular peak, protruding chin bar, goggles with a colored strap.
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.175, 32, 22), new THREE.MeshPhysicalMaterial({ map: kit.helmet, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.08 }));
-    shell.scale.set(1.1, 1, 0.92);
-    // Peak: a curved visor that follows the shell's brow and sweeps forward and up.
-    const helmetM = pbr(look.helmet, 0.32, 0, 1);
+    // Helmet: one moulded motocross shell - long front to back, the chin bar growing out of
+    // it forward and down, a recessed dark eye port where the goggles sit, the peak on the
+    // brow, the goggle strap round the back. x forward, y up, z to the side.
+    const R = 0.168;
+    const sm = (a: number, b: number, v: number) => {
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    const shellGeo = new THREE.SphereGeometry(1, 56, 40);
+    {
+      const pos = shellGeo.getAttribute("position");
+      const col = new Float32Array(pos.count * 3);
+      const lining = new THREE.Color("#18181a");
+      const c = new THREE.Color();
+      for (let k = 0; k < pos.count; k++) {
+        const x = pos.getX(k);
+        const y = pos.getY(k);
+        const z = pos.getZ(k);
+        let px = x * 1.08;
+        let py = y * 0.97;
+        let pz = z * 0.9;
+        // Chin bar: the lower front pulled forward and down, narrower than the shell.
+        const chinK = sm(0.1, 0.8, x) * sm(0.05, -0.6, y);
+        px += 0.5 * chinK;
+        py -= 0.14 * chinK;
+        pz *= 1 - 0.3 * chinK;
+        // Open underneath at the neck: the bottom flattened.
+        if (py < -0.7) py = -0.7 + (py + 0.7) * 0.25;
+        // Eye port: a recess between the brow and the chin bar, dark lining inside.
+        const port = sm(0.35, 0.7, x) * sm(-0.24, -0.1, y) * sm(0.38, 0.22, y) * sm(0.8, 0.55, Math.abs(z));
+        px -= 0.24 * port;
+        pos.setXYZ(k, px * R, py * R, pz * R);
+        c.setRGB(1, 1, 1).lerp(lining, sm(0.35, 0.7, port));
+        col.set([c.r, c.g, c.b], k * 3);
+      }
+      shellGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      shellGeo.computeVertexNormals();
+    }
+    const shell = new THREE.Mesh(shellGeo, new THREE.MeshPhysicalMaterial({ map: kit.helmet, vertexColors: true, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 }));
+    // Peak: on the brow, following the shell round, reaching forward and a little up, its
+    // front edge turned down.
     const peak = (() => {
-      const nu = 18;
-      const nv = 6;
+      const nu = 20;
+      const nv = 7;
       const pos: number[] = [];
       const idx: number[] = [];
       for (let j = 0; j <= nv; j++)
         for (let i = 0; i <= nu; i++) {
           const u = -1 + (2 * i) / nu;
           const v = j / nv;
-          const phi = u * 0.95;
-          const bx = Math.cos(phi) * 0.188;
-          const bz = Math.sin(phi) * 0.158;
-          const reach = 0.135 * (1 - 0.35 * u * u);
-          pos.push(bx + v * reach * Math.cos(phi * 0.6), 0.125 + v * 0.05 + 0.012 * Math.sin(Math.PI * v), bz * (1 - 0.12 * v) + v * reach * Math.sin(phi * 0.6) * 0.5);
+          const phi = u * 0.78;
+          const reach = 0.13 * (1 - 0.55 * u * u);
+          const bx = Math.cos(phi) * 0.15;
+          const bz = Math.sin(phi) * 0.126;
+          // Raised along the middle, rising towards the tip, the edge slightly turned down.
+          const ridge = 0.016 * (1 - Math.abs(u)) * v;
+          pos.push(bx + v * reach * Math.cos(phi * 0.4), 0.1 + v * 0.06 - 0.014 * v ** 4 + ridge + 0.006 * Math.sin(Math.PI * v), bz * (1 - 0.25 * v) + v * reach * Math.sin(phi * 0.4) * 0.3);
         }
       for (let j = 0; j < nv; j++)
         for (let i = 0; i < nu; i++) {
@@ -1368,38 +1406,45 @@ export class BikeModel {
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       g.setIndex(idx);
       g.computeVertexNormals();
-      const m = pbr(look.helmet, 0.32, 0, 1).clone();
+      const m = pbr(look.helmet, 0.3, 0, 1).clone();
       m.side = THREE.DoubleSide;
       return new THREE.Mesh(g, m);
     })();
-    // Chin bar: a rounded beak below the goggles, with a dark mouth vent.
-    const chin = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), helmetM);
-    chin.position.set(0.135, -0.1, 0);
-    chin.scale.set(0.115, 0.075, 0.125);
-    chin.rotation.z = -0.35;
-    const vent = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.06, 4, 8), pbr("#151517", 0.6));
+    // Mouth vent on the front of the chin bar and two side vents.
+    const ventM = pbr("#151517", 0.6);
+    const vent = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.055, 4, 8), ventM);
     vent.rotation.x = Math.PI / 2;
-    vent.position.set(0.245, -0.115, 0);
-    // Goggles: a curved band round the face opening with a mirrored lens, and the strap.
+    vent.position.set(0.205, -0.078, 0);
+    const chin = new THREE.Group();
+    for (const side of [-1, 1]) {
+      const sv = new THREE.Mesh(new THREE.CapsuleGeometry(0.007, 0.035, 3, 6), ventM);
+      sv.position.set(0.17, -0.07, side * 0.085);
+      sv.rotation.set(0, side * 0.6, Math.PI / 2 - 0.4);
+      chin.add(sv);
+    }
+    // Goggles in the eye port: frame, mirrored lens, a glint.
     const goggles = new THREE.Group();
     const band = (r: number, h: number, arc: number, m: THREE.Material) => {
-      const g = new THREE.CylinderGeometry(r, r, h, 20, 1, true, Math.PI / 2 - arc / 2, arc);
+      const g = new THREE.CylinderGeometry(r, r, h, 24, 1, true, Math.PI / 2 - arc / 2, arc);
       return new THREE.Mesh(g, m);
     };
-    const frame = band(0.2, 0.072, 1.9, pbr("#1b1b1d", 0.55));
+    const frameM = pbr("#1b1b1d", 0.5);
+    const frame = band(0.162, 0.064, 1.75, frameM.clone());
     (frame.material as THREE.Material).side = THREE.DoubleSide;
-    const lens = band(0.204, 0.05, 1.45, pbr(look.visor, 0.06, 0.9));
+    const lens = band(0.166, 0.044, 1.35, pbr(look.visor, 0.06, 0.9));
     goggles.add(frame, lens);
-    goggles.position.y = 0.04;
-    goggles.scale.z = 0.92;
-    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.178, 0.014, 6, 32), pbr(look.jersey, 0.8));
-    strap.rotation.x = Math.PI / 2;
-    strap.position.y = 0.04;
-    strap.scale.set(1.1, 0.92, 1);
-    // A glint across the goggle lens.
-    const glint = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 }));
-    glint.position.set(0.207, 0.055, 0.04);
-    glint.scale.set(0.004, 0.012, 0.07);
+    goggles.position.y = 0.012;
+    goggles.scale.set(1.08, 1, 0.9);
+    // Strap round the back of the helmet only.
+    const strapGeo = new THREE.TorusGeometry(0.171, 0.013, 6, 40, Math.PI * 1.35);
+    strapGeo.rotateZ(Math.PI - Math.PI * 0.675);
+    strapGeo.rotateX(Math.PI / 2);
+    const strap = new THREE.Mesh(strapGeo, pbr(look.jersey, 0.8));
+    strap.position.y = 0.012;
+    strap.scale.set(1.08, 1, 0.9);
+    const glint = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.6 }));
+    glint.position.set(0.181, 0.022, 0.035);
+    glint.scale.set(0.004, 0.01, 0.06);
     glint.rotation.x = 0.45;
     this.helmet.add(shell, peak, chin, vent, goggles, strap, glint);
     b.add(
