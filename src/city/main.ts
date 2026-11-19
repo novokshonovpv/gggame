@@ -5,11 +5,25 @@ import { enterFullscreen, exitFullscreen, isFullscreen, isTouch, onFullscreenCha
 import { CitySound } from "./audio.ts";
 import { CityMap } from "./map.ts";
 import { type Camera, Renderer } from "./render.ts";
-import { BIKE, BIKES, type Input, World } from "./sim.ts";
+import { BIKE, BIKES, type Input, WEAPONS, type WeaponId, World, rub } from "./sim.ts";
 import "./style.css";
 
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
-const SAVE = "moto-city-v1";
+const SAVE = "moto-city-v2";
+const OLD_SAVE = "moto-city-v1"; // dollars, before the switch to roubles and the BSE line
+// Photos of the BSE bikes from the 67MOTO catalogue.
+const PHOTOS: Record<string, string> = {
+  ex125: new URL("../assets/67moto/bikes/125.jpg", import.meta.url).href,
+  z3: new URL("../assets/67moto/bikes/250.jpg", import.meta.url).href,
+  t5: new URL("../assets/67moto/bikes/300.jpg", import.meta.url).href,
+  "2t": new URL("../assets/67moto/bikes/450.jpg", import.meta.url).href,
+};
+const BLURB: Record<string, string> = {
+  z3: "Надёжный четырёхтактник, с него начинают все курьеры",
+  ex125: "Лёгкий и вёрткий: лучше всех в поворотах и по газонам",
+  t5: "Мощный эндуро: быстрее и крепче, держит удары",
+  "2t": "Двухтактный зверь: самый резкий разгон в городе",
+};
 const DT = 1 / 60;
 const embedded = (() => {
   try {
@@ -23,17 +37,31 @@ interface Save {
   money: number;
   owned: string[];
   bike: string;
+  arms: Partial<Record<WeaponId, number>>;
 }
 
+const SHOP_IDS = new Set(BIKES.map((b) => b.id));
+
 function load(): Save {
-  const def: Save = { money: 0, owned: ["scooter", "enduro"], bike: "enduro" };
+  const def: Save = { money: 0, owned: ["z3"], bike: "z3", arms: {} };
   try {
     const s = JSON.parse(localStorage.getItem(SAVE) ?? "null") as Partial<Save> | null;
-    if (!s) return def;
+    if (!s) {
+      // Dollars from the first version become roubles (x50).
+      const old = JSON.parse(localStorage.getItem(OLD_SAVE) ?? "null") as { money?: number } | null;
+      if (old) def.money = Math.max(0, Math.floor(Number(old.money) || 0)) * 50;
+      return def;
+    }
+    const arms: Save["arms"] = {};
+    for (const id of Object.keys(WEAPONS) as WeaponId[]) {
+      const n = Math.floor(Number(s.arms?.[id]) || 0);
+      if (n > 0) arms[id] = n;
+    }
     return {
       money: Math.max(0, Math.floor(Number(s.money) || 0)),
-      owned: Array.isArray(s.owned) ? [...new Set([...def.owned, ...s.owned.filter((id) => BIKE[id])])] : def.owned,
-      bike: s.bike && BIKE[s.bike] ? s.bike : def.bike,
+      owned: Array.isArray(s.owned) ? [...new Set([...def.owned, ...s.owned.filter((id) => SHOP_IDS.has(id))])] : def.owned,
+      bike: s.bike && SHOP_IDS.has(s.bike) && BIKE[s.bike] ? s.bike : def.bike,
+      arms,
     };
   } catch {
     return def;
@@ -43,6 +71,7 @@ function load(): Save {
 const save = load();
 function store() {
   save.money = world.money;
+  save.arms = { ...world.arms };
   try {
     localStorage.setItem(SAVE, JSON.stringify(save));
   } catch {
@@ -54,6 +83,14 @@ const map = new CityMap(67);
 const world = new World(map);
 world.money = save.money;
 world.bikeId = save.bike;
+world.arms = { ...save.arms };
+world.cycleWeapon();
+{
+  // ?t=22 (or ?night) starts at that hour: handy for an embed that wants night straight away.
+  const q = new URLSearchParams(location.search);
+  const h = q.has("night") ? 22 : Number(q.get("t"));
+  if (q.has("night") || (q.has("t") && h >= 0 && h < 24)) world.clock = h;
+}
 {
   // Start on foot by the workshop, the rider's own bike at the kerb.
   const b = world.player.body;
@@ -86,6 +123,12 @@ const KEYS: Record<string, string> = {
   KeyE: "action",
   KeyF: "action",
   Enter: "action",
+  ControlLeft: "fire",
+  ControlRight: "fire",
+  KeyJ: "fire",
+  KeyX: "fire",
+  KeyQ: "swap",
+  Tab: "swap",
 };
 window.addEventListener("keydown", (e) => {
   const k = KEYS[e.code];
@@ -105,6 +148,16 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keyup", (e) => {
   const k = KEYS[e.code];
   if (k) held.delete(k);
+});
+// Left mouse button fires too.
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse" && e.button === 0 && mode === "play") {
+    held.add("fire");
+    edges.add("fire");
+  }
+});
+window.addEventListener("pointerup", (e) => {
+  if (e.pointerType === "mouse" && e.button === 0) held.delete("fire");
 });
 window.addEventListener("blur", () => {
   held.clear();
@@ -143,6 +196,8 @@ function readInput(): Input {
     hb: held.has("hb") && !onFoot,
     action: edges.has("action"),
     kick: edges.has("hb") && onFoot,
+    fire: held.has("fire"),
+    swap: edges.has("swap"),
   };
   edges.clear();
   return inp;
@@ -166,7 +221,7 @@ function start() {
 function pause() {
   mode = "pause";
   const owned = save.owned.length;
-  $("pause-stats").textContent = `Деньги: $${world.money.toLocaleString("ru-RU")} · байков: ${owned} из ${BIKES.length}`;
+  $("pause-stats").textContent = `Деньги: ${rub(world.money)} · байков BSE: ${owned} из ${BIKES.length}`;
   show("pause", true);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
@@ -196,6 +251,7 @@ function closeShop() {
 function renderShop() {
   const list = $("shop-list");
   list.innerHTML = "";
+  $("shop-money").textContent = `У тебя ${rub(world.money)}`;
   for (const b of BIKES) {
     const owned = save.owned.includes(b.id);
     const current = save.bike === b.id;
@@ -203,19 +259,21 @@ function renderShop() {
     card.className = "bike-card" + (current ? " current" : "");
     const stat = (label: string, v: number) => `<div class="stat"><span>${label}</span><i style="width:${Math.round(v * 100)}%"></i></div>`;
     card.innerHTML = `
-      <div class="swatch" style="background:${b.colors[0]}"></div>
+      <div class="photo" style="background-image:url('${PHOTOS[b.id] ?? ""}')"></div>
       <b>${b.name}</b>
-      ${stat("Скорость", b.vmax / 470)}
-      ${stat("Разгон", b.accel / 580)}
-      ${stat("Управление", (b.turn * b.grip) / (3.5 * 18))}
-      ${stat("Прочность", b.hp / 100)}`;
+      <small>${BLURB[b.id] ?? ""}</small>
+      ${stat("Скорость", b.vmax / 425)}
+      ${stat("Разгон", b.accel / 620)}
+      ${stat("Управление", (b.turn * b.grip) / (3.8 * 17))}
+      ${stat("Прочность", b.hp / 75)}
+      <div class="price">${owned ? "Куплен" : b.price ? rub(b.price) : "Бесплатно"}</div>`;
     const btn = document.createElement("button");
     if (current) {
       btn.textContent = "Твой байк";
       btn.disabled = true;
     } else if (owned) btn.textContent = "Выбрать";
     else {
-      btn.textContent = `Купить $${b.price.toLocaleString("ru-RU")}`;
+      btn.textContent = world.money < b.price ? `Не хватает ${rub(b.price - world.money)}` : "Купить";
       btn.disabled = world.money < b.price;
     }
     btn.addEventListener("click", () => {
@@ -249,6 +307,11 @@ function renderShop() {
 }
 
 $("b-play").addEventListener("click", start);
+// Tap the weapon label to switch guns (on a phone there is no Q key).
+$("gun").addEventListener("click", () => world.cycleWeapon());
+// The 67MOTO fonts are drawn on the canvas too (billboards, signs).
+void document.fonts?.load("800 12px Unbounded");
+void document.fonts?.load("700 12px Manrope");
 $("p-resume").addEventListener("click", resume);
 $("shop-close").addEventListener("click", closeShop);
 $("b-pause").addEventListener("click", () => (mode === "play" ? pause() : resume()));
@@ -296,7 +359,7 @@ function hud(dt: number) {
   const p = world.player;
   shownMoney += (world.money - shownMoney) * Math.min(1, dt * 6);
   if (Math.abs(world.money - shownMoney) < 1) shownMoney = world.money;
-  const money = `$${Math.round(shownMoney).toLocaleString("ru-RU")}`;
+  const money = rub(shownMoney);
   const speed = p.mode === "ride" && p.bike ? Math.round(Math.abs(p.bike.fwd) * 0.45) : 0;
   const job = world.job;
   const tleft = job ? Math.max(0, Math.ceil(job.time)) : 0;
@@ -305,10 +368,16 @@ function hud(dt: number) {
     const near = world.vehicles.some((v) => v.bike && v.alive && v.burn <= 0 && Math.hypot(v.x - p.body.x, v.y - p.body.y) < 34);
     hint = near ? (isTouch() ? "Жми E — сесть на мотоцикл" : "E — сесть на мотоцикл") : "";
   }
-  const key = [money, Math.round(p.health), world.wanted, speed, job?.title, tleft, job?.idx, hint, p.bike?.model.id, Math.floor(world.time * 2) % 2].join("|");
+  const clock = `${String(Math.floor(world.clock)).padStart(2, "0")}:${String(Math.floor((world.clock % 1) * 6) * 10).padStart(2, "0")}`;
+  const gun = world.weapon ? `${WEAPONS[world.weapon].name} · ${world.arms[world.weapon] ?? 0}` : "";
+  const key = [money, Math.round(p.health), world.wanted, speed, job?.title, tleft, job?.idx, hint, p.bike?.model.id, Math.floor(world.time * 2) % 2, clock, gun].join("|");
   if (key === lastHud) return;
   lastHud = key;
   $("money").textContent = money;
+  $("clock").textContent = clock;
+  $("gun").textContent = gun;
+  $("gun").classList.toggle("hidden", !gun);
+  show("t-fire", !!gun);
   $("hp").style.width = `${p.health}%`;
   $("hp").classList.toggle("low", p.health < 30);
   const w = $("wanted");
@@ -321,7 +390,7 @@ function hud(dt: number) {
     const steps = job.points.length > 1 ? ` · ${job.idx + 1}/${job.points.length}` : "";
     $("job-title").textContent = `${job.title}${steps}`;
     const tt = $("job-time");
-    tt.textContent = `${Math.floor(tleft / 60)}:${String(tleft % 60).padStart(2, "0")} · $${job.reward}`;
+    tt.textContent = `${Math.floor(tleft / 60)}:${String(tleft % 60).padStart(2, "0")} · ${rub(job.reward)}`;
     tt.classList.toggle("low", tleft <= 10);
   }
   const h = $("hint");
@@ -350,7 +419,7 @@ function handleEvents() {
         break;
       case "cash":
         sound.cash();
-        message(`+$${e.amount}`, "good");
+        message(`+${rub(e.amount)}`, "good");
         break;
       case "health":
         sound.health();
@@ -373,6 +442,12 @@ function handleEvents() {
         break;
       case "wanted":
         sound.wanted(e.level > 0);
+        break;
+      case "shot":
+        if (Math.hypot(e.x - world.px, e.y - world.py) < 700) sound.shot(e.weapon);
+        break;
+      case "weapon":
+        sound.reload();
         break;
       case "horn":
         if (Math.hypot(e.x - world.px, e.y - world.py) < 400) sound.horn();
@@ -426,6 +501,7 @@ function frame(now: number) {
       lastSave = world.time;
       store();
     }
+    renderer.lightsT = world.clock * 60;
     // Engine and siren.
     const bike = p.mode === "ride" ? p.bike : null;
     sound.engine(!!bike, bike ? bike.fwd / bike.model.vmax : 0, bike ? bike.thr : 0, bike?.model.id ?? "");

@@ -1,11 +1,42 @@
+/* 67MOTO brand fonts (the same files as the shop's site). */
+@font-face {
+  font-family: "Manrope";
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("../assets/67moto/fonts/manrope-cyrillic.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Manrope";
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("../assets/67moto/fonts/manrope-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+20BD, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Unbounded";
+  font-weight: 400 900;
+  font-display: swap;
+  src: url("../assets/67moto/fonts/unbounded-cyrillic.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Unbounded";
+  font-weight: 400 900;
+  font-display: swap;
+  src: url("../assets/67moto/fonts/unbounded-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --safe-l: max(12px, env(safe-area-inset-left));
   --safe-r: max(12px, env(safe-area-inset-right));
   --safe-t: max(10px, env(safe-area-inset-top));
   --safe-b: max(10px, env(safe-area-inset-bottom));
   --ink: #f4f1e8;
-  --panel: rgba(18, 21, 27, 0.92);
-  --accent: #ffb21f;
+  --panel: rgba(28, 26, 23, 0.95);
+  --accent: #d9b778;
+  --head: "Unbounded", system-ui, sans-serif;
 }
 
 * {
@@ -19,7 +50,7 @@ body.city {
   overflow: hidden;
   background: #14171c;
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -643,5 +674,187 @@ button {
   }
   .legend {
     margin-top: 6px;
+  }
+}
+
+/* ---------- 67MOTO branding, guns, clock ---------- */
+
+.money,
+.big,
+.panel h2,
+.title-panel h1,
+.primary,
+.speedo b {
+  font-family: var(--head);
+}
+
+.money {
+  color: #f3d58c;
+  font-size: clamp(20px, 3.4vw, 30px);
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clock {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.gun {
+  justify-self: start;
+  padding: 4px 10px;
+  border: 1px solid rgba(217, 183, 120, 0.6);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #f3d58c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-family: var(--head);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brand img {
+  width: 54px;
+  height: 54px;
+}
+
+.title-panel h1 {
+  font-size: clamp(32px, 6.4vw, 54px);
+  font-style: normal;
+}
+
+.site {
+  margin: 12px 0 0;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.primary {
+  font-size: 18px;
+}
+
+.shop-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.shop-head img {
+  width: 56px;
+  height: 56px;
+  flex: none;
+}
+
+.shop-head h2 {
+  margin: 0;
+}
+
+.shop-head .sub {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.shop-money {
+  margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(217, 183, 120, 0.15);
+  color: #f3d58c;
+  font-family: var(--head);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.shop-list {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+
+.bike-card .photo {
+  height: 92px;
+  border-radius: 8px;
+  background: #f4f1ea center / contain no-repeat;
+}
+
+.bike-card small {
+  font-size: 11px;
+  line-height: 1.3;
+  opacity: 0.7;
+  min-height: 2.6em;
+}
+
+.bike-card .price {
+  font-family: var(--head);
+  font-size: 13px;
+  font-weight: 700;
+  color: #f3d58c;
+}
+
+.bike-card button {
+  background: var(--accent);
+  color: #1c1a17;
+}
+
+.touch .tr {
+  grid-template-areas:
+    ". fire"
+    "act hb"
+    "brake gas";
+}
+
+.tb.fire {
+  grid-area: fire;
+  background: rgba(200, 40, 30, 0.5);
+}
+
+@media (max-height: 520px) {
+  .brand {
+    margin-bottom: 2px;
+  }
+  .brand img {
+    width: 34px;
+    height: 34px;
+  }
+  .shop-list {
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    overflow-x: auto;
+  }
+  .bike-card .photo {
+    height: 60px;
+  }
+  .bike-card small {
+    display: none;
+  }
+}
+
+@media (max-height: 460px) {
+  .touch .tr {
+    grid-template-areas:
+      "fire act hb"
+      "brake brake gas";
+  }
+  .tb.brake {
+    justify-self: end;
   }
 }

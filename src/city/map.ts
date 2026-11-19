@@ -33,6 +33,7 @@ export interface Building extends Rect {
   roof: string;
   kind: BuildingKind;
   seed: number;
+  ad?: boolean; // a 67MOTO billboard on the roof
 }
 
 export interface Tree {
@@ -105,6 +106,7 @@ export class CityMap {
   river: [number, number] = [0, 0]; // first and last water row of the river
   land: Rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
   doorsteps: number[] = []; // pavement tiles next to a building (delivery addresses)
+  lamps: { x: number; y: number; a: number }[] = []; // street lights, a = towards the road
   readonly size: number;
 
   constructor(seed = 67) {
@@ -322,6 +324,19 @@ export class CityMap {
         const cell = this.treeCells.get(key);
         if (cell) cell.push(t);
         else this.treeCells.set(key, [t]);
+      }
+
+    // Rooftop billboards of the 67MOTO shop on a dozen roomy roofs.
+    const roomy = this.buildings.filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
+    for (let i = 0; i < 14 && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = true;
+
+    // Street lights along the kerbs.
+    for (let y = L.y0; y <= L.y1; y++)
+      for (let x = L.x0; x <= L.x1; x++) {
+        if (this.at(x, y) !== WALK || (x * 7 + y * 13) % 5 !== 0) continue;
+        const d = [0, 1, 2, 3].find((k) => this.at(x + DX[k], y + DY[k]) === ROAD || this.at(x + DX[k], y + DY[k]) === BRIDGE);
+        if (d === undefined) continue;
+        this.lamps.push({ x: (x + 0.5 + DX[d] * 0.38) * T, y: (y + 0.5 + DY[d] * 0.38) * T, a: (d * Math.PI) / 2 });
       }
 
     // Delivery addresses: pavement in front of a building.

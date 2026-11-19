@@ -3,7 +3,20 @@
 // (the classic look of the old top-down city games, drawn from scratch here).
 
 import { BRIDGE, BUILD, type Building, CityMap, GRASS, LOT, ROAD, SAND, T, WALK, WATER } from "./map.ts";
-import type { Ped, Vehicle, World } from "./sim.ts";
+import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
+
+// The 67MOTO logo for the showroom and the rooftop billboards.
+const LOGO = new Image();
+LOGO.src = new URL("../assets/67moto/logo-512.png", import.meta.url).href;
+const BRAND = "#d9b778";
+const BRAND_FONT = "Unbounded, system-ui, sans-serif";
+
+const hash = (...n: number[]) => {
+  let h = 2166136261;
+  for (const v of n) h = Math.imul(h ^ (v | 0), 16777619);
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+};
 
 export interface Camera {
   x: number;
@@ -118,6 +131,10 @@ export class Renderer {
   view = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private canvasEl: HTMLCanvasElement;
   private map: CityMap;
+  private light = canvas(1, 1);
+  private lg = this.light.getContext("2d")!;
+  private dark = 0;
+  lightsT = 0; // game minutes, to switch windows on and off now and then
 
   constructor(canvasEl: HTMLCanvasElement, map: CityMap) {
     this.canvasEl = canvasEl;
@@ -183,6 +200,7 @@ export class Renderer {
 
     this.drawGround(v);
     this.drawMarkings(v);
+    this.drawLamps(v);
     this.drawPlaces(world, t);
     this.drawSkids(world);
     this.drawPickups(world, t);
@@ -190,23 +208,26 @@ export class Renderer {
 
     // Bodies on the ground, then everything with wheels.
     const p = world.player;
-    for (const q of world.peds) if (q.state === "down" || q.state === "fly") this.drawPed(q, t);
-    if (p.mode === "fly" || p.mode === "out") this.drawPed(p.body, t);
+    for (const q of world.peds) if (q.state === "down" || q.state === "fly") this.drawPed(q, t, false);
+    if (p.mode === "fly" || p.mode === "out") this.drawPed(p.body, t, false);
     const vis = (x: number, y: number, m: number) => x > v.x0 - m && x < v.x1 + m && y > v.y0 - m && y < v.y1 + m;
     for (const veh of world.vehicles) if (vis(veh.x, veh.y, 60)) this.shadow(veh);
     for (const veh of world.vehicles) if (vis(veh.x, veh.y, 60) && veh.down) this.drawVehicle(veh, world, t);
-    for (const q of world.peds) if (q.state !== "down" && q.state !== "fly" && vis(q.x, q.y, 20)) this.drawPed(q, t);
+    for (const q of world.peds) if (q.state !== "down" && q.state !== "fly" && vis(q.x, q.y, 20)) this.drawPed(q, t, false);
     if (p.mode === "foot") {
       ctx.strokeStyle = `rgba(255,210,40,${0.5 + 0.3 * Math.sin(t * 6)})`;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(p.body.x, p.body.y, 10, 0, Math.PI * 2);
       ctx.stroke();
-      this.drawPed(p.body, t);
+      this.drawPed(p.body, t, !!world.weapon);
     }
     for (const veh of world.vehicles) if (vis(veh.x, veh.y, 60) && !veh.down) this.drawVehicle(veh, world, t);
     this.drawParticles(world);
+    this.drawBullets(world);
 
+    this.dark = darkness(world.clock);
+    if (this.dark > 0.01) this.drawNight(world, cam, this.dark, t);
     this.drawTall(world, cam, Hc);
     this.drawTarget(world, t, cam, Hc);
 
@@ -391,10 +412,10 @@ export class Renderer {
     for (const pl of world.map.places) {
       if (pl.kind !== "garage" && pl.kind !== "shop") continue;
       if (pl.x < v.x0 - 120 || pl.x > v.x1 + 120 || pl.y < v.y0 - 120 || pl.y > v.y1 + 120) continue;
-      const col = pl.kind === "garage" ? "#2f8fe0" : "#b45ce6";
+      const col = pl.kind === "garage" ? "#2f8fe0" : BRAND;
       ctx.save();
       ctx.translate(pl.x, pl.y);
-      ctx.fillStyle = pl.kind === "garage" ? "rgba(47,143,224,0.22)" : "rgba(180,92,230,0.22)";
+      ctx.fillStyle = pl.kind === "garage" ? "rgba(47,143,224,0.22)" : "rgba(28,26,23,0.75)";
       ctx.strokeStyle = col;
       ctx.lineWidth = 2.5;
       ctx.setLineDash([6, 4]);
@@ -404,11 +425,11 @@ export class Renderer {
       ctx.fill();
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 7px system-ui, sans-serif";
+      ctx.fillStyle = pl.kind === "garage" ? "#fff" : BRAND;
+      ctx.font = `800 6px ${BRAND_FONT}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(pl.kind === "garage" ? "МОТОСЕРВИС" : "МОТОСАЛОН", 0, 20);
+      ctx.fillText(pl.kind === "garage" ? "СЕРВИС 67МОТО" : "САЛОН 67МОТО", 0, 22, 56);
       // Icon: a spanner or a price tag.
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 3;
@@ -421,10 +442,7 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(7, -9, 5, Math.PI * 0.9, Math.PI * 2.6);
         ctx.stroke();
-      } else {
-        ctx.font = "bold 18px system-ui, sans-serif";
-        ctx.fillText("$", 0, -3);
-      }
+      } else if (LOGO.complete && LOGO.naturalWidth) ctx.drawImage(LOGO, -17, -21, 34, 34);
       ctx.lineCap = "butt";
       ctx.restore();
     }
@@ -467,7 +485,20 @@ export class Renderer {
         ctx.font = "bold 8px system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("$", 0, 0.5);
+        ctx.fillText("₽", 0, 0.5);
+      } else if (k.kind !== "health") {
+        // Weapon crate with the gun's outline on the lid.
+        ctx.fillStyle = "#6b4a2b";
+        ctx.fillRect(-8, -7, 16, 14);
+        ctx.strokeStyle = "#a8794a";
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(-7, -6, 14, 12);
+        ctx.fillStyle = "#f2e6cf";
+        const len = k.kind === "pistol" ? 7 : k.kind === "smg" ? 10 : 12;
+        ctx.fillRect(-len / 2, -2.2, len, 2.4);
+        ctx.fillRect(-len / 2 + (k.kind === "pistol" ? 0 : 1.5), -0.5, 2, 4);
+        if (k.kind === "smg") ctx.fillRect(1, 0, 1.6, 3.5);
+        if (k.kind === "shotgun") ctx.fillRect(-len / 2 - 1.5, -2.2, 3, 3.2);
       } else {
         ctx.fillStyle = "#f4f4f4";
         ctx.fillRect(-7, -7, 14, 14);
@@ -778,7 +809,7 @@ export class Renderer {
     void t;
   }
 
-  private drawPed(q: Ped, t: number) {
+  private drawPed(q: Ped, t: number, gun: boolean) {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(q.x, q.y);
@@ -826,6 +857,17 @@ export class Renderer {
     ctx.strokeStyle = "rgba(0,0,0,0.35)";
     ctx.lineWidth = 0.6;
     ctx.stroke();
+    if (gun) {
+      // Arm out with the gun.
+      ctx.strokeStyle = q.shirt;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 3.2);
+      ctx.lineTo(5, 2.2);
+      ctx.stroke();
+      ctx.fillStyle = "#151515";
+      ctx.fillRect(4.5, 1.2, 4.5, 1.8);
+    }
     if (q.helmet) {
       ctx.fillStyle = q.helmet;
       ctx.beginPath();
@@ -859,6 +901,178 @@ export class Renderer {
     }
   }
 
+  private drawBullets(world: World) {
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = "rgba(255,225,140,0.9)";
+    ctx.beginPath();
+    for (const b of world.bullets) {
+      ctx.moveTo(b.x - b.vx * 0.016, b.y - b.vy * 0.016);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+    ctx.lineCap = "butt";
+    for (const f of world.flashes) {
+      ctx.save();
+      ctx.translate(f.x, f.y);
+      ctx.rotate(f.a);
+      ctx.fillStyle = "rgba(255,210,90,0.95)";
+      ctx.beginPath();
+      ctx.moveTo(0, -2.5);
+      ctx.lineTo(9, 0);
+      ctx.lineTo(0, 2.5);
+      ctx.lineTo(2, 0);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,250,220,0.9)";
+      ctx.beginPath();
+      ctx.arc(1, 0, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  private drawLamps(v: { x0: number; y0: number; x1: number; y1: number }) {
+    const ctx = this.ctx;
+    ctx.strokeStyle = "#3a3d42";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (const l of this.map.lamps) {
+      if (l.x < v.x0 - 10 || l.x > v.x1 + 10 || l.y < v.y0 - 10 || l.y > v.y1 + 10) continue;
+      ctx.moveTo(l.x - Math.cos(l.a) * 4, l.y - Math.sin(l.a) * 4);
+      ctx.lineTo(l.x + Math.cos(l.a) * 5, l.y + Math.sin(l.a) * 5);
+    }
+    ctx.stroke();
+    ctx.fillStyle = "#2b2e33";
+    ctx.beginPath();
+    for (const l of this.map.lamps) {
+      if (l.x < v.x0 - 10 || l.x > v.x1 + 10 || l.y < v.y0 - 10 || l.y > v.y1 + 10) continue;
+      ctx.moveTo(l.x - Math.cos(l.a) * 4 + 2, l.y - Math.sin(l.a) * 4);
+      ctx.arc(l.x - Math.cos(l.a) * 4, l.y - Math.sin(l.a) * 4, 2, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+
+  // Night: a dark layer with holes cut where there is light, then warm glows on top.
+  private drawNight(world: World, cam: Camera, dark: number, t: number) {
+    const ctx = this.ctx;
+    const { w, h, dpr } = this;
+    const z = cam.zoom;
+    const L = this.light;
+    // Light is soft anyway: half resolution is plenty and much cheaper.
+    const q = 0.5;
+    const cw = Math.ceil(this.canvasEl.width * q);
+    const ch = Math.ceil(this.canvasEl.height * q);
+    if (L.width !== cw || L.height !== ch) {
+      L.width = cw;
+      L.height = ch;
+    }
+    const g = this.lg;
+    const v = this.view;
+    g.globalCompositeOperation = "source-over";
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, cw, ch);
+    // Dusk is warm, night is deep blue.
+    const mix = (a: number, b: number) => Math.round(a + (b - a) * dark);
+    g.fillStyle = `rgba(${mix(70, 6)},${mix(38, 10)},${mix(60, 34)},${0.84 * dark})`;
+    g.fillRect(0, 0, cw, ch);
+    g.setTransform(z * dpr * q, 0, 0, z * dpr * q, (w / 2 - cam.x * z) * dpr * q, (h / 2 - cam.y * z) * dpr * q);
+    g.globalCompositeOperation = "destination-out";
+    const inView = (x: number, y: number, m: number) => x > v.x0 - m && x < v.x1 + m && y > v.y0 - m && y < v.y1 + m;
+    const glow = (x: number, y: number, r: number, a: number) => {
+      if (!inView(x, y, r)) return;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(0,0,0,${a})`);
+      gr.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = gr;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    };
+    for (const l of this.map.lamps) glow(l.x + Math.cos(l.a) * 6, l.y + Math.sin(l.a) * 6, 80, 0.85);
+    const beams: Vehicle[] = [];
+    for (const veh of world.vehicles) {
+      if (!inView(veh.x, veh.y, 140)) continue;
+      if (veh.burn > 0) glow(veh.x, veh.y, 90, 0.9);
+      if (!veh.alive || veh.down || (!veh.rider && !veh.chase)) continue;
+      beams.push(veh);
+      const fx = Math.cos(veh.a);
+      const fy = Math.sin(veh.a);
+      const ox = veh.x + fx * veh.model.len * 0.5;
+      const oy = veh.y + fy * veh.model.len * 0.5;
+      const R = veh.bike ? 95 : 120;
+      const gr = g.createRadialGradient(ox, oy, 0, ox, oy, R);
+      gr.addColorStop(0, "rgba(0,0,0,0.95)");
+      gr.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(ox, oy);
+      g.arc(ox, oy, R, veh.a - 0.42, veh.a + 0.42);
+      g.closePath();
+      g.fill();
+      glow(veh.x, veh.y, veh.model.len * 0.75, 0.45);
+      if (veh.police && veh.chase) glow(veh.x, veh.y, 75, 0.6);
+    }
+    glow(world.px, world.py, 120, 0.45);
+    let fires = 0;
+    for (const q of world.particles) if (q.kind === "fire" && fires++ < 50) glow(q.x, q.y, 34, 0.55 * (q.life / q.max));
+    for (const f of world.flashes) glow(f.x, f.y, 70, 0.9);
+    const job = world.job;
+    if (job) glow(job.points[job.idx].x, job.points[job.idx].y, 80, 0.75);
+    else for (const s of this.map.jobs) glow(s.x, s.y, 45, 0.7);
+    for (const pl of this.map.places) glow(pl.x, pl.y, 70, 0.7);
+    for (const k of world.pickups) if (k.respawn <= 0) glow(k.x, k.y, 20, 0.6);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(L, 0, 0, this.canvasEl.width, this.canvasEl.height);
+    ctx.restore();
+
+    // Warm light on top: lamp heads, headlight beams, tail lights, the police flashers.
+    ctx.globalCompositeOperation = "lighter";
+    for (const l of this.map.lamps) {
+      if (!inView(l.x, l.y, 30)) continue;
+      const x = l.x + Math.cos(l.a) * 5;
+      const y = l.y + Math.sin(l.a) * 5;
+      const gr = ctx.createRadialGradient(x, y, 0, x, y, 30);
+      gr.addColorStop(0, `rgba(255,205,120,${0.55 * dark})`);
+      gr.addColorStop(1, "rgba(255,205,120,0)");
+      ctx.fillStyle = gr;
+      ctx.fillRect(x - 30, y - 30, 60, 60);
+    }
+    for (const veh of beams) {
+      const fx = Math.cos(veh.a);
+      const fy = Math.sin(veh.a);
+      const ox = veh.x + fx * veh.model.len * 0.5;
+      const oy = veh.y + fy * veh.model.len * 0.5;
+      const R = veh.bike ? 90 : 110;
+      const gr = ctx.createRadialGradient(ox, oy, 0, ox, oy, R);
+      gr.addColorStop(0, `rgba(255,240,200,${0.22 * dark})`);
+      gr.addColorStop(1, "rgba(255,240,200,0)");
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.arc(ox, oy, R, veh.a - 0.38, veh.a + 0.38);
+      ctx.closePath();
+      ctx.fill();
+      const bx = veh.x - fx * veh.model.len * 0.5;
+      const by = veh.y - fy * veh.model.len * 0.5;
+      const tr = ctx.createRadialGradient(bx, by, 0, bx, by, 12);
+      tr.addColorStop(0, `rgba(255,40,30,${(veh.brk > 0 ? 0.7 : 0.35) * dark})`);
+      tr.addColorStop(1, "rgba(255,40,30,0)");
+      ctx.fillStyle = tr;
+      ctx.fillRect(bx - 12, by - 12, 24, 24);
+      if (veh.police && veh.chase) {
+        const on = Math.floor(t * 8) % 2 === 0;
+        const pg = ctx.createRadialGradient(veh.x, veh.y, 0, veh.x, veh.y, 60);
+        pg.addColorStop(0, on ? `rgba(255,40,40,${0.5 * dark})` : `rgba(40,90,255,${0.5 * dark})`);
+        pg.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = pg;
+        ctx.fillRect(veh.x - 60, veh.y - 60, 120, 120);
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   // ---------- buildings and trees ----------
 
   private drawTall(world: World, cam: Camera, Hc: number) {
@@ -887,6 +1101,12 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(x - tr.r * 0.4, y - tr.r * 0.4, tr.r * 0.3, 0, Math.PI * 2);
       ctx.fill();
+      if (this.dark > 0.01) {
+        ctx.fillStyle = `rgba(6,10,34,${0.78 * this.dark})`;
+        ctx.beginPath();
+        ctx.arc(x, y, tr.r + 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     const list: Building[] = [];
     for (const b of map.buildings) {
@@ -905,7 +1125,10 @@ export class Renderer {
     const y1 = (b.y1 + 1) * T;
     const k = Hc / (Hc - Math.min(b.h, Hc * 0.42));
     const P = (x: number, y: number, kk = k): [number, number] => [cam.x + (x - cam.x) * kk, cam.y + (y - cam.y) * kk];
-    const wall = (ax: number, ay: number, bx: number, by: number, light: number) => {
+    const dark = this.dark;
+    const night = `rgba(6,10,34,${0.78 * dark})`;
+    const top = Math.min(b.h, Hc * 0.42);
+    const wall = (ax: number, ay: number, bx: number, by: number, light: number, side: number) => {
       const [rax, ray] = P(ax, ay);
       const [rbx, rby] = P(bx, by);
       ctx.fillStyle = shade(b.wall, light);
@@ -916,6 +1139,10 @@ export class Renderer {
       ctx.lineTo(rax, ray);
       ctx.closePath();
       ctx.fill();
+      if (dark > 0.01) {
+        ctx.fillStyle = night;
+        ctx.fill();
+      }
       // Floors and window columns.
       ctx.strokeStyle = b.kind === "glass" ? "rgba(190,225,255,0.28)" : "rgba(0,0,0,0.18)";
       ctx.lineWidth = b.kind === "glass" ? 1.2 : 1;
@@ -938,11 +1165,40 @@ export class Renderer {
         ctx.lineTo(rx, ry);
       }
       ctx.stroke();
+      // Lit windows after dark.
+      if (dark > 0.15) {
+        const nc = Math.max(1, cols);
+        ctx.fillStyle = `rgba(255,208,120,${0.9 * Math.min(1, dark * 1.4)})`;
+        ctx.beginPath();
+        for (let hh = 0, fl = 0; hh + 9 < top; hh += 11, fl++) {
+          const k0 = Hc / (Hc - (hh + 3));
+          const k1 = Hc / (Hc - (hh + 8.5));
+          for (let i = 0; i < nc; i++) {
+            if (hash(b.seed, side, fl, i, Math.floor(this.lightsT / 40)) > 0.32) continue;
+            const f0 = (i + 0.22) / nc;
+            const f1 = (i + 0.78) / nc;
+            const q0x = ax + (bx - ax) * f0;
+            const q0y = ay + (by - ay) * f0;
+            const q1x = ax + (bx - ax) * f1;
+            const q1y = ay + (by - ay) * f1;
+            const a = P(q0x, q0y, k0);
+            const c = P(q1x, q1y, k0);
+            const d = P(q1x, q1y, k1);
+            const e = P(q0x, q0y, k1);
+            ctx.moveTo(a[0], a[1]);
+            ctx.lineTo(c[0], c[1]);
+            ctx.lineTo(d[0], d[1]);
+            ctx.lineTo(e[0], e[1]);
+            ctx.closePath();
+          }
+        }
+        ctx.fill();
+      }
     };
-    if (cam.y > y1) wall(x0, y1, x1, y1, 0.62);
-    if (cam.y < y0) wall(x0, y0, x1, y0, 0.9);
-    if (cam.x < x0) wall(x0, y0, x0, y1, 0.8);
-    if (cam.x > x1) wall(x1, y0, x1, y1, 0.7);
+    if (cam.y > y1) wall(x0, y1, x1, y1, 0.62, 0);
+    if (cam.y < y0) wall(x0, y0, x1, y0, 0.9, 1);
+    if (cam.x < x0) wall(x0, y0, x0, y1, 0.8, 2);
+    if (cam.x > x1) wall(x1, y0, x1, y1, 0.7, 3);
     // Roof, drawn in footprint coordinates scaled about the camera.
     ctx.save();
     ctx.translate(cam.x * (1 - k), cam.y * (1 - k));
@@ -959,7 +1215,37 @@ export class Renderer {
     ctx.strokeRect(x0 + 3.2, y0 + 3.2, w - 6.4, h - 6.4);
     const cx = x0 + w / 2;
     const cy = y0 + h / 2;
-    if (b.kind === "hospital") {
+    let s = b.seed;
+    const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    if (b.kind !== "hospital" && b.kind !== "police" && !b.ad && !(b.h > T * 6.5 && w >= 2.5 * T && h >= 2.5 * T)) {
+      // Vents and air conditioners.
+      const n = 1 + Math.floor(rnd() * 3);
+      for (let i = 0; i < n; i++) {
+        const bw = 6 + rnd() * 8;
+        const bh = 5 + rnd() * 7;
+        const bx = x0 + 6 + rnd() * Math.max(1, w - 12 - bw);
+        const by = y0 + 6 + rnd() * Math.max(1, h - 12 - bh);
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        ctx.fillRect(bx + 1.5, by + 1.5, bw, bh);
+        ctx.fillStyle = shade(b.roof, 1.3);
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.strokeRect(bx, by, bw, bh);
+      }
+      if (rnd() < 0.5) {
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath();
+        ctx.arc(x0 + w * (0.2 + rnd() * 0.6), y0 + h * (0.2 + rnd() * 0.6), 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    if (dark > 0.01) {
+      ctx.fillStyle = night;
+      ctx.fillRect(x0, y0, w, h);
+    }
+    // What glows: signs, the hospital cross, the helipad, the billboards.
+    if (b.ad) this.billboard(cx, cy, w, h, dark);
+    else if (b.kind === "hospital") {
       ctx.fillStyle = "#d32f2f";
       const s = Math.min(w, h) * 0.5;
       ctx.fillRect(cx - s * 0.17, cy - s / 2, s * 0.34, s);
@@ -970,11 +1256,8 @@ export class Renderer {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("ПОЛИЦИЯ", cx, cy);
-    } else {
-      // Vents, air conditioners, a helipad on the tallest.
-      let s = b.seed;
-      const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-      if (b.h > T * 6.5 && w >= 2.5 * T && h >= 2.5 * T) {
+    } else if (b.h > T * 6.5 && w >= 2.5 * T && h >= 2.5 * T) {
+      {
         ctx.strokeStyle = "#e9e3c8";
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -985,29 +1268,47 @@ export class Renderer {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("H", cx, cy + 1);
-      } else {
-        const n = 1 + Math.floor(rnd() * 3);
-        for (let i = 0; i < n; i++) {
-          const bw = 6 + rnd() * 8;
-          const bh = 5 + rnd() * 7;
-          const bx = x0 + 6 + rnd() * Math.max(1, w - 12 - bw);
-          const by = y0 + 6 + rnd() * Math.max(1, h - 12 - bh);
-          ctx.fillStyle = "rgba(0,0,0,0.25)";
-          ctx.fillRect(bx + 1.5, by + 1.5, bw, bh);
-          ctx.fillStyle = shade(b.roof, 1.3);
-          ctx.fillRect(bx, by, bw, bh);
-          ctx.strokeStyle = "rgba(0,0,0,0.3)";
-          ctx.strokeRect(bx, by, bw, bh);
-        }
-        if (rnd() < 0.5) {
-          ctx.fillStyle = "rgba(0,0,0,0.3)";
-          ctx.beginPath();
-          ctx.arc(x0 + w * (0.2 + rnd() * 0.6), y0 + h * (0.2 + rnd() * 0.6), 3, 0, Math.PI * 2);
-          ctx.fill();
+        if (dark > 0.2) {
+          ctx.fillStyle = Math.floor(performance.now() / 600) % 2 ? "#ff5040" : "#40ff70";
+          const r = Math.min(w, h) * 0.38;
+          for (let i = 0; i < 4; i++) ctx.fillRect(cx + Math.cos(i * 1.57 + 0.78) * r - 1.5, cy + Math.sin(i * 1.57 + 0.78) * r - 1.5, 3, 3);
         }
       }
     }
     ctx.restore();
+  }
+
+  // A lit 67MOTO billboard, in roof coordinates.
+  private billboard(cx: number, cy: number, w: number, h: number, dark: number) {
+    const ctx = this.ctx;
+    const bw = Math.min(w * 0.82, 130);
+    const bh = Math.min(h * 0.6, bw * 0.34);
+    const bx = cx - bw / 2;
+    const by = cy - bh / 2;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(bx + 3, by + 3, bw, bh);
+    ctx.fillStyle = "#1c1a17";
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = BRAND;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx + 1, by + 1, bw - 2, bh - 2);
+    if (LOGO.complete && LOGO.naturalWidth) ctx.drawImage(LOGO, bx + 3, by + 3, bh - 6, bh - 6);
+    const tx = bx + bh + 1;
+    const room = bw - bh - 5;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#f3ead8";
+    ctx.font = `800 ${bh * 0.34}px ${BRAND_FONT}`;
+    ctx.fillText("67МОТО", tx, by + bh * 0.38, room);
+    ctx.fillStyle = BRAND;
+    ctx.font = `700 ${bh * 0.19}px Manrope, system-ui, sans-serif`;
+    ctx.fillText("мотоциклы BSE", tx, by + bh * 0.74, room);
+    if (dark > 0.05) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `rgba(217,183,120,${0.12 * dark})`;
+      ctx.fillRect(bx - 4, by - 4, bw + 8, bh + 8);
+      ctx.globalCompositeOperation = "source-over";
+    }
   }
 
   // ---------- job guidance ----------
@@ -1134,7 +1435,7 @@ export class Renderer {
     };
     for (const pl of map.places) {
       if (pl.kind === "garage") dot(pl.x, pl.y, "#2f8fe0", 1.1);
-      if (pl.kind === "shop") dot(pl.x, pl.y, "#c36cf0", 1.1);
+      if (pl.kind === "shop") dot(pl.x, pl.y, "#d9b778", 1.2);
       if (pl.kind === "hospital") dot(pl.x, pl.y, "#ff5a5a", 0.9);
     }
     if (!world.job) for (const j of map.jobs) dot(j.x, j.y, j.kind === "delivery" ? "#3ddc6e" : j.kind === "race" ? "#ff9f1a" : "#ff3b3b", 1);

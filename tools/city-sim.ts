@@ -9,7 +9,7 @@ const world = new World(map);
 const b = world.player.body;
 world.view = { x0: b.x - 450, y0: b.y - 250, x1: b.x + 450, y1: b.y + 250 };
 world.populate(true);
-const idle: Input = { gas: false, brake: false, left: false, right: false, hb: false, action: false, kick: false };
+const idle: Input = { gas: false, brake: false, left: false, right: false, hb: false, action: false, kick: false, fire: false, swap: false };
 const dt = 1 / 60;
 const stuckFor = new Map<number, number>();
 for (let i = 0; i < secs * 60; i++) {

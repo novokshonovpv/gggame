@@ -101,7 +101,7 @@ export class CitySound {
     const gear = Math.floor(pos);
     const inGear = pos - gear;
     const rpm = 0.22 + (gear === 0 ? inGear * 0.75 : 0.35 + inGear * 0.6);
-    const base = kind === "chopper" ? 34 : kind === "scooter" ? 70 : kind === "sport" ? 62 : 48;
+    const base = { chopper: 34, scooter: 70, sport: 62, ex125: 64, "2t": 58, t5: 44 }[kind] ?? 48;
     const freq = base * (0.6 + rpm * 2.4);
     this.eng.o1.frequency.setTargetAtTime(freq, t, 0.04);
     this.eng.o2.frequency.setTargetAtTime(freq * 0.5, t, 0.04);
@@ -188,6 +188,21 @@ export class CitySound {
   }
   fail() {
     [392, 330, 262].forEach((f, i) => this.tone(f, i * 0.14, 0.25, 0.12, "sawtooth"));
+  }
+  shot(kind: string) {
+    if (kind === "shotgun") {
+      this.noise(0.35, 1300, 0.9);
+      this.tone(70, 0, 0.18, 0.3, "sine");
+    } else if (kind === "smg") this.noise(0.07, 3200, 0.4, "bandpass");
+    else if (kind === "police") this.noise(0.14, 2200, 0.3, "bandpass");
+    else {
+      this.noise(0.14, 2600, 0.6, "bandpass");
+      this.tone(150, 0, 0.06, 0.18);
+    }
+  }
+  reload() {
+    this.tone(320, 0, 0.04, 0.12);
+    this.tone(520, 0.07, 0.05, 0.12);
   }
   horn() {
     this.tone(415, 0, 0.35, 0.05, "sawtooth");
