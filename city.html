@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#14171c" />
+    <meta name="description" content="Мото-город: открытый город с видом сверху. Курьер на мотоцикле, погони с полицией, гонки и доставки прямо в браузере." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Мото-город</title>
+  </head>
+  <body class="city">
+    <canvas id="c"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-tl">
+        <div class="health" title="Здоровье"><span class="heart">♥</span><div class="bar"><i id="hp"></i></div></div>
+        <div id="wanted" class="wanted" title="Розыск"></div>
+      </div>
+      <div class="hud-tr">
+        <div id="money" class="money">$0</div>
+        <div class="hud-btns">
+          <button id="b-mute" class="ibtn mute" aria-label="Звук" title="Звук (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4" /><path class="off" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg></button>
+          <button id="b-fs" class="ibtn" aria-label="Во весь экран" title="Во весь экран"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
+          <button id="b-pause" class="ibtn" aria-label="Пауза" title="Пауза (Esc)"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" /></svg></button>
+        </div>
+      </div>
+      <div id="job" class="job hidden"><b id="job-title"></b><span id="job-time"></span></div>
+      <div id="msgs" class="msgs"></div>
+      <div id="hint" class="hint hidden"></div>
+      <canvas id="mini" class="mini"></canvas>
+      <div class="speedo"><b id="spd">0</b><small>км/ч</small><span id="bike-name"></span></div>
+    </div>
+
+    <div id="touch" class="touch hidden">
+      <div class="tpad tl">
+        <button data-k="left" class="tb steer" aria-label="Влево">◀</button>
+        <button data-k="right" class="tb steer" aria-label="Вправо">▶</button>
+      </div>
+      <div class="tpad tr">
+        <button data-k="action" class="tb small act" aria-label="Сесть или слезть">E</button>
+        <button data-k="hb" class="tb small" id="t-hb" aria-label="Занос">Занос</button>
+        <button data-k="brake" class="tb brake" aria-label="Тормоз">Тормоз</button>
+        <button data-k="gas" class="tb gas" aria-label="Газ">Газ</button>
+      </div>
+    </div>
+
+    <div id="big" class="big hidden"></div>
+
+    <div id="title" class="overlay">
+      <div class="panel title-panel">
+        <h1>Мото<span>город</span></h1>
+        <p class="lead">Ты — курьер на мотоцикле в большом городе. Бери заказы, гоняй по улицам, уходи от полиции и копи на байк мечты.</p>
+        <button id="b-play" class="primary">Играть</button>
+        <div class="keys kbd-only">
+          <div><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль</div>
+          <div><b>Пробел</b> — занос (на мотоцикле) или удар (пешком)</div>
+          <div><b>E</b> — сесть на мотоцикл / слезть</div>
+          <div><b>Esc</b> — пауза · <b>M</b> — звук</div>
+        </div>
+        <div class="keys touch-only">
+          <div><b>◀ ▶</b> — руль, <b>Газ</b> и <b>Тормоз</b> — справа</div>
+          <div><b>E</b> — сесть на мотоцикл / слезть · <b>Занос</b> — занос или удар</div>
+        </div>
+        <div class="legend">
+          <span><i style="background: #3ddc6e"></i>доставка</span>
+          <span><i style="background: #ff9f1a"></i>гонка</span>
+          <span><i style="background: #ff3b3b"></i>горячий груз</span>
+          <span><i style="background: #2f8fe0"></i>мотосервис</span>
+          <span><i style="background: #c36cf0"></i>мотосалон</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="panel">
+        <h2>Пауза</h2>
+        <p id="pause-stats" class="sub"></p>
+        <button id="p-resume" class="primary">Продолжить</button>
+        <div class="keys">
+          <div class="kbd-only"><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль</div>
+          <div class="kbd-only"><b>Пробел</b> — занос или удар · <b>E</b> — сесть / слезть</div>
+          <div>Мотосервис (синий) снимает розыск за деньги и чинит байк. В мотосалоне (фиолетовый) — новые мотоциклы.</div>
+        </div>
+        <button id="p-menu" class="link">В главное меню Moto Trials</button>
+      </div>
+    </div>
+
+    <div id="shop" class="overlay hidden">
+      <div class="panel wide">
+        <h2>Мотосалон</h2>
+        <p class="sub">Купленный байк ждёт тебя после больницы и участка.</p>
+        <div id="shop-list" class="shop-list"></div>
+        <button id="shop-close" class="primary">Ехать</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/city/main.ts"></script>
+  </body>
+</html>

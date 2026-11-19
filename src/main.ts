@@ -243,6 +243,7 @@ class Game {
     $("hub-gear").addEventListener("click", openGarage("gear"));
     $("hub-upgrades").addEventListener("click", openGarage("upgrades"));
     $("hub-open").addEventListener("click", () => void this.enterOpenWorld());
+    $("hub-city").addEventListener("click", () => (location.href = "city.html"));
     $("btn-race").addEventListener("click", () => this.showTracks());
     $("tracks-close").addEventListener("click", () => this.showMenu());
     $("btn-settings").addEventListener("click", () => $("settings").classList.remove("hidden"));
