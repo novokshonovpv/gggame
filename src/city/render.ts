@@ -2,7 +2,7 @@
 // camera hanging above the screen centre, so their roofs slide outwards as you ride past
 // (the classic look of the old top-down city games, drawn from scratch here).
 
-import { BRIDGE, BUILD, type Building, CityMap, GRASS, LOT, ROAD, SAND, T, WALK, WATER } from "./map.ts";
+import { BRIDGE, BUILD, type Building, type Chunk, CityMap, type Lamp, GRASS, LOT, ROAD, SAND, T, WALK, WATER } from "./map.ts";
 import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 
 // The 67MOTO logo for the showroom and the rooftop billboards.
@@ -134,6 +134,8 @@ export class Renderer {
   private light = canvas(1, 1);
   private lg = this.light.getContext("2d")!;
   private dark = 0;
+  private chunks: Chunk[] = [];
+  private lampsInView: Lamp[] = [];
   lightsT = 0; // game minutes, to switch windows on and off now and then
 
   constructor(canvasEl: HTMLCanvasElement, map: CityMap) {
@@ -188,6 +190,8 @@ export class Renderer {
     const vh = h / z;
     const v = (this.view = { x0: cam.x - vw / 2, y0: cam.y - vh / 2, x1: cam.x + vw / 2, y1: cam.y + vh / 2 });
     world.view = v;
+    this.chunks = this.map.inView(v.x0, v.y0, v.x1, v.y1);
+    this.lampsInView = this.chunks.flatMap((c) => c.lamps);
     // Camera height for the perspective of buildings: scales with the view so the lean stays the same on screen.
     const Hc = Math.max(vw, vh) * 0.95;
 
@@ -228,7 +232,7 @@ export class Renderer {
 
     this.dark = darkness(world.clock);
     if (this.dark > 0.01) this.drawNight(world, cam, this.dark, t);
-    this.drawTall(world, cam, Hc);
+    this.drawTall(cam, Hc);
     this.drawTarget(world, t, cam, Hc);
 
     // Screen space: arrow to the job and the bust warning.
@@ -256,7 +260,6 @@ export class Renderer {
     const ty0 = Math.max(0, Math.floor(v.y0 / T));
     const tx1 = Math.min(map.n - 1, Math.floor(v.x1 / T));
     const ty1 = Math.min(map.n - 1, Math.floor(v.y1 / T));
-    const [ry0, ry1] = map.river;
     const fill = (t: number, y: number) => {
       switch (t) {
         case ROAD:
@@ -264,7 +267,7 @@ export class Renderer {
         case BRIDGE:
           return COL.bridge;
         case WALK:
-          return y >= ry0 && y <= ry1 ? COL.walkBridge : this.pat.walk;
+          return map.inRiver(y) ? COL.walkBridge : this.pat.walk;
         case GRASS:
           return this.pat.grass;
         case LOT:
@@ -366,13 +369,10 @@ export class Renderer {
       const x = (vx + 1) * T;
       if (x < v.x0 - T || x > v.x1 + T) continue;
       for (let i = 0; i + 1 < H.length; i++) {
-        const ry0 = map.river[0] * T;
-        const ry1 = (map.river[1] + 1) * T;
         let a = Math.max((H[i] + 3) * T, v.y0 - 20);
-        let b = Math.min((H[i + 1] - 1) * T, v.y1 + 20);
+        const b = Math.min((H[i + 1] - 1) * T, v.y1 + 20);
         if (a >= b) continue;
         a = Math.max(a - (a % 18), (H[i] + 3) * T);
-        if (a < ry1 && b > ry0) b = Math.min(b, (H[i + 1] - 1) * T);
         ctx.moveTo(x, a);
         ctx.lineTo(x, b);
       }
@@ -998,7 +998,7 @@ export class Renderer {
     ctx.strokeStyle = "#3a3d42";
     ctx.lineWidth = 1.4;
     ctx.beginPath();
-    for (const l of this.map.lamps) {
+    for (const l of this.lampsInView) {
       if (l.x < v.x0 - 10 || l.x > v.x1 + 10 || l.y < v.y0 - 10 || l.y > v.y1 + 10) continue;
       ctx.moveTo(l.x - Math.cos(l.a) * 4, l.y - Math.sin(l.a) * 4);
       ctx.lineTo(l.x + Math.cos(l.a) * 5, l.y + Math.sin(l.a) * 5);
@@ -1006,7 +1006,7 @@ export class Renderer {
     ctx.stroke();
     ctx.fillStyle = "#2b2e33";
     ctx.beginPath();
-    for (const l of this.map.lamps) {
+    for (const l of this.lampsInView) {
       if (l.x < v.x0 - 10 || l.x > v.x1 + 10 || l.y < v.y0 - 10 || l.y > v.y1 + 10) continue;
       ctx.moveTo(l.x - Math.cos(l.a) * 4 + 2, l.y - Math.sin(l.a) * 4);
       ctx.arc(l.x - Math.cos(l.a) * 4, l.y - Math.sin(l.a) * 4, 2, 0, Math.PI * 2);
@@ -1048,7 +1048,7 @@ export class Renderer {
       g.fillStyle = gr;
       g.fillRect(x - r, y - r, r * 2, r * 2);
     };
-    for (const l of this.map.lamps) glow(l.x + Math.cos(l.a) * 6, l.y + Math.sin(l.a) * 6, 80, 0.85);
+    for (const l of this.lampsInView) glow(l.x + Math.cos(l.a) * 6, l.y + Math.sin(l.a) * 6, 80, 0.85);
     const beams: Vehicle[] = [];
     for (const veh of world.vehicles) {
       if (!inView(veh.x, veh.y, 140)) continue;
@@ -1088,7 +1088,7 @@ export class Renderer {
 
     // Warm light on top: lamp heads, headlight beams, tail lights, the police flashers.
     ctx.globalCompositeOperation = "lighter";
-    for (const l of this.map.lamps) {
+    for (const l of this.lampsInView) {
       if (!inView(l.x, l.y, 30)) continue;
       const x = l.x + Math.cos(l.a) * 5;
       const y = l.y + Math.sin(l.a) * 5;
@@ -1134,13 +1134,12 @@ export class Renderer {
 
   // ---------- buildings and trees ----------
 
-  private drawTall(world: World, cam: Camera, Hc: number) {
+  private drawTall(cam: Camera, Hc: number) {
     const ctx = this.ctx;
     const v = this.view;
-    const map = world.map;
     // Trees: low, so they barely lean.
     const kt = Hc / (Hc - 30);
-    for (const tr of map.trees) {
+    for (const tr of this.chunks.flatMap((c) => c.trees)) {
       if (tr.x < v.x0 - 30 || tr.x > v.x1 + 30 || tr.y < v.y0 - 30 || tr.y > v.y1 + 30) continue;
       const x = cam.x + (tr.x - cam.x) * kt;
       const y = cam.y + (tr.y - cam.y) * kt;
@@ -1168,7 +1167,7 @@ export class Renderer {
       }
     }
     const list: Building[] = [];
-    for (const b of map.buildings) {
+    for (const b of this.chunks.flatMap((c) => c.buildings)) {
       if ((b.x1 + 1) * T < v.x0 || b.x0 * T > v.x1 || (b.y1 + 1) * T < v.y0 || b.y0 * T > v.y1) continue;
       list.push(b);
     }
@@ -1459,6 +1458,77 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
+  }
+
+  // ---------- full city map ----------
+
+  drawFullMap(c: HTMLCanvasElement, world: World, t: number) {
+    const map = this.map;
+    const dpr = this.dpr;
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    const g = c.getContext("2d")!;
+    const L = map.land;
+    const lw = L.x1 - L.x0 + 1;
+    const lh = L.y1 - L.y0 + 1;
+    const s = Math.min((w * dpr) / lw, (h * dpr) / lh);
+    const ox = (w * dpr - lw * s) / 2 - L.x0 * s;
+    const oy = (h * dpr - lh * s) / 2 - L.y0 * s;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = "#1e4a66";
+    g.fillRect(0, 0, c.width, c.height);
+    g.imageSmoothingEnabled = false;
+    g.setTransform(s, 0, 0, s, ox, oy);
+    g.drawImage(this.mini, 0, 0);
+    // Markers stay the same size on screen.
+    const px = (x: number) => x / T;
+    const r = (k: number) => (k * dpr) / s;
+    const dot = (x: number, y: number, col: string, k: number, ring = false) => {
+      g.fillStyle = col;
+      g.beginPath();
+      g.arc(px(x), px(y), r(k), 0, Math.PI * 2);
+      g.fill();
+      if (ring) {
+        g.strokeStyle = "#111";
+        g.lineWidth = r(1.5);
+        g.stroke();
+      }
+    };
+    for (const j of map.jobs) if (!world.job) dot(j.x, j.y, j.kind === "delivery" ? "#3ddc6e" : j.kind === "race" ? "#ff9f1a" : "#ff3b3b", 3.5, true);
+    for (const pl of map.places) {
+      const col = { garage: "#2f8fe0", shop: "#d9b778", hospital: "#ff5a5a", police: "#5b8dff" }[pl.kind];
+      dot(pl.x, pl.y, col, 6, true);
+      g.fillStyle = "#fff";
+      g.font = `900 ${r(8)}px system-ui, sans-serif`;
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText({ garage: "С", shop: "₽", hospital: "+", police: "П" }[pl.kind], px(pl.x), px(pl.y) + r(0.5));
+    }
+    const flash = Math.floor(t * 4) % 2 === 0;
+    for (const v of world.vehicles) if (v.police && v.chase) dot(v.x, v.y, flash ? "#ff3030" : "#3060ff", 3);
+    const target = this.jobTarget(world);
+    if (target) dot(target.x, target.y, "#ffe14a", 7 + (flash ? 2 : 0), true);
+    const a = world.player.mode === "ride" && world.player.bike ? world.player.bike.a : world.player.body.a;
+    g.save();
+    g.translate(px(world.px), px(world.py));
+    g.rotate(a);
+    g.scale(r(1), r(1));
+    g.fillStyle = "#fff";
+    g.strokeStyle = "#000";
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(11, 0);
+    g.lineTo(-7, -7);
+    g.lineTo(-3, 0);
+    g.lineTo(-7, 7);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.restore();
   }
 
   // ---------- minimap ----------

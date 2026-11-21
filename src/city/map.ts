@@ -88,10 +88,24 @@ const ROOFS = {
   glass: ["#4a5560", "#566370", "#3f4a54"],
 };
 
+export interface Lamp {
+  x: number;
+  y: number;
+  a: number; // towards the road
+}
+
+// Things to draw, bucketed by 16×16-tile chunks so a big city draws only what is in view.
+export interface Chunk {
+  buildings: Building[];
+  trees: Tree[];
+  lamps: Lamp[];
+}
+export const CHUNK = 16;
+
 export class CityMap {
   readonly n: number;
   tiles: Uint8Array;
-  bid: Int16Array; // building index per tile, -1 if none
+  bid: Int32Array; // building index per tile, -1 if none
   vroads: number[] = []; // left column of each north-south road
   hroads: number[] = []; // top row of each east-west road
   vnames: string[] = [];
@@ -103,28 +117,41 @@ export class CityMap {
   jobs: JobSpot[] = [];
   lots: Rect[] = [];
   walls: Rect[] = []; // bridge railings (world units)
-  river: [number, number] = [0, 0]; // first and last water row of the river
+  rivers: [number, number][] = []; // first and last water row of each river
+  private riverRow: Uint8Array;
+  chunks: Chunk[] = [];
+  readonly cn: number; // chunks per side
+  private queue: Int32Array | null = null;
   land: Rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
   doorsteps: number[] = []; // pavement tiles next to a building (delivery addresses)
-  lamps: { x: number; y: number; a: number }[] = []; // street lights, a = towards the road
+  lamps: Lamp[] = []; // street lights
   readonly size: number;
 
   constructor(seed = 67) {
     const r = rng(seed);
     const ri = (a: number, b: number) => a + Math.floor(r() * (b - a + 1));
     const pick = <X>(a: X[]) => a[Math.floor(r() * a.length)];
-    const n = 112;
+    // 354 × 354 tiles: about 11 × 11 thousand units (1.4 km across), ten times the first city.
+    const n = 354;
     this.n = n;
     this.size = n * T;
     this.tiles = new Uint8Array(n * n); // all water
-    this.bid = new Int16Array(n * n).fill(-1);
+    this.bid = new Int32Array(n * n).fill(-1);
+    this.riverRow = new Uint8Array(n);
+    this.cn = Math.ceil(n / CHUNK);
+    for (let i = 0; i < this.cn * this.cn; i++) this.chunks.push({ buildings: [], trees: [], lamps: [] });
 
-    // Road grid with uneven blocks; one wide gap in the middle holds the river.
+    // Road grid with uneven blocks; two wide gaps hold the rivers (a third and two thirds down).
     for (let x = 7; x <= n - 10; x += 2 + ri(8, 11)) this.vroads.push(x);
-    const riverAt = 2;
+    const riverGaps = new Set<number>();
+    const riverAt = [0.3, 0.68];
     for (let y = 7, i = 0; y <= n - 10; i++) {
       this.hroads.push(y);
-      y += i === riverAt ? 15 : 2 + ri(8, 11);
+      if (riverAt.length && y > n * riverAt[0]) {
+        riverAt.shift();
+        riverGaps.add(i);
+        y += 15;
+      } else y += 2 + ri(8, 11);
     }
     const vs = this.vroads;
     const hs = this.hroads;
@@ -150,16 +177,21 @@ export class CityMap {
     this.hnames = hs.map((_, i) => `ул. ${hn[i % hn.length]}`);
     this.vnames = vs.map((_, i) => `пр. ${vn[i % vn.length]}`);
 
-    // River rows, between road riverAt and the next one.
-    const ry0 = hs[riverAt] + 6;
-    const ry1 = hs[riverAt] + 10;
-    this.river = [ry0, ry1];
-    for (let y = ry0; y <= ry1; y++) for (let x = 0; x < n; x++) this.set(x, y, WATER);
+    // River rows, in the middle of each river gap.
+    for (const g of riverGaps) {
+      const ry0 = hs[g] + 6;
+      const ry1 = hs[g] + 10;
+      this.rivers.push([ry0, ry1]);
+      for (let y = ry0; y <= ry1; y++) {
+        this.riverRow[y] = 1;
+        for (let x = 0; x < n; x++) this.set(x, y, WATER);
+      }
+    }
 
     // Roads.
     for (const x of vs)
       for (let y = hy0; y <= hy1; y++) {
-        const t = y >= ry0 && y <= ry1 ? BRIDGE : ROAD;
+        const t = this.riverRow[y] ? BRIDGE : ROAD;
         this.set(x, y, t);
         this.set(x + 1, y, t);
       }
@@ -169,14 +201,15 @@ export class CityMap {
         this.set(x, y + 1, ROAD);
       }
     // Bridges carry a pavement each side and a railing outside it.
-    for (const x of vs) {
-      for (let y = ry0; y <= ry1; y++) {
-        this.set(x - 1, y, WALK);
-        this.set(x + 2, y, WALK);
+    for (const [ry0, ry1] of this.rivers)
+      for (const x of vs) {
+        for (let y = ry0; y <= ry1; y++) {
+          this.set(x - 1, y, WALK);
+          this.set(x + 2, y, WALK);
+        }
+        this.walls.push({ x0: (x - 1) * T - 3, y0: ry0 * T, x1: (x - 1) * T, y1: (ry1 + 1) * T });
+        this.walls.push({ x0: (x + 3) * T, y0: ry0 * T, x1: (x + 3) * T + 3, y1: (ry1 + 1) * T });
       }
-      this.walls.push({ x0: (x - 1) * T - 3, y0: ry0 * T, x1: (x - 1) * T, y1: (ry1 + 1) * T });
-      this.walls.push({ x0: (x + 3) * T, y0: ry0 * T, x1: (x + 3) * T + 3, y1: (ry1 + 1) * T });
-    }
 
     // Blocks.
     const cx = (vx0 + vx1) / 2;
@@ -189,13 +222,13 @@ export class CityMap {
         const bx1 = vs[i + 1] - 1;
         const by0 = hs[j] + 2;
         const by1 = hs[j + 1] - 1;
-        const blocks: Rect[] =
-          j === riverAt
-            ? [
-                { x0: bx0, y0: by0, x1: bx1, y1: ry0 - 1 },
-                { x0: bx0, y0: ry1 + 1, x1: bx1, y1: by1 },
-              ]
-            : [{ x0: bx0, y0: by0, x1: bx1, y1: by1 }];
+        const river = riverGaps.has(j) ? this.rivers.find(([a]) => a > by0 && a < by1) : undefined;
+        const blocks: Rect[] = river
+          ? [
+              { x0: bx0, y0: by0, x1: bx1, y1: river[0] - 1 },
+              { x0: bx0, y0: river[1] + 1, x1: bx1, y1: by1 },
+            ]
+          : [{ x0: bx0, y0: by0, x1: bx1, y1: by1 }];
         for (const b of blocks) {
           for (let y = b.y0; y <= b.y1; y++)
             for (let x = b.x0; x <= b.x1; x++) {
@@ -205,7 +238,7 @@ export class CityMap {
           const inner = { x0: b.x0 + 1, y0: b.y0 + 1, x1: b.x1 - 1, y1: b.y1 - 1 };
           if (inner.x1 < inner.x0 || inner.y1 < inner.y0) continue;
           // Embankment strips and some whole blocks are parks.
-          const embank = j === riverAt;
+          const embank = !!river;
           const d = Math.hypot((b.x0 + b.x1) / 2 - cx, (b.y0 + b.y1) / 2 - cy) / half;
           if (embank || r() < 0.06 + d * 0.06) {
             leaves.push({ rect: inner, block: inner, park: true });
@@ -230,8 +263,8 @@ export class CityMap {
       }
 
     const touchesEdge = (q: Rect, b: Rect) => q.x0 === b.x0 || q.y0 === b.y0 || q.x1 === b.x1 || q.y1 === b.y1;
-    const wantLots = { garage: 2, shop: 1 };
-    // Special lots first, spread over the city: two workshops, a bike shop.
+    const wantLots = { garage: 5, shop: 2 };
+    // Special lots first, spread over the city: workshops and the bike showrooms.
     const order = leaves.map((_, i) => i).sort(() => r() - 0.5);
     const used = new Set<number>();
     const pickLot = (kind: "garage" | "shop", far: { x: number; y: number }[]) => {
@@ -243,7 +276,7 @@ export class CityMap {
         if (used.has(i) || l.park || !touchesEdge(q, l.block) || w < 2 || h < 2 || w * h > 16) continue;
         const px = ((q.x0 + q.x1 + 1) / 2) * T;
         const py = ((q.y0 + q.y1 + 1) / 2) * T;
-        if (far.some((p) => Math.hypot(p.x - px, p.y - py) < 1400)) continue;
+        if (far.some((p) => Math.hypot(p.x - px, p.y - py) < 3000)) continue;
         used.add(i);
         for (let y = q.y0; y <= q.y1; y++) for (let x = q.x0; x <= q.x1; x++) this.set(x, y, LOT);
         this.lots.push(q);
@@ -254,8 +287,10 @@ export class CityMap {
     for (let k = 0; k < wantLots.garage + wantLots.shop; k++)
       pickLot(k < wantLots.garage ? "garage" : "shop", this.places.map((p) => ({ x: p.x, y: p.y })));
 
-    let hospital = false;
-    let police = false;
+    // Three hospitals and three police stations, far apart.
+    const civic: { kind: "hospital" | "police"; x: number; y: number }[] = [];
+    const wantCivic = (kind: "hospital" | "police", x: number, y: number) =>
+      civic.filter((c) => c.kind === kind).length < 3 && civic.every((c) => c.kind !== kind || Math.hypot(c.x - x, c.y - y) > n * 0.35);
     for (const i of order) {
       if (used.has(i)) continue;
       const { rect: q, block, park } = leaves[i];
@@ -280,14 +315,14 @@ export class CityMap {
       }
       let kind: BuildingKind = d < 0.4 ? (r() < 0.55 ? "glass" : "plain") : r() < 0.4 ? "brick" : "plain";
       let hgt = T * (1.6 + r() * 1.8) + (1 - d) * (1 - d) * T * (2 + r() * 7);
-      if (!hospital && w >= 3 && h >= 3 && d > 0.2 && d < 0.7) {
+      if (w >= 3 && h >= 3 && wantCivic("hospital", mx, my)) {
         kind = "hospital";
         hgt = T * 2.6;
-        hospital = true;
-      } else if (!police && w >= 3 && h >= 3 && d < 0.45) {
+        civic.push({ kind, x: mx, y: my });
+      } else if (w >= 3 && h >= 3 && wantCivic("police", mx, my)) {
         kind = "police";
         hgt = T * 2.2;
-        police = true;
+        civic.push({ kind, x: mx, y: my });
       }
       const pal = kind === "hospital" || kind === "police" ? "plain" : kind;
       const b: Building = {
@@ -300,6 +335,7 @@ export class CityMap {
       };
       const id = this.buildings.length;
       this.buildings.push(b);
+      this.chunkAt(q.x0, q.y0).buildings.push(b);
       for (let y = q.y0; y <= q.y1; y++)
         for (let x = q.x0; x <= q.x1; x++) {
           this.set(x, y, BUILD);
@@ -320,6 +356,7 @@ export class CityMap {
         if (nearRoad || r() > 0.45) continue;
         const t: Tree = { x: (x + 0.25 + r() * 0.5) * T, y: (y + 0.25 + r() * 0.5) * T, r: 10 + r() * 8 };
         this.trees.push(t);
+        this.chunkAt(x, y).trees.push(t);
         const key = y * n + x;
         const cell = this.treeCells.get(key);
         if (cell) cell.push(t);
@@ -328,7 +365,7 @@ export class CityMap {
 
     // A few rooftop billboards of the 67MOTO shop.
     const roomy = this.buildings.filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
-    for (let i = 0; i < 4 && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = true;
+    for (let i = 0; i < 8 && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = true;
 
     // Street lights along the kerbs.
     for (let y = L.y0; y <= L.y1; y++)
@@ -336,7 +373,9 @@ export class CityMap {
         if (this.at(x, y) !== WALK || (x * 7 + y * 13) % 5 !== 0) continue;
         const d = [0, 1, 2, 3].find((k) => this.at(x + DX[k], y + DY[k]) === ROAD || this.at(x + DX[k], y + DY[k]) === BRIDGE);
         if (d === undefined) continue;
-        this.lamps.push({ x: (x + 0.5 + DX[d] * 0.38) * T, y: (y + 0.5 + DY[d] * 0.38) * T, a: (d * Math.PI) / 2 });
+        const lamp = { x: (x + 0.5 + DX[d] * 0.38) * T, y: (y + 0.5 + DY[d] * 0.38) * T, a: (d * Math.PI) / 2 };
+        this.lamps.push(lamp);
+        this.chunkAt(x, y).lamps.push(lamp);
       }
 
     // Delivery addresses: pavement in front of a building.
@@ -345,18 +384,53 @@ export class CityMap {
         if (this.at(x, y) === WALK && [0, 1, 2, 3].some((d) => this.at(x + DX[d], y + DY[d]) === BUILD)) this.doorsteps.push(y * n + x);
 
     // Job spots spread out over the city.
-    const kinds: JobKind[] = ["delivery", "delivery", "delivery", "delivery", "delivery", "delivery", "race", "race", "hot", "hot"];
+    const kinds: JobKind[] = [];
+    for (let i = 0; i < 5; i++) kinds.push("delivery", "delivery", "delivery", "delivery", "delivery", "delivery", "race", "race", "hot", "hot");
     for (const kind of kinds) {
       for (let tries = 0; tries < 200; tries++) {
         const k = pick(this.doorsteps);
         const x = ((k % n) + 0.5) * T;
         const y = (Math.floor(k / n) + 0.5) * T;
         const all = [...this.jobs, ...this.places];
-        if (all.some((p) => Math.hypot(p.x - x, p.y - y) < (tries < 150 ? 700 : 300))) continue;
+        if (all.some((p) => Math.hypot(p.x - x, p.y - y) < (tries < 150 ? 900 : 400))) continue;
         this.jobs.push({ kind, x, y });
         break;
       }
     }
+  }
+
+  private chunkAt(tx: number, ty: number) {
+    const cx = Math.max(0, Math.min(this.cn - 1, Math.floor(tx / CHUNK)));
+    const cy = Math.max(0, Math.min(this.cn - 1, Math.floor(ty / CHUNK)));
+    return this.chunks[cy * this.cn + cx];
+  }
+
+  // Chunks touching a rectangle in world units (with a margin for tall things leaning in).
+  inView(x0: number, y0: number, x1: number, y1: number) {
+    const s = CHUNK * T;
+    const out: Chunk[] = [];
+    const cx0 = Math.max(0, Math.floor(x0 / s) - 1);
+    const cy0 = Math.max(0, Math.floor(y0 / s) - 1);
+    const cx1 = Math.min(this.cn - 1, Math.floor(x1 / s));
+    const cy1 = Math.min(this.cn - 1, Math.floor(y1 / s));
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) out.push(this.chunks[cy * this.cn + cx]);
+    return out;
+  }
+
+  inRiver(ty: number) {
+    return ty >= 0 && ty < this.n && this.riverRow[ty] === 1;
+  }
+
+  // The nearest place of a kind (respawn points, workshops).
+  nearest(kind: PlaceKind, x: number, y: number) {
+    let best: Place | null = null;
+    let bd = Infinity;
+    for (const p of this.places) {
+      if (p.kind !== kind) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bd) (bd = d), (best = p);
+    }
+    return best;
   }
 
   set(x: number, y: number, t: number) {
@@ -416,7 +490,7 @@ export class CityMap {
           break;
         }
     }
-    const q = new Int32Array(n * n);
+    const q = (this.queue ??= new Int32Array(n * n));
     let head = 0;
     let tail = 0;
     const s = ty * n + tx;
