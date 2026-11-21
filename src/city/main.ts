@@ -39,12 +39,14 @@ interface Save {
   owned: string[];
   bike: string;
   arms: Partial<Record<WeaponId, number>>;
+  bestLap: number;
+  packages: number[];
 }
 
 const SHOP_IDS = new Set(BIKES.map((b) => b.id));
 
 function load(): Save {
-  const def: Save = { money: 0, owned: ["z3"], bike: "z3", arms: {} };
+  const def: Save = { money: 0, owned: ["z3"], bike: "z3", arms: {}, bestLap: 0, packages: [] };
   try {
     const s = JSON.parse(localStorage.getItem(SAVE) ?? "null") as Partial<Save> | null;
     if (!s) {
@@ -63,6 +65,8 @@ function load(): Save {
       owned: Array.isArray(s.owned) ? [...new Set([...def.owned, ...s.owned.filter((id) => SHOP_IDS.has(id))])] : def.owned,
       bike: s.bike && SHOP_IDS.has(s.bike) && BIKE[s.bike] ? s.bike : def.bike,
       arms,
+      bestLap: Math.max(0, Number(s.bestLap) || 0),
+      packages: Array.isArray(s.packages) ? s.packages.filter((i) => Number.isInteger(i) && i >= 0 && i < 100) : [],
     };
   } catch {
     return def;
@@ -73,6 +77,8 @@ const save = load();
 function store() {
   save.money = world.money;
   save.arms = { ...world.arms };
+  save.bestLap = world.bestLap;
+  save.packages = [...world.packagesGot];
   try {
     localStorage.setItem(SAVE, JSON.stringify(save));
   } catch {
@@ -85,6 +91,8 @@ const world = new World(map);
 world.money = save.money;
 world.bikeId = save.bike;
 world.arms = { ...save.arms };
+world.bestLap = save.bestLap;
+world.packagesGot = new Set(save.packages);
 world.cycleWeapon();
 {
   // ?t=22 (or ?night) starts at that hour: handy for an embed that wants night straight away.
@@ -153,7 +161,10 @@ window.addEventListener("keydown", (e) => {
     else if (mode === "pause") resume();
     else if (mode === "shop") closeShop();
   } else if (e.code === "KeyM") sound.toggle();
-  else if (e.code === "KeyR" && mode === "play") radioNext(e.shiftKey ? -1 : 1);
+  else if (e.code === "KeyR" && mode === "play") {
+    if (world.player.mode === "ride") radioNext(e.shiftKey ? -1 : 1);
+    else walkMusicToggle();
+  }
   else if (e.code === "Period" && mode === "play") radioNext(1);
   else if (e.code === "Comma" && mode === "play") radioNext(-1);
 });
@@ -234,9 +245,11 @@ function start() {
 function pause() {
   mode = "pause";
   const owned = save.owned.length;
-  $("pause-stats").textContent = `Деньги: ${rub(world.money)} · байков BSE: ${owned} из ${BIKES.length}`;
+  const lap = world.bestLap ? ` · рекорд стадиона ${world.bestLap.toFixed(2)} с` : "";
+  $("pause-stats").textContent = `Деньги: ${rub(world.money)} · байков BSE: ${owned} из ${BIKES.length} · секретных посылок: ${world.packagesGot.size} из ${map.packages.length}${lap}`;
   show("pause", true);
   sound.radioPlaying(false);
+  sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
 }
@@ -251,6 +264,7 @@ function resume() {
 function openMap() {
   mode = "map";
   sound.radioPlaying(false);
+  sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
   show("bigmap", true);
@@ -265,6 +279,7 @@ function closeMap() {
 function openShop() {
   mode = "shop";
   sound.radioPlaying(false);
+  sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
   renderShop();
@@ -362,7 +377,7 @@ for (const id of ["title-credit", "pause-credit"]) $(id).textContent = MUSIC_CRE
 let bannerT = 0;
 function radioBanner(station: string, song: string) {
   const el = $("radio-banner");
-  el.innerHTML = `<b>📻 ${station}</b>${song ? `<span>${song}</span>` : ""}`;
+  el.innerHTML = `<b>${station.startsWith("♪") ? "" : "📻 "}${station}</b>${song ? `<span>${song}</span>` : ""}`;
   el.classList.remove("hidden");
   el.classList.remove("show");
   void el.offsetWidth;
@@ -373,6 +388,13 @@ sound.onTrack = (s, t) => {
   if (world.player.mode === "ride") radioBanner(`${s.name} · ${s.genre}`, `Kevin MacLeod — «${t.title}»`);
 };
 let wasRiding = false;
+sound.onWalkTrack = (_s, t) => {
+  if (world.player.mode !== "ride") radioBanner("♪ Музыка", `Kevin MacLeod — «${t.title}» · R — выключить`);
+};
+function walkMusicToggle() {
+  const on = sound.walkToggle();
+  radioBanner(on ? "♪ Музыка включена" : "♪ Музыка выключена", "R — переключить, на мотоцикле — радио");
+}
 let radioWheel = 0;
 
 function radioNext(step: number) {
@@ -449,6 +471,8 @@ function hud(dt: number) {
   const perks: string[] = [];
   if (p.nitro > 0) perks.push(`<span class="perk nitro">Нитро ×${p.nitro}</span>`);
   if (world.boostT > 0) perks.push(`<span class="perk nitro on">Нитро!</span>`);
+  if (world.streak >= 1) perks.push(`<span class="perk streak">Серия ${world.streak} · ×${(1 + 0.25 * Math.min(world.streak, 4)).toFixed(2).replace(/\.?0+$/, "")}</span>`);
+  if (world.job?.kind === "stadium") perks.push(`<span class="perk lap">Круг ${(world.time - (world.job.start ?? world.time)).toFixed(1)} с${world.bestLap ? ` · рекорд ${world.bestLap.toFixed(2)}` : ""}</span>`);
   if (world.double > 0) perks.push(`<span class="perk double">Деньги ×2 · ${Math.ceil(world.double)} с</span>`);
   if (world.rush) perks.push(`<span class="perk rush">Монеты ${world.rush.got}/10 · ${Math.ceil(world.rush.t)} с</span>`);
   if (p.jailCard) perks.push(`<span class="perk card">Карта «Выйти из участка»</span>`);
@@ -546,6 +570,23 @@ function handleEvents() {
       case "nitro":
         sound.nitro();
         break;
+      case "stunt":
+        sound.jobDone();
+        big(e.text.split(" ")[0] === "БЕЗУМНЫЙ" ? "Безумный трюк!" : e.text.replace(/ \d.*$/, ""), "surprise");
+        message(`${e.text}: +${rub(e.amount)}`, "good");
+        break;
+      case "ring":
+        sound.ring(Math.hypot(e.x - world.px, e.y - world.py));
+        break;
+      case "package":
+        sound.jobDone();
+        big(`Посылка ${e.got}/${e.total}`, "surprise");
+        store();
+        break;
+      case "lap":
+        if (e.record) big("Рекорд круга!", "surprise");
+        store();
+        break;
       case "coin":
         sound.cash();
         break;
@@ -609,6 +650,7 @@ function frame(now: number) {
     const bike = p.mode === "ride" ? p.bike : null;
     sound.engine(!!bike, bike ? bike.fwd / bike.model.vmax : 0, bike ? bike.thr : 0, bike?.model.id ?? "");
     sound.radioPlaying(!!bike);
+    sound.walkPlaying(!bike && p.mode !== "out");
     // Getting on a bike: say what is on and how to change it.
     if (!!bike && !wasRiding) {
       const tip = isTouch() ? "кнопка 📻 — сменить станцию" : "R или колесо мыши — сменить станцию";

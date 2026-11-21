@@ -1048,3 +1048,11 @@ button {
     display: none;
   }
 }
+
+.perk.streak {
+  color: #ffb4f0;
+}
+
+.perk.lap {
+  color: #ffcf7a;
+}

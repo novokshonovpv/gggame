@@ -2,7 +2,7 @@
 // pedestrians, the police, traffic that follows lanes and turns at crossings, crashes,
 // fires, pick-ups and the courier jobs.
 
-import { BRIDGE, BUILD, CityMap, DX, DY, type Dir, GRASS, type JobKind, type JobSpot, LOT, type Place, ROAD, SAND, T, WALK, WATER, rng } from "./map.ts";
+import { BRIDGE, BUILD, CityMap, DIRT, type Obstacle, DX, DY, type Dir, GRASS, type JobKind, type JobSpot, LOT, type Place, ROAD, SAND, T, WALK, WATER, rng } from "./map.ts";
 
 export type VType = "bike" | "car" | "bus" | "police";
 
@@ -149,6 +149,12 @@ export class Vehicle {
   fwd = 0; // forward speed, for the renderer and sound
   slip = 0;
   hit = 0; // flash after a knock
+  z = 0; // height above the ground (jumps)
+  vz = 0;
+  airT = 0;
+  airRot = 0; // how far the rider spun the bike in the air
+  ramped = false; // this flight began on a ramp (only those count as stunts)
+  lastOb: Obstacle | null = null;
   gunT = 1; // police: time to the next shot
   readonly circles: [number, number][];
   readonly inertia: number;
@@ -263,6 +269,8 @@ export interface Pickup {
 export interface Job {
   kind: JobKind;
   spot: JobSpot;
+  start?: number; // stadium: lap start time
+  phone?: { type: "chase" | "destroy" | "escape"; stage: number; target: Vehicle | null };
   points: { x: number; y: number }[];
   idx: number;
   time: number;
@@ -291,7 +299,11 @@ export type GameEvent =
   | { type: "weapon"; id: WeaponId }
   | { type: "surprise"; text: string; good: boolean }
   | { type: "nitro" }
-  | { type: "coin" };
+  | { type: "coin" }
+  | { type: "stunt"; text: string; amount: number }
+  | { type: "ring"; x: number; y: number }
+  | { type: "package"; got: number; total: number }
+  | { type: "lap"; time: number; best: number; record: boolean };
 
 export interface Input {
   gas: boolean;
@@ -322,6 +334,7 @@ export interface Player {
 const WANTED_LOSE = 12; // seconds out of sight per star
 const POLICE_FOR = [0, 2, 3, 4, 6, 8];
 const CRASH = 150; // impact speed that throws a rider off
+const GRAV = 520; // jumps: units/s² (stretched for the top-down view)
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 
@@ -340,6 +353,14 @@ export class World {
   job: Job | null = null;
   jobCooldown = 0;
   double = 0; // seconds of double money left
+  streak = 0; // jobs in a row without being wasted or busted: raises the money multiplier
+  bestLap = 0; // stadium record, seconds
+  packagesGot = new Set<number>();
+  heli: { x: number; y: number; a: number; vx: number; vy: number; gunT: number; rotor: number } | null = null;
+  ringing = -1; // payphone that is ringing
+  private ringT = 0;
+  private ringCool = 25;
+  target: Vehicle | null = null; // a payphone job's mark
   boostT = 0; // nitro burning
   rush: { t: number; left: number; got: number } | null = null; // money rain
   private sprintPrev = false;
@@ -523,7 +544,7 @@ export class World {
     const py = this.py;
     // Forget what is far behind.
     this.vehicles = this.vehicles.filter((v) => {
-      if (v === this.player.bike) return true;
+      if (v === this.player.bike || v === this.target) return true;
       const d = Math.hypot(v.x - px, v.y - py);
       if (v.chase && this.wanted > 0) return d < 2400;
       return d < 1500 || !this.offscreen(v.x, v.y, 200);
@@ -642,6 +663,8 @@ export class World {
     p.body.vx = p.body.vy = 0;
     p.body.state = how === "wasted" ? "down" : "walk";
     p.mode = "out";
+    if (this.streak > 0) this.say("Серия заданий прервана", "bad");
+    this.streak = 0;
     p.outT = 3.2;
     p.bike = null;
     if (this.job) this.failJob(how === "busted" ? "Задание провалено: задержан" : "Задание провалено");
@@ -737,6 +760,8 @@ export class World {
       p.outT -= dt;
     }
     this.stepPolice(dt);
+    this.stepHeli(dt);
+    this.stepPhones(dt);
     this.stepBullets(dt);
     this.stepPickups(dt);
     this.stepJob(dt);
@@ -829,6 +854,10 @@ export class World {
       return;
     }
     v.hit = Math.max(0, v.hit - dt);
+    if (v.z > 0 || v.vz > 0) {
+      this.fly(v, dt);
+      return;
+    }
     const tile = this.map.tileAt(v.x, v.y);
     if (tile === WATER) {
       v.sink = 0.01;
@@ -841,7 +870,7 @@ export class World {
       if (v.rider === "npc") v.rider = null;
       return;
     }
-    const rough = tile === GRASS || tile === SAND;
+    const rough = tile === GRASS || tile === SAND || tile === DIRT;
     let fx = Math.cos(v.a);
     let fy = Math.sin(v.a);
     let vf = v.vx * fx + v.vy * fy;
@@ -906,6 +935,8 @@ export class World {
     }
     if (rough && Math.abs(vf) > 80 && this.r() < 0.25) this.puff(v.x - fx * 8, v.y - fy * 8, "dust", 0.8);
 
+    this.groundObstacles(v, dt);
+
     // Fire.
     if (v.burn > 0) {
       v.burn -= dt;
@@ -916,8 +947,135 @@ export class World {
     this.collideWorld(v);
   }
 
+  // In the air: ballistic, the rider can spin the bike; land square or crash.
+  private fly(v: Vehicle, dt: number) {
+    v.z += v.vz * dt;
+    v.vz -= GRAV * dt;
+    v.x += v.vx * dt;
+    v.y += v.vy * dt;
+    v.airT += dt;
+    if (v.bike && v.rider === "player") {
+      const s = v.steer * 5.5 * dt;
+      v.a += s;
+      v.airRot += s;
+    } else v.a += v.spin * dt;
+    v.fwd = v.vx * Math.cos(v.a) + v.vy * Math.sin(v.a);
+    if (v.z <= 0) this.land(v);
+    this.collideWorld(v);
+  }
+
+  private land(v: Vehicle) {
+    const hitDown = -v.vz;
+    v.z = 0;
+    v.vz = 0;
+    const sp = v.speed;
+    const off = Math.abs(wrap(Math.atan2(v.vy, v.vx) - v.a));
+    this.burst(v.x, v.y, 6, "dust");
+    const air = v.ramped ? v.airT : 0;
+    const spins = Math.floor((Math.abs(v.airRot) + 0.7) / (Math.PI * 2));
+    v.airT = 0;
+    v.airRot = 0;
+    v.ramped = false;
+    if (v.bike && v.rider && sp > 60 && off > 0.8) {
+      this.emit({ type: "crash", power: sp, x: v.x, y: v.y });
+      this.throwRider(v, sp * 0.8 + 60);
+      return;
+    }
+    if (hitDown > 430) {
+      this.damage(v, (hitDown - 430) * 0.12);
+      if (v.rider === "player") this.hurt((hitDown - 430) * 0.05);
+    }
+    // Wheels down: the bike carries on the way it points.
+    const k = Math.cos(off);
+    v.vx = Math.cos(v.a) * sp * k;
+    v.vy = Math.sin(v.a) * sp * k;
+    if (v.rider === "player" && air > 0.55) {
+      let amt = Math.round((1200 * air * air) / 100) * 100;
+      let name = air > 1.5 ? "БЕЗУМНЫЙ ТРЮК!" : air > 1 ? "Отличный прыжок!" : "Прыжок!";
+      if (spins > 0) {
+        amt *= 1 + spins;
+        name = `${spins * 360}°! ${name}`;
+      }
+      amt = Math.round(amt * this.mult);
+      this.money += amt;
+      this.emit({ type: "stunt", text: `${name} ${air.toFixed(1)} с в воздухе`, amount: amt });
+    }
+  }
+
+  // Ramps launch, logs and whoops bounce, mud drags (wheels on the ground only).
+  private groundObstacles(v: Vehicle, dt: number) {
+    const fx = Math.cos(v.a);
+    const fy = Math.sin(v.a);
+    const px = v.x + fx * v.model.len * 0.3;
+    const py = v.y + fy * v.model.len * 0.3;
+    const list = this.map.obstaclesAt(px, py);
+    let touched: Obstacle | null = null;
+    let mud = false;
+    if (list)
+      for (const o of list) {
+        if (o.kind === "tire" || o.kind === "rock") continue;
+        const dx = px - o.x;
+        const dy = py - o.y;
+        const ca = Math.cos(o.a);
+        const sa = Math.sin(o.a);
+        if (Math.abs(dx * ca + dy * sa) > o.len / 2 || Math.abs(-dx * sa + dy * ca) > o.wid / 2) continue;
+        if (o.kind === "mud") {
+          mud = true;
+          continue;
+        }
+        touched = o;
+        if (v.lastOb === o) continue;
+        const sp = v.speed;
+        if (o.kind === "ramp") {
+          const along = v.vx * ca + v.vy * sa;
+          if (along < 70 || Math.cos(wrap(v.a - o.a)) < 0.55) continue;
+          const go = Math.max(along, o.power ?? 0);
+          if (o.power) {
+            v.vx = ca * go;
+            v.vy = sa * go;
+          }
+          v.vz = Math.min(340, go * 0.62);
+          v.z = 0.1;
+          v.airT = 0;
+          v.airRot = 0;
+          v.ramped = true;
+        } else if (o.kind === "log") {
+          if (v.bike && sp > 50) {
+            // An enduro bike hops a log.
+            v.vz = 70 + sp * 0.1;
+            v.z = 0.1;
+            v.vx *= 0.85;
+            v.vy *= 0.85;
+          } else {
+            const k = v.bike ? 0.3 : 0.65;
+            v.vx *= k;
+            v.vy *= k;
+            if (!v.bike && sp > 60) {
+              v.vz = 50;
+              v.z = 0.1;
+            }
+          }
+        } else if (o.kind === "whoop") {
+          if (v.bike && sp > 150) {
+            v.vz = 85;
+            v.z = 0.1;
+          } else {
+            v.vx *= 0.85;
+            v.vy *= 0.85;
+          }
+        }
+      }
+    v.lastOb = touched;
+    if (mud) {
+      const k = Math.exp(-2.4 * dt);
+      v.vx *= k;
+      v.vy *= k;
+      if (v.speed > 40 && this.r() < 0.5) this.puff(v.x - fx * 9, v.y - fy * 9, "dust", 1.2);
+    }
+  }
+
   // Push a circle out of buildings, railings and tree trunks.
-  private resolveCircle(cx: number, cy: number, r: number) {
+  private resolveCircle(cx: number, cy: number, r: number, low = true) {
     const map = this.map;
     let dx = 0;
     let dy = 0;
@@ -953,6 +1111,19 @@ export class World {
     for (let ty = ty0; ty <= ty1; ty++)
       for (let tx = tx0; tx <= tx1; tx++) {
         if (map.at(tx, ty) === BUILD) push(cx + dx, cy + dy, tx * T, ty * T, (tx + 1) * T, (ty + 1) * T);
+        const obs = low ? map.obCells.get(ty * map.n + tx) : undefined;
+        if (obs)
+          for (const o of obs) {
+            if (o.kind !== "tire" && o.kind !== "rock") continue;
+            const ex = cx + dx - o.x;
+            const ey = cy + dy - o.y;
+            const d = Math.hypot(ex, ey);
+            const rr = r + o.len / 2;
+            if (d < rr && d > 0) {
+              dx += (ex / d) * (rr - d);
+              dy += (ey / d) * (rr - d);
+            }
+          }
         const trees = map.treeCells.get(ty * map.n + tx);
         if (trees)
           for (const t of trees) {
@@ -977,7 +1148,7 @@ export class World {
     for (const [o, r] of v.circles) {
       const cx = v.x + fx * o;
       const cy = v.y + fy * o;
-      const { dx, dy } = this.resolveCircle(cx, cy, r);
+      const { dx, dy } = this.resolveCircle(cx, cy, r, v.z < 8);
       if (dx === 0 && dy === 0) continue;
       v.x += dx;
       v.y += dy;
@@ -1106,7 +1277,7 @@ export class World {
       if (A.sink) continue;
       for (let j = i + 1; j < vs.length; j++) {
         const B = vs[j];
-        if (B.sink) continue;
+        if (B.sink || Math.abs(A.z - B.z) > 10) continue;
         const reach = (A.model.len + B.model.len) / 2 + 2;
         if (Math.abs(A.x - B.x) > reach || Math.abs(A.y - B.y) > reach) continue;
         const afx = Math.cos(A.a);
@@ -1343,7 +1514,7 @@ export class World {
     const playerOnFoot = p.mode === "foot" || p.mode === "fly";
     if (playerOnFoot) bodies.push(p.body);
     for (const v of this.vehicles) {
-      if (v.sink) continue;
+      if (v.sink || v.z > 6) continue;
       const fx = Math.cos(v.a);
       const fy = Math.sin(v.a);
       for (const q of bodies) {
@@ -1669,6 +1840,8 @@ export class World {
         }
         if (d < 46 && v.speed < 90) near = true;
       }
+      const h = this.heli;
+      if (h && Math.hypot(h.x - px, h.y - py) < 240) seen = true;
       this.unseen = seen ? 0 : this.unseen + dt;
       if (this.unseen > WANTED_LOSE) {
         this.unseen = 0;
@@ -1680,6 +1853,159 @@ export class World {
       else p.bust = Math.max(0, p.bust - dt * 0.5);
       if (p.bust > 1.4) this.endLife("busted");
     } else p.bust = 0;
+  }
+
+  // Police helicopter from four stars: follows from above, spots you, shoots at five.
+  private stepHeli(dt: number) {
+    const p = this.player;
+    if (this.wanted < 4 || p.mode === "out") {
+      this.heli = null;
+      return;
+    }
+    const px = this.px;
+    const py = this.py;
+    if (!this.heli) {
+      const a = this.r() * Math.PI * 2;
+      this.heli = { x: px + Math.cos(a) * 900, y: py + Math.sin(a) * 900, a: a + Math.PI, vx: 0, vy: 0, gunT: 2, rotor: 0 };
+      this.say("Полицейский вертолёт!", "bad");
+    }
+    const h = this.heli;
+    const pv = p.mode === "ride" && p.bike ? p.bike : p.body;
+    const tx = px + pv.vx * 0.5 - h.x;
+    const ty = py + pv.vy * 0.5 - h.y;
+    const d = Math.hypot(tx, ty) || 1;
+    const want = Math.min(310, d * 1.6);
+    const k = Math.min(1, dt * 1.1);
+    h.vx += ((tx / d) * want - h.vx) * k;
+    h.vy += ((ty / d) * want - h.vy) * k;
+    h.x += h.vx * dt;
+    h.y += h.vy * dt;
+    h.rotor += dt * 30;
+    if (Math.hypot(h.vx, h.vy) > 20) h.a += wrap(Math.atan2(h.vy, h.vx) - h.a) * Math.min(1, dt * 2);
+    h.gunT -= dt;
+    if (this.wanted >= 5 && d < 280 && h.gunT <= 0 && p.mode !== "fly") {
+      h.gunT = 1.1;
+      const a = Math.atan2(ty, tx) + (this.r() - 0.5) * 0.25;
+      this.bullets.push({ x: h.x, y: h.y, vx: Math.cos(a) * 850, vy: Math.sin(a) * 850, life: 0.45, dmg: 6, owner: "police" });
+      this.emit({ type: "shot", weapon: "police", x: h.x, y: h.y });
+    }
+  }
+
+  // Payphones: one rings now and then; pick it up for a special job.
+  private stepPhones(dt: number) {
+    const phones = this.map.phones;
+    const p = this.player;
+    if (!phones.length || p.mode === "out") return;
+    if (this.ringing < 0) {
+      if (this.job) return;
+      this.ringCool -= dt;
+      if (this.ringCool > 0) return;
+      const near = phones.map((_, i) => i).filter((i) => {
+        const d = Math.hypot(phones[i].x - this.px, phones[i].y - this.py);
+        return d > 300 && d < 2600;
+      });
+      this.ringCool = 30;
+      if (!near.length) return;
+      this.ringing = near[Math.floor(this.r() * near.length)];
+      this.ringT = 70;
+      this.say("Где-то рядом звонит телефон-автомат…", "info");
+      return;
+    }
+    const ph = phones[this.ringing];
+    this.ringT -= dt;
+    const d = Math.hypot(ph.x - this.px, ph.y - this.py);
+    if (this.tick % 75 === 0 && d < 900) this.emit({ type: "ring", x: ph.x, y: ph.y });
+    if (this.ringT <= 0 || this.job) {
+      this.ringing = -1;
+      return;
+    }
+    if (d < 24) {
+      this.ringing = -1;
+      this.startPhoneJob(ph);
+    }
+  }
+
+  private startPhoneJob(ph: { x: number; y: number }) {
+    const spot: JobSpot = { kind: "phone", x: ph.x, y: ph.y };
+    const type = (["chase", "destroy", "escape"] as const)[Math.floor(this.r() * 3)];
+    if (type === "escape") {
+      this.setWanted(4);
+      this.job = { kind: "phone", spot, points: [], idx: 0, time: 180, reward: 25000, title: "Звонок: «Тебя сдали. Уйди от погони за 3 минуты»", phone: { type, stage: 0, target: null } };
+    } else {
+      let v: Vehicle | null = null;
+      for (let i = 0; i < 40 && !v; i++) v = this.spawnTraffic(false);
+      if (!v) {
+        this.say("В трубке тишина…", "info");
+        return;
+      }
+      if (type === "chase") {
+        v.model = BIKE.sport;
+        v.color = "#111";
+        v.look = { jacket: "#c62828", helmet: "#c62828" };
+        v.hp = v.model.hp;
+        if (v.ai) v.ai.cruise = 150;
+        this.job = { kind: "phone", spot, points: [{ x: v.x, y: v.y }], idx: 0, time: 150, reward: 15000, title: "Звонок: «Перехвати курьера конкурентов — чёрный спортбайк»", phone: { type, stage: 0, target: v } };
+      } else {
+        v.model = CARS[3];
+        v.color = "#151515";
+        v.hp = v.model.hp;
+        this.arms.rocket = (this.arms.rocket ?? 0) + 3;
+        this.weapon = "rocket";
+        this.emit({ type: "weapon", id: "rocket" });
+        this.job = { kind: "phone", spot, points: [{ x: v.x, y: v.y }], idx: 0, time: 150, reward: 20000, title: "Звонок: «Взорви чёрный фургон. Ракеты — подарок»", phone: { type, stage: 0, target: v } };
+      }
+      this.target = v;
+    }
+    this.say(this.job!.title, "info");
+  }
+
+  // Money, streak and messages for any job done.
+  private completeJob(job: Job, extra: number, note = "") {
+    const m = this.mult;
+    const total = Math.round((job.reward + extra) * m);
+    this.money += total;
+    this.streak++;
+    this.say(`Готово! +${rub(total)}${note}${m > 1 ? ` (×${m.toFixed(2).replace(/\.?0+$/, "")})` : ""}`, "good");
+    if (this.streak >= 2) this.say(`Серия заданий: ${this.streak} — множитель ×${(1 + 0.25 * Math.min(this.streak, 4)).toFixed(2).replace(/\.?0+$/, "")}`, "info");
+    this.emit({ type: "jobDone", reward: total });
+    this.job = null;
+    this.target = null;
+    this.jobCooldown = 4;
+  }
+
+  private stepPhoneJob(job: Job) {
+    const ph = job.phone!;
+    const v = ph.target;
+    if (ph.type === "escape") {
+      if (this.wanted === 0) this.completeJob(job, Math.max(0, Math.floor(job.time)) * 100);
+      return;
+    }
+    if (!v || v.sink > 0 || !this.vehicles.includes(v)) {
+      if (ph.type === "destroy" && v && v.sink > 0) this.completeJob(job, 0, " Фургон на дне");
+      else this.failJob("Цель ушла — задание провалено");
+      return;
+    }
+    if (ph.type === "destroy") {
+      job.points[0] = { x: v.x, y: v.y };
+      if (v.wreck || v.burn > 0) this.completeJob(job, Math.max(0, Math.floor(job.time)) * 100);
+      return;
+    }
+    // Chase: knock the rider off, then take his parcel to the client.
+    if (ph.stage === 0) {
+      job.points[0] = { x: v.x, y: v.y };
+      if (v.rider !== "npc") {
+        ph.stage = 1;
+        const to = this.randomDoorstep(v.x, v.y, 1500, 3500);
+        job.points[0] = to;
+        job.time += 60;
+        this.target = null;
+        this.say(`Посылка у тебя! Отвези заказчику: ${this.map.address(to.x, to.y)}`, "good");
+        this.emit({ type: "checkpoint" });
+      }
+      return;
+    }
+    const t = job.points[0];
+    if (Math.hypot(t.x - this.px, t.y - this.py) < 30) this.completeJob(job, Math.max(0, Math.floor(job.time)) * 100);
   }
 
   // ---------- pick-ups, places, jobs ----------
@@ -1737,6 +2063,20 @@ export class World {
       }
       k.respawn = 60;
     }
+    // Hidden packages.
+    const pk = this.map.packages;
+    for (let i = 0; i < pk.length; i++) {
+      if (this.packagesGot.has(i) || this.player.mode === "out") continue;
+      if (Math.abs(pk[i].x - px) > 20 || Math.abs(pk[i].y - py) > 20) continue;
+      this.packagesGot.add(i);
+      this.money += 5000;
+      this.burst(pk[i].x, pk[i].y, 12, "cash");
+      this.emit({ type: "package", got: this.packagesGot.size, total: pk.length });
+      if (this.packagesGot.size === pk.length) {
+        this.money += 100000;
+        this.say("Все секретные посылки найдены! +100 000 ₽", "good");
+      } else this.say(`Секретная посылка ${this.packagesGot.size} из ${pk.length}: +5 000 ₽`, "good");
+    }
     // Money rain: the clock and the coins that are left.
     if (this.rush) {
       this.rush.t -= dt;
@@ -1750,7 +2090,7 @@ export class World {
   }
 
   get mult() {
-    return this.double > 0 ? 2 : 1;
+    return (this.double > 0 ? 2 : 1) * (1 + 0.25 * Math.min(this.streak, 4));
   }
 
   // A "?" crate: mostly good things, now and then a nasty one.
@@ -1954,6 +2294,7 @@ export class World {
   failJob(text: string) {
     if (!this.job) return;
     this.job = null;
+    this.target = null;
     this.jobCooldown = 3;
     this.say(text, "bad");
     this.emit({ type: "jobFail" });
@@ -1965,6 +2306,11 @@ export class World {
     if (p.mode === "out") return;
     const job = this.job;
     if (!job) {
+      const st = this.map.stadium;
+      if (st && p.mode === "ride" && Math.hypot(st.path[0].x - this.px, st.path[0].y - this.py) < 45 && this.jobCooldown <= 0) {
+        this.startLap();
+        return;
+      }
       if (this.jobCooldown > 0) return;
       for (const s of this.map.jobs)
         if (Math.hypot(s.x - this.px, s.y - this.py) < 26) {
@@ -1978,27 +2324,46 @@ export class World {
       return;
     }
     job.time -= dt;
+    if (job.time <= 0) {
+      this.failJob(job.kind === "stadium" ? "Круг не уложился в 2,5 минуты" : "Время вышло — задание провалено");
+      return;
+    }
+    if (job.kind === "phone") {
+      this.stepPhoneJob(job);
+      return;
+    }
     const t = job.points[job.idx];
-    const radius = job.kind === "race" ? 50 : 30;
+    const radius = job.kind === "race" ? 50 : job.kind === "stadium" ? 70 : 30;
     if (Math.hypot(t.x - this.px, t.y - this.py) < radius) {
       job.idx++;
       if (job.idx >= job.points.length) {
+        if (job.kind === "stadium") {
+          const lap = this.time - (job.start ?? this.time);
+          const record = !this.bestLap || lap < this.bestLap;
+          if (record) this.bestLap = lap;
+          this.emit({ type: "lap", time: lap, best: this.bestLap, record });
+          this.completeJob(job, record ? 10000 : 0, ` Круг ${lap.toFixed(2)} с${record ? " — новый рекорд стадиона!" : ` (рекорд ${this.bestLap.toFixed(2)} с)`}`);
+          // Straight into the next lap.
+          this.startLap();
+          return;
+        }
         const bonus = Math.max(0, Math.floor(job.time)) * 100;
         if (job.kind === "hot" && this.wanted > 0) {
           this.setWanted(0);
           this.heat = 0;
         }
-        const total = (job.reward + bonus) * this.mult;
-        this.money += total;
-        this.say(`Готово! +${rub(job.reward)}${bonus ? ` и ${rub(bonus)} за скорость` : ""}${this.mult > 1 ? " — и всё ×2!" : ""}`, "good");
-        this.emit({ type: "jobDone", reward: total });
-        this.job = null;
-        this.jobCooldown = 4;
+        this.completeJob(job, bonus, bonus ? ` (с бонусом за скорость)` : "");
         return;
       }
       this.emit({ type: "checkpoint" });
     }
-    if (job.time <= 0) this.failJob("Время вышло — задание провалено");
+  }
+
+  private startLap() {
+    const st = this.map.stadium!;
+    const spot: JobSpot = { kind: "stadium", x: st.path[0].x, y: st.path[0].y };
+    this.job = { kind: "stadium", spot, points: [...st.path.slice(1), st.path[0]], idx: 0, time: 150, reward: 4000, title: "Эндуро-стадион: круг на время", start: this.time };
+    this.jobCooldown = 0;
   }
 
   // ---------- guns ----------
