@@ -1,22 +1,56 @@
-// Synthesised sound (Web Audio): the player's engine with gear changes, sirens, crashes,
-// pick-ups and jingles. Nothing to download.
+// Synthesised sound (Web Audio): the player's engine, sirens, guns, crashes, pick-ups,
+// jingles and the bike radio. Nothing to download.
+
+import { THUMPER_SOURCE, distortion } from "../thumper.ts";
+import { Radio } from "./radio.ts";
 
 const KEY = "moto-city-sound";
+const RADIO_KEY = "moto-city-radio";
+
+// How each bike sounds: rev range, firing pulses per crank turn, exhaust tone, loudness.
+interface EngineProfile {
+  idle: number;
+  max: number;
+  pulses: number; // firings per revolution: 0.5 four-stroke single, 1 two-stroke, 2 four-cylinder
+  tone: number;
+  vol: number;
+}
+const PROFILES: Record<string, EngineProfile> = {
+  z3: { idle: 1500, max: 9500, pulses: 0.5, tone: 650, vol: 1 },
+  ex125: { idle: 1900, max: 11500, pulses: 0.5, tone: 900, vol: 0.8 },
+  t5: { idle: 1400, max: 9000, pulses: 0.5, tone: 600, vol: 1.1 },
+  "2t": { idle: 2400, max: 11500, pulses: 1, tone: 1300, vol: 1 },
+  scooter: { idle: 2200, max: 8500, pulses: 1, tone: 1500, vol: 0.6 },
+  chopper: { idle: 900, max: 5500, pulses: 1, tone: 420, vol: 1.2 },
+  sport: { idle: 2000, max: 14000, pulses: 2, tone: 1700, vol: 0.9 },
+};
+// Top road speed of each gear, as a share of the bike's top speed.
+const GEARS = [0.17, 0.31, 0.46, 0.62, 0.8, 1.02];
 
 export class CitySound {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private noiseBuf!: AudioBuffer;
-  private eng: { o1: OscillatorNode; o2: OscillatorNode; f: BiquadFilterNode; g: GainNode } | null = null;
+  private thump: AudioWorkletNode | null = null;
+  private engTone!: BiquadFilterNode;
+  private engOut!: GainNode;
   private siren: { o: OscillatorNode; g: GainNode } | null = null;
+  private gear = 0;
+  private rpm = 0.1;
+  private shiftT = 0;
+  private lastT = 0;
+  radio: Radio | null = null;
+  private radioIndex = 0;
   muted = false;
   private listeners: ((m: boolean) => void)[] = [];
 
   constructor() {
     try {
       this.muted = localStorage.getItem(KEY) === "off";
+      const r = Number(localStorage.getItem(RADIO_KEY) ?? 0);
+      this.radioIndex = r >= -1 && r < Radio.STATIONS.length ? r : 0;
     } catch {
-      /* default on */
+      /* defaults */
     }
     document.addEventListener("visibilitychange", () => {
       if (!this.ctx) return;
@@ -40,27 +74,37 @@ export class CitySound {
       this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
       const d = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-      // Engine: two detuned saws through a low-pass.
-      const o1 = ctx.createOscillator();
-      const o2 = ctx.createOscillator();
-      o1.type = "sawtooth";
-      o2.type = "square";
-      const f = ctx.createBiquadFilter();
-      f.type = "lowpass";
-      f.frequency.value = 500;
-      f.Q.value = 3;
-      const g = ctx.createGain();
-      g.gain.value = 0;
-      const g2 = ctx.createGain();
-      g2.gain.value = 0.4;
-      o1.connect(f);
-      o2.connect(g2);
-      g2.connect(f);
-      f.connect(g);
-      g.connect(this.master);
-      o1.start();
-      o2.start();
-      this.eng = { o1, o2, f, g };
+      // Engine: separate combustion pulses (AudioWorklet) through an exhaust-like chain.
+      const grit = ctx.createWaveShaper();
+      grit.curve = distortion(1.5);
+      const chest = ctx.createBiquadFilter();
+      chest.type = "peaking";
+      chest.frequency.value = 120;
+      chest.gain.value = 5;
+      chest.Q.value = 0.9;
+      this.engTone = ctx.createBiquadFilter();
+      this.engTone.type = "lowpass";
+      this.engTone.Q.value = 0.7;
+      const hiss = ctx.createBiquadFilter();
+      hiss.type = "highshelf";
+      hiss.frequency.value = 3500;
+      hiss.gain.value = -10;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 35;
+      this.engOut = ctx.createGain();
+      this.engOut.gain.value = 0;
+      grit.connect(chest).connect(this.engTone).connect(hiss).connect(hp).connect(this.engOut).connect(this.master);
+      const url = URL.createObjectURL(new Blob([THUMPER_SOURCE], { type: "text/javascript" }));
+      ctx.audioWorklet
+        ?.addModule(url)
+        .then(() => {
+          this.thump = new AudioWorkletNode(ctx, "thumper");
+          this.thump.connect(grit);
+        })
+        .catch(() => {
+          /* no worklet: the bike rides silently, everything else still sounds */
+        });
       const so = ctx.createOscillator();
       so.type = "triangle";
       const sg = ctx.createGain();
@@ -69,6 +113,7 @@ export class CitySound {
       sg.connect(this.master);
       so.start();
       this.siren = { o: so, g: sg };
+      this.radio = new Radio(ctx, this.master, this.noiseBuf, this.radioIndex);
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
@@ -91,22 +136,51 @@ export class CitySound {
     f(this.muted);
   }
 
-  // speed 0..1 of top speed, throttle 0..1; on = riding at all.
+  // Next radio station (or off); returns what is on now.
+  radioCycle() {
+    this.unlock();
+    const name = this.radio?.cycle() ?? "Радио выключено";
+    try {
+      localStorage.setItem(RADIO_KEY, String(this.radio?.index ?? this.radioIndex));
+    } catch {
+      /* not saved */
+    }
+    return name;
+  }
+  get radioName() {
+    return this.radio?.name ?? (this.radioIndex >= 0 ? Radio.STATIONS[this.radioIndex].name : "Радио выключено");
+  }
+  radioPlaying(on: boolean) {
+    this.radio?.setPlaying(on);
+  }
+
+  // speed: share of the bike's top speed (negative backwards); throttle 0..1; on = riding.
   engine(on: boolean, speed: number, throttle: number, kind: string) {
-    if (!this.ctx || !this.eng) return;
+    if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    // Six gears: pitch climbs through each and drops at the shift.
-    const gears = 6;
-    const pos = Math.min(0.999, Math.abs(speed)) * gears;
-    const gear = Math.floor(pos);
-    const inGear = pos - gear;
-    const rpm = 0.22 + (gear === 0 ? inGear * 0.75 : 0.35 + inGear * 0.6);
-    const base = { chopper: 34, scooter: 70, sport: 62, ex125: 64, "2t": 58, t5: 44 }[kind] ?? 48;
-    const freq = base * (0.6 + rpm * 2.4);
-    this.eng.o1.frequency.setTargetAtTime(freq, t, 0.04);
-    this.eng.o2.frequency.setTargetAtTime(freq * 0.5, t, 0.04);
-    this.eng.f.frequency.setTargetAtTime(300 + rpm * 1400 + throttle * 600, t, 0.05);
-    this.eng.g.gain.setTargetAtTime(on ? 0.05 + throttle * 0.07 + rpm * 0.03 : 0, t, 0.08);
+    const dt = Math.min(0.1, Math.max(0, t - this.lastT));
+    this.lastT = t;
+    // Gearbox with a little hysteresis; a short throttle cut on each upshift.
+    const w = Math.min(1.05, Math.abs(speed));
+    if (this.gear < GEARS.length - 1 && w > GEARS[this.gear]) {
+      this.gear++;
+      this.shiftT = 0.12;
+    }
+    while (this.gear > 0 && w < GEARS[this.gear - 1] * 0.82) this.gear--;
+    const lo = this.gear ? GEARS[this.gear - 1] * 0.72 : 0;
+    let target = 0.06 + 0.94 * Math.max(0, (w - lo) / (GEARS[this.gear] - lo));
+    if (throttle > 0 && w < 0.04) target = Math.max(target, 0.3); // revving to pull away
+    this.rpm += (Math.min(1, target) - this.rpm) * Math.min(1, dt * (target > this.rpm ? 7 : 4));
+    this.shiftT = Math.max(0, this.shiftT - dt);
+    const P = PROFILES[kind] ?? PROFILES.z3;
+    const crank = P.idle + this.rpm * (P.max - P.idle);
+    const load = this.shiftT > 0 ? 0.05 : throttle;
+    if (this.thump) {
+      this.thump.parameters.get("freq")!.setTargetAtTime(Math.min(400, (crank / 60) * P.pulses), t, 0.035);
+      this.thump.parameters.get("load")!.setTargetAtTime(load, t, 0.05);
+    }
+    this.engTone.frequency.setTargetAtTime(P.tone + load * 1500 + this.rpm * 600, t, 0.08);
+    this.engOut.gain.setTargetAtTime(on ? 0.075 * P.vol * (0.45 + load * 0.55) : 0, t, on ? 0.08 : 0.2);
   }
 
   sirenLevel(level: number, time: number) {
@@ -199,6 +273,25 @@ export class CitySound {
       this.noise(0.14, 2600, 0.6, "bandpass");
       this.tone(150, 0, 0.06, 0.18);
     }
+  }
+  nitro() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = 1.5;
+    const g = ctx.createGain();
+    const t = ctx.currentTime;
+    f.frequency.setValueAtTime(400, t);
+    f.frequency.exponentialRampToValueAtTime(3000, t + 0.6);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.35, t + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t);
+    src.stop(t + 1.3);
   }
   reload() {
     this.tone(320, 0, 0.04, 0.12);
