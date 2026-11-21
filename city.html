@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1c1a17" />
+    <meta name="description" content="Мото-город от 67МОТО: курьер на мотоцикле BSE в большом городе. Доставки, гонки, погони с полицией, день и ночь — прямо в браузере." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Мото-город · 67МОТО</title>
+  </head>
+  <body class="city">
+    <canvas id="c"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-tl">
+        <div class="health" title="Здоровье"><span class="heart">♥</span><div class="bar"><i id="hp"></i></div></div>
+        <div id="wanted" class="wanted" title="Розыск"></div>
+        <button id="gun" class="gun hidden" title="Сменить оружие (Q)"></button>
+      </div>
+      <div class="hud-tr">
+        <div id="money" class="money">0 ₽</div>
+        <div class="hud-row">
+          <span id="clock" class="clock">17:00</span>
+          <div class="hud-btns">
+            <button id="b-mute" class="ibtn mute" aria-label="Звук" title="Звук (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4" /><path class="off" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg></button>
+            <button id="b-fs" class="ibtn" aria-label="Во весь экран" title="Во весь экран"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
+            <button id="b-pause" class="ibtn" aria-label="Пауза" title="Пауза (Esc)"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" /></svg></button>
+          </div>
+        </div>
+      </div>
+      <div id="job" class="job hidden"><b id="job-title"></b><span id="job-time"></span></div>
+      <div id="msgs" class="msgs"></div>
+      <div id="hint" class="hint hidden"></div>
+      <canvas id="mini" class="mini"></canvas>
+      <div class="speedo"><b id="spd">0</b><small>км/ч</small><span id="bike-name"></span></div>
+    </div>
+
+    <div id="touch" class="touch hidden">
+      <div class="tpad tl">
+        <button data-k="left" class="tb steer" aria-label="Влево">◀</button>
+        <button data-k="right" class="tb steer" aria-label="Вправо">▶</button>
+      </div>
+      <div class="tpad tr">
+        <button data-k="fire" id="t-fire" class="tb small fire hidden" aria-label="Огонь">Огонь</button>
+        <button data-k="action" class="tb small act" aria-label="Сесть или слезть">E</button>
+        <button data-k="hb" class="tb small" id="t-hb" aria-label="Занос">Занос</button>
+        <button data-k="brake" class="tb brake" aria-label="Тормоз">Тормоз</button>
+        <button data-k="gas" class="tb gas" aria-label="Газ">Газ</button>
+      </div>
+    </div>
+
+    <div id="big" class="big hidden"></div>
+
+    <div id="title" class="overlay">
+      <div class="panel title-panel">
+        <div class="brand"><img src="/src/assets/67moto/logo-512.png" alt="67МОТО" /><span>67МОТО представляет</span></div>
+        <h1>Мото<span>город</span></h1>
+        <p class="lead">Ты — курьер 67МОТО на мотоцикле BSE. Развози запчасти по городу, гоняй по улицам, уходи от полиции и копи на байк мечты в нашем салоне.</p>
+        <button id="b-play" class="primary">Играть</button>
+        <div class="keys kbd-only">
+          <div><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль · <b>Пробел</b> — занос (пешком — удар)</div>
+          <div><b>E</b> — сесть / слезть · <b>Ctrl</b>, <b>J</b> или мышь — огонь · <b>Q</b> — сменить оружие</div>
+          <div><b>Esc</b> — пауза · <b>M</b> — звук</div>
+        </div>
+        <div class="keys touch-only">
+          <div><b>◀ ▶</b> — руль, <b>Газ</b> и <b>Тормоз</b> — справа</div>
+          <div><b>E</b> — сесть / слезть · <b>Огонь</b> появится с оружием, тап по названию — сменить</div>
+        </div>
+        <div class="legend">
+          <span><i style="background: #3ddc6e"></i>доставка</span>
+          <span><i style="background: #ff9f1a"></i>гонка</span>
+          <span><i style="background: #ff3b3b"></i>горячий груз</span>
+          <span><i style="background: #2f8fe0"></i>сервис 67МОТО</span>
+          <span><i style="background: #d9b778"></i>салон 67МОТО</span>
+        </div>
+        <p class="site">67МОТО — мотоциклы BSE, Смоленск</p>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="panel">
+        <h2>Пауза</h2>
+        <p id="pause-stats" class="sub"></p>
+        <button id="p-resume" class="primary">Продолжить</button>
+        <div class="keys">
+          <div class="kbd-only"><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль · <b>Пробел</b> — занос или удар</div>
+          <div class="kbd-only"><b>E</b> — сесть / слезть · <b>Ctrl</b>, <b>J</b>, мышь — огонь · <b>Q</b> — оружие</div>
+          <div>Сервис 67МОТО (синий) снимает розыск и чинит байк. В салоне 67МОТО (бежевый) — мотоциклы BSE. Ящики на улицах — оружие.</div>
+        </div>
+        <button id="p-menu" class="link">В главное меню Moto Trials</button>
+      </div>
+    </div>
+
+    <div id="shop" class="overlay hidden">
+      <div class="panel wide shop-panel">
+        <div class="shop-head">
+          <img src="/src/assets/67moto/logo-512.png" alt="" />
+          <div>
+            <h2>Салон 67МОТО</h2>
+            <p class="sub">Мотоциклы BSE. Купленный байк ждёт тебя после больницы и участка.</p>
+          </div>
+          <span id="shop-money" class="shop-money"></span>
+        </div>
+        <div id="shop-list" class="shop-list"></div>
+        <button id="shop-close" class="primary">Ехать</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/city/main.ts"></script>
+  </body>
+</html>
