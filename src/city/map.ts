@@ -326,9 +326,9 @@ export class CityMap {
         else this.treeCells.set(key, [t]);
       }
 
-    // Rooftop billboards of the 67MOTO shop on a dozen roomy roofs.
+    // A few rooftop billboards of the 67MOTO shop.
     const roomy = this.buildings.filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
-    for (let i = 0; i < 14 && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = true;
+    for (let i = 0; i < 4 && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = true;
 
     // Street lights along the kerbs.
     for (let y = L.y0; y <= L.y1; y++)

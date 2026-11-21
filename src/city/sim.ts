@@ -59,7 +59,7 @@ const round100 = (n: number) => Math.round(n / 100) * 100;
 
 // ---------- Weapons ----------
 
-export type WeaponId = "pistol" | "smg" | "shotgun";
+export type WeaponId = "pistol" | "smg" | "shotgun" | "rocket";
 export interface Weapon {
   id: WeaponId;
   name: string;
@@ -75,8 +75,9 @@ export const WEAPONS: Record<WeaponId, Weapon> = {
   pistol: { id: "pistol", name: "Пистолет", rate: 3.2, dmg: 34, spread: 0.035, pellets: 1, speed: 950, range: 520, pack: 24 },
   smg: { id: "smg", name: "Автомат", rate: 11, dmg: 15, spread: 0.075, pellets: 1, speed: 1000, range: 560, pack: 90 },
   shotgun: { id: "shotgun", name: "Дробовик", rate: 1.25, dmg: 20, spread: 0.2, pellets: 7, speed: 850, range: 300, pack: 14 },
+  rocket: { id: "rocket", name: "Ракетница", rate: 0.9, dmg: 0, spread: 0.01, pellets: 1, speed: 520, range: 650, pack: 5 },
 };
-const WEAPON_ORDER: WeaponId[] = ["pistol", "smg", "shotgun"];
+const WEAPON_ORDER: WeaponId[] = ["pistol", "smg", "shotgun", "rocket"];
 
 export interface Bullet {
   x: number;
@@ -86,6 +87,7 @@ export interface Bullet {
   life: number;
   dmg: number;
   owner: "player" | "police";
+  rocket?: boolean;
 }
 
 // Game clock: hours since midnight. Full dark from 21:30 to 4:30, twilight either side.
@@ -250,7 +252,8 @@ export interface Skid {
 }
 
 export interface Pickup {
-  kind: "cash" | "health" | WeaponId;
+  kind: "cash" | "health" | "surprise" | "coin" | WeaponId;
+  temp?: boolean; // money-rain coins: gone once taken or when time runs out
   x: number;
   y: number;
   amount: number;
@@ -285,7 +288,10 @@ export type GameEvent =
   | { type: "shop" }
   | { type: "kick" }
   | { type: "shot"; weapon: WeaponId | "police"; x: number; y: number }
-  | { type: "weapon"; id: WeaponId };
+  | { type: "weapon"; id: WeaponId }
+  | { type: "surprise"; text: string; good: boolean }
+  | { type: "nitro" }
+  | { type: "coin" };
 
 export interface Input {
   gas: boolean;
@@ -297,6 +303,7 @@ export interface Input {
   kick: boolean; // edge
   fire: boolean; // held
   swap: boolean; // edge: next weapon
+  sprint: boolean; // held: run on foot, nitro on the bike
 }
 
 export interface Player {
@@ -307,6 +314,9 @@ export interface Player {
   getup: number;
   bust: number;
   outT: number;
+  armor: number;
+  nitro: number; // charges
+  jailCard: boolean;
 }
 
 const WANTED_LOSE = 12; // seconds out of sight per star
@@ -329,6 +339,10 @@ export class World {
   heat = 0; // crimes since the last star
   job: Job | null = null;
   jobCooldown = 0;
+  double = 0; // seconds of double money left
+  boostT = 0; // nitro burning
+  rush: { t: number; left: number; got: number } | null = null; // money rain
+  private sprintPrev = false;
   time = 0;
   view = { x0: 0, y0: 0, x1: 0, y1: 0 };
   bikeId = "z3";
@@ -354,10 +368,10 @@ export class World {
     const body = new Ped(start.x, start.y, -Math.PI / 2);
     body.helmet = "#ff7a1a";
     body.shirt = "#1d1d1f";
-    this.player = { mode: "foot", bike: null, body, health: 100, getup: 0, bust: 0, outT: 0 };
+    this.player = { mode: "foot", bike: null, body, health: 100, getup: 0, bust: 0, outT: 0, armor: 0, nitro: 0, jailCard: false };
     for (let i = 0; i < 40; i++) this.placePickup("cash");
     for (let i = 0; i < 8; i++) this.placePickup("health");
-    for (const [kind, n] of [["pistol", 7], ["smg", 4], ["shotgun", 4]] as const) for (let i = 0; i < n; i++) this.placePickup(kind);
+    for (const [kind, n] of [["pistol", 7], ["smg", 4], ["shotgun", 4], ["surprise", 14]] as const) for (let i = 0; i < n; i++) this.placePickup(kind);
   }
 
   emit(e: GameEvent) {
@@ -391,7 +405,7 @@ export class World {
       const y = map.land.y0 + Math.floor(this.r() * (map.land.y1 - map.land.y0));
       const t = map.at(x, y);
       if (t !== WALK && t !== LOT && t !== GRASS) continue;
-      this.pickups.push({ kind, x: (x + 0.5) * T, y: (y + 0.5) * T, amount: kind === "cash" ? 300 + 100 * Math.floor(this.r() * 13) : kind === "health" ? 40 : WEAPONS[kind].pack, respawn: 0 });
+      this.pickups.push({ kind, x: (x + 0.5) * T, y: (y + 0.5) * T, amount: kind === "cash" ? 300 + 100 * Math.floor(this.r() * 13) : kind === "health" ? 40 : kind === "surprise" || kind === "coin" ? 0 : WEAPONS[kind].pack, respawn: 0 });
       return;
     }
   }
@@ -599,6 +613,9 @@ export class World {
   hurt(dmg: number) {
     const p = this.player;
     if (p.mode === "out" || dmg <= 0) return;
+    const soak = Math.min(p.armor, dmg);
+    p.armor -= soak;
+    dmg -= soak;
     p.health = Math.max(0, p.health - dmg);
     if (p.health <= 0) this.endLife("wasted");
   }
@@ -626,7 +643,11 @@ export class World {
   respawn(how: "wasted" | "busted") {
     const p = this.player;
     const place = this.map.places.find((q) => q.kind === (how === "busted" ? "police" : "hospital")) ?? this.map.places[0];
-    const fee = how === "busted" ? Math.min(this.money, 4000 + this.wanted * 3000) : Math.min(this.money, 3000);
+    const card = how === "busted" && p.jailCard;
+    const fee = card ? 0 : how === "busted" ? Math.min(this.money, 4000 + this.wanted * 3000) : Math.min(this.money, 3000);
+    if (card) p.jailCard = false;
+    if (how === "wasted") p.armor = 0;
+    this.boostT = 0;
     this.money -= fee;
     this.wanted = 0;
     this.heat = 0;
@@ -641,12 +662,13 @@ export class World {
     p.bust = 0;
     // The rider's own bike is waiting at the kerb.
     this.spawnPlayerBike(this.bikeId, place.x + Math.cos(place.a + Math.PI / 2) * 16, place.y + Math.sin(place.a + Math.PI / 2) * 16, place.a, false);
-    if (how === "busted") {
+    if (how === "busted" && !card) {
       // The police keep the guns.
       this.arms = {};
       this.weapon = null;
     }
-    this.say(how === "busted" ? `Отпустили под залог: −${rub(fee)}, оружие изъято` : `Больница: −${rub(fee)}`, "bad");
+    if (card) this.say("Карта «Выйти из участка»: отпустили бесплатно, оружие при тебе", "good");
+    else this.say(how === "busted" ? `Отпустили под залог: −${rub(fee)}, оружие изъято` : `Больница: −${rub(fee)}`, "bad");
     this.populate(true);
   }
 
@@ -716,18 +738,40 @@ export class World {
 
   private controlPlayer(dt: number, inp: Input) {
     const p = this.player;
+    this.controlPlayerInner(dt, inp);
+    this.sprintPrev = inp.sprint;
+    this.boostT = Math.max(0, this.boostT - dt);
+    this.double = Math.max(0, this.double - dt);
+    if (this.boostT > 0 && p.mode === "ride" && p.bike) {
+      const b = p.bike;
+      const ex = b.x - Math.cos(b.a) * (b.model.len / 2 + 2);
+      const ey = b.y - Math.sin(b.a) * (b.model.len / 2 + 2);
+      this.puff(ex, ey, "fire", 0.5);
+      if (this.tick % 2 === 0) this.puff(ex, ey, "smoke", 0.5);
+    }
+  }
+
+  private controlPlayerInner(dt: number, inp: Input) {
+    const p = this.player;
     if (p.mode === "ride" && p.bike) {
       const v = p.bike;
       v.thr = inp.gas ? 1 : 0;
       v.brk = inp.brake ? 1 : 0;
       v.steer = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
       v.hb = inp.hb;
+      if (inp.sprint && !this.sprintPrev && this.boostT <= 0) {
+        if (p.nitro > 0) {
+          p.nitro--;
+          this.boostT = 2.5;
+          this.emit({ type: "nitro" });
+        } else if (this.tick % 30 === 0) this.say("Нитро нет — ищи ящики «?»", "info");
+      }
       if (inp.action) this.dismount();
     } else if (p.mode === "foot") {
       const b = p.body;
       const turn = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
       b.a += turn * 3.8 * dt;
-      const sp = inp.gas ? 72 : inp.brake ? -32 : 0;
+      const sp = inp.gas ? (inp.sprint ? 130 : 72) : inp.brake ? -32 : 0;
       b.vx = Math.cos(b.a) * sp;
       b.vy = Math.sin(b.a) * sp;
       if (sp !== 0) b.phase += dt * Math.abs(sp) * 0.25;
@@ -809,10 +853,11 @@ export class World {
       vf *= k;
       vr *= k;
     } else {
-      const vmax = M.vmax * (rough ? M.offroad : 1) * (v.hp <= M.hp * 0.25 ? 0.75 : 1);
+      const boost = v.rider === "player" && this.boostT > 0;
+      const vmax = M.vmax * (rough ? M.offroad : 1) * (v.hp <= M.hp * 0.25 ? 0.75 : 1) * (boost ? 1.35 : 1);
       if (v.thr > 0) {
         if (vf < -5) vf += M.brake * dt;
-        else vf += M.accel * v.thr * Math.max(0, 1 - (vf / vmax) ** 2) * dt;
+        else vf += M.accel * (boost ? 2.2 : 1) * v.thr * Math.max(0, 1 - (vf / vmax) ** 2) * dt;
       }
       if (v.brk > 0) {
         if (vf > 5) vf -= M.brake * v.brk * dt;
@@ -994,37 +1039,46 @@ export class World {
     v.wreck = true;
     v.burn = 0;
     v.hp = 0;
-    this.emit({ type: "explode", x: v.x, y: v.y });
-    this.burst(v.x, v.y, 30, "fire");
-    this.burst(v.x, v.y, 20, "smoke");
-    this.burst(v.x, v.y, 20, "spark");
     if (v.rider) this.throwRider(v, 200);
-    const R = 95;
+    this.blast(v.x, v.y, v, false, 1);
+  }
+
+  blast(x: number, y: number, skip: Vehicle | null, byPlayer: boolean, power: number) {
+    this.emit({ type: "explode", x, y });
+    this.burst(x, y, Math.round(30 * power), "fire");
+    this.burst(x, y, Math.round(20 * power), "smoke");
+    this.burst(x, y, 20, "spark");
+    const R = 95 * Math.sqrt(power);
     for (const o of this.vehicles) {
-      if (o === v) continue;
-      const dx = o.x - v.x;
-      const dy = o.y - v.y;
+      if (o === skip) continue;
+      const dx = o.x - x;
+      const dy = o.y - y;
       const d = Math.hypot(dx, dy);
       if (d > R || d === 0) continue;
       const k = 1 - d / R;
       o.vx += (dx / d) * 260 * k;
       o.vy += (dy / d) * 260 * k;
       o.spin += (this.r() - 0.5) * 8 * k;
-      this.impact(o, 100 + 150 * k, o.x, o.y, null);
+      if (o.rider === "player") this.impact(o, 60 + 120 * k * power, o.x, o.y, null);
+      else this.impact(o, 100 + 150 * k, o.x, o.y, null);
+      if (byPlayer && o.police && o.alive) this.crime(1.5, o.x, o.y);
     }
     for (const q of this.peds) {
-      const dx = q.x - v.x;
-      const dy = q.y - v.y;
+      const dx = q.x - x;
+      const dy = q.y - y;
       const d = Math.hypot(dx, dy) || 1;
-      if (d < R) this.knock(q, (dx / d) * 220, (dy / d) * 220);
+      if (d < R && q.state !== "swim") {
+        this.knock(q, (dx / d) * 220, (dy / d) * 220);
+        if (byPlayer) this.crime(0.7, q.x, q.y);
+      }
     }
     const b = this.player.body;
     if (this.player.mode !== "ride") {
-      const dx = b.x - v.x;
-      const dy = b.y - v.y;
+      const dx = b.x - x;
+      const dy = b.y - y;
       const d = Math.hypot(dx, dy) || 1;
       if (d < R) {
-        this.hurt(70 * (1 - d / R));
+        this.hurt(70 * power * (1 - d / R));
         b.vx += (dx / d) * 200;
         b.vy += (dy / d) * 200;
         if (this.player.mode === "foot") {
@@ -1631,6 +1685,30 @@ export class World {
       }
       if (Math.abs(k.x - px) > 18 || Math.abs(k.y - py) > 18 || this.player.mode === "out") continue;
       if (k.kind === "health" && this.player.health >= 100) continue;
+      if (k.kind === "surprise") {
+        this.surprise(k);
+        continue;
+      }
+      if (k.kind === "coin") {
+        const amt = 1000 * this.mult;
+        this.money += amt;
+        this.burst(k.x, k.y, 8, "cash");
+        this.emit({ type: "coin" });
+        k.respawn = 1e9;
+        const r = this.rush;
+        if (r) {
+          r.left--;
+          r.got++;
+          if (r.left <= 0) {
+            const bonus = 10000 * this.mult;
+            this.money += bonus;
+            this.say(`Денежный дождь собран целиком! Бонус +${rub(bonus)}`, "good");
+            this.emit({ type: "jobDone", reward: bonus });
+            this.rush = null;
+          }
+        }
+        continue;
+      }
       if (k.kind === "pistol" || k.kind === "smg" || k.kind === "shotgun") {
         const had = (this.arms[k.kind] ?? 0) > 0;
         this.arms[k.kind] = (this.arms[k.kind] ?? 0) + k.amount;
@@ -1641,8 +1719,8 @@ export class World {
         continue;
       }
       if (k.kind === "cash") {
-        this.money += k.amount;
-        this.emit({ type: "cash", amount: k.amount });
+        this.money += k.amount * this.mult;
+        this.emit({ type: "cash", amount: k.amount * this.mult });
         this.burst(k.x, k.y, 8, "cash");
       } else {
         this.player.health = Math.min(100, this.player.health + k.amount);
@@ -1650,6 +1728,115 @@ export class World {
       }
       k.respawn = 60;
     }
+    // Money rain: the clock and the coins that are left.
+    if (this.rush) {
+      this.rush.t -= dt;
+      if (this.rush.t <= 0) {
+        this.say(`Денежный дождь закончился: собрано ${this.rush.got} из 10`, "info");
+        this.rush = null;
+      }
+    }
+    if (!this.rush) this.pickups = this.pickups.filter((k) => !k.temp);
+    else this.pickups = this.pickups.filter((k) => !k.temp || k.respawn <= 0);
+  }
+
+  get mult() {
+    return this.double > 0 ? 2 : 1;
+  }
+
+  // A "?" crate: mostly good things, now and then a nasty one.
+  private surprise(k: Pickup) {
+    const p = this.player;
+    const r = this.r;
+    const say = (text: string, good = true) => {
+      this.say(text, good ? "good" : "bad");
+      this.emit({ type: "surprise", text, good });
+    };
+    const table: [number, () => void][] = [
+      [22, () => {
+        const amt = (5000 + 1000 * Math.floor(r() * 16)) * this.mult;
+        this.money += amt;
+        this.burst(k.x, k.y, 14, "cash");
+        say(`Сюрприз: ${rub(amt)}!`);
+      }],
+      [14, () => {
+        p.armor = 100;
+        say("Сюрприз: бронежилет — держит 100 урона");
+      }],
+      [9, () => {
+        if (this.wanted > 0) {
+          this.setWanted(0);
+          this.heat = 0;
+          say("Сюрприз: взятка — полиция тебя больше не ищет");
+        } else {
+          this.money += 3000 * this.mult;
+          say(`Сюрприз: ${rub(3000 * this.mult)}`);
+        }
+      }],
+      [8, () => {
+        p.jailCard = true;
+        say("Сюрприз: карта «Выйти из участка» — следующее задержание бесплатно");
+      }],
+      [14, () => {
+        p.nitro += 3;
+        say("Сюрприз: нитро ×3 — жми Shift на мотоцикле");
+      }],
+      [9, () => {
+        this.double = 90;
+        say("Сюрприз: двойные деньги на 90 секунд!");
+      }],
+      [8, () => {
+        this.arms.rocket = (this.arms.rocket ?? 0) + 5;
+        this.weapon = "rocket";
+        say("Сюрприз: ракетница, 5 ракет");
+        this.emit({ type: "weapon", id: "rocket" });
+      }],
+      [9, () => this.startRush()],
+      [7, () => {
+        say("Ящик с сюрпризом… БАХ! Ловушка", false);
+        this.blast(k.x, k.y, null, false, 0.45);
+      }],
+    ];
+    let roll = r() * table.reduce((a, [w]) => a + w, 0);
+    for (const [w, f] of table) {
+      roll -= w;
+      if (roll <= 0) {
+        f();
+        break;
+      }
+    }
+    // The crate turns up somewhere else in a couple of minutes.
+    k.respawn = 120;
+    const map = this.map;
+    for (let tries = 0; tries < 50; tries++) {
+      const x = map.land.x0 + Math.floor(r() * (map.land.x1 - map.land.x0));
+      const y = map.land.y0 + Math.floor(r() * (map.land.y1 - map.land.y0));
+      const t = map.at(x, y);
+      if (t !== WALK && t !== LOT && t !== GRASS) continue;
+      k.x = (x + 0.5) * T;
+      k.y = (y + 0.5) * T;
+      break;
+    }
+  }
+
+  // Ten coins around the player and 45 seconds to grab them.
+  private startRush() {
+    const map = this.map;
+    this.pickups = this.pickups.filter((k) => !k.temp);
+    let n = 0;
+    for (let tries = 0; tries < 400 && n < 10; tries++) {
+      const a = this.r() * Math.PI * 2;
+      const d = 200 + this.r() * 550;
+      const x = this.px + Math.cos(a) * d;
+      const y = this.py + Math.sin(a) * d;
+      const t = map.tileAt(x, y);
+      if (t !== ROAD && t !== WALK && t !== LOT && t !== BRIDGE) continue;
+      this.pickups.push({ kind: "coin", x, y, amount: 1000, respawn: 0, temp: true });
+      n++;
+    }
+    this.rush = { t: 45, left: n, got: 0 };
+    this.say("Сюрприз: денежный дождь! Собери 10 монет за 45 секунд", "good");
+    this.emit({ type: "surprise", text: "Денежный дождь", good: true });
   }
 
   private stepPlaces() {
@@ -1720,7 +1907,7 @@ export class World {
       points = [to];
       time = Math.round(d / 165 + 14);
       reward = round100(1500 + d * 2.2);
-      const what = ["Запчасти 67МОТО", "Шлем клиенту", "Масло и фильтры", "Цепь и звёзды", "Посылка", "Экипировка 67МОТО"][Math.floor(this.r() * 6)];
+      const what = ["Запчасти 67МОТО", "Шлем клиенту", "Масло и фильтры", "Цепь и звёзды", "Посылка", "Экипировка"][Math.floor(this.r() * 6)];
       title = `${what}: ${this.map.address(to.x, to.y)}`;
     } else if (spot.kind === "hot") {
       const garages = this.map.places.filter((p) => p.kind === "garage");
@@ -1787,9 +1974,9 @@ export class World {
           this.setWanted(0);
           this.heat = 0;
         }
-        const total = job.reward + bonus;
+        const total = (job.reward + bonus) * this.mult;
         this.money += total;
-        this.say(`Готово! +${rub(job.reward)}${bonus ? ` и ${rub(bonus)} за скорость` : ""}`, "good");
+        this.say(`Готово! +${rub(job.reward)}${bonus ? ` и ${rub(bonus)} за скорость` : ""}${this.mult > 1 ? " — и всё ×2!" : ""}`, "good");
         this.emit({ type: "jobDone", reward: total });
         this.job = null;
         this.jobCooldown = 4;
@@ -1836,7 +2023,7 @@ export class World {
     for (let i = 0; i < W.pellets; i++) {
       const a = src.a + (this.r() * 2 - 1) * W.spread;
       const sp = W.speed * (W.pellets > 1 ? 0.85 + this.r() * 0.3 : 1);
-      this.bullets.push({ x, y, vx: Math.cos(a) * sp + src.vx, vy: Math.sin(a) * sp + src.vy, life: W.range / W.speed, dmg: W.dmg, owner: "player" });
+      this.bullets.push({ x, y, vx: Math.cos(a) * sp + src.vx, vy: Math.sin(a) * sp + src.vy, life: W.range / W.speed, dmg: W.dmg, owner: "player", rocket: W.id === "rocket" });
     }
     this.flashes.push({ x, y, a: src.a, t: 0.05 });
     this.emit({ type: "shot", weapon: W.id, x, y });
@@ -1868,16 +2055,30 @@ export class World {
         const tile = map.tileAt(b.x, b.y);
         if (tile === BUILD || map.walls.some((w) => b.x > w.x0 && b.x < w.x1 && b.y > w.y0 && b.y < w.y1)) {
           this.burst(b.x - b.vx * h, b.y - b.vy * h, 3, "spark");
+          if (b.rocket) this.blast(b.x - b.vx * h, b.y - b.vy * h, null, true, 1);
           b.life = -1;
           break;
         }
-        if (this.bulletHits(b)) {
+        if (b.rocket ? this.rocketHits(b) : this.bulletHits(b)) {
+          if (b.rocket) this.blast(b.x, b.y, null, true, 1);
           b.life = -1;
           break;
         }
       }
+      if (b.rocket) {
+        this.puff(b.x - b.vx * 0.02, b.y - b.vy * 0.02, "smoke", 0.5);
+        // Out of range: goes off where it is.
+        if (b.life <= 0 && b.life > -1) this.blast(b.x, b.y, null, true, 1);
+      }
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
+  }
+
+  private rocketHits(b: Bullet) {
+    const p = this.player;
+    for (const v of this.vehicles) if (v !== p.bike && !v.sink && Math.hypot(b.x - v.x, b.y - v.y) < v.model.len / 2 + 3) return true;
+    for (const q of this.peds) if (q.state !== "swim" && Math.abs(q.x - b.x) < 6 && Math.abs(q.y - b.y) < 6) return true;
+    return false;
   }
 
   private bulletHits(b: Bullet) {

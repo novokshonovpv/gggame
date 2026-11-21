@@ -16,13 +16,15 @@
 
     <div id="hud" class="hidden">
       <div class="hud-tl">
-        <div class="health" title="Здоровье"><span class="heart">♥</span><div class="bar"><i id="hp"></i></div></div>
+        <div class="health" title="Здоровье и броня"><span class="heart">♥</span><div class="bar"><i id="hp"></i><i id="armor" class="armor"></i></div></div>
         <div id="wanted" class="wanted" title="Розыск"></div>
         <button id="gun" class="gun hidden" title="Сменить оружие (Q)"></button>
+        <div id="perks" class="perks"></div>
       </div>
       <div class="hud-tr">
         <div id="money" class="money">0 ₽</div>
         <div class="hud-row">
+          <button id="radio" class="radio" title="Радио (R)">📻</button>
           <span id="clock" class="clock">17:00</span>
           <div class="hud-btns">
             <button id="b-mute" class="ibtn mute" aria-label="Звук" title="Звук (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4" /><path class="off" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg></button>
@@ -42,6 +44,7 @@
       <div class="tpad tl">
         <button data-k="left" class="tb steer" aria-label="Влево">◀</button>
         <button data-k="right" class="tb steer" aria-label="Вправо">▶</button>
+        <button data-k="sprint" id="t-sprint" class="tb small sprint" aria-label="Бег или нитро">Бег</button>
       </div>
       <div class="tpad tr">
         <button data-k="fire" id="t-fire" class="tb small fire hidden" aria-label="Огонь">Огонь</button>
@@ -63,11 +66,12 @@
         <div class="keys kbd-only">
           <div><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль · <b>Пробел</b> — занос (пешком — удар)</div>
           <div><b>E</b> — сесть / слезть · <b>Ctrl</b>, <b>J</b> или мышь — огонь · <b>Q</b> — сменить оружие</div>
-          <div><b>Esc</b> — пауза · <b>M</b> — звук</div>
+          <div><b>Shift</b> — бег (на байке — нитро) · <b>R</b> — радио · <b>Esc</b> — пауза · <b>M</b> — звук</div>
         </div>
         <div class="keys touch-only">
           <div><b>◀ ▶</b> — руль, <b>Газ</b> и <b>Тормоз</b> — справа</div>
           <div><b>E</b> — сесть / слезть · <b>Огонь</b> появится с оружием, тап по названию — сменить</div>
+          <div><b>Бег</b> — бегом, на байке — нитро · тап по 📻 — радио</div>
         </div>
         <div class="legend">
           <span><i style="background: #3ddc6e"></i>доставка</span>
@@ -88,7 +92,8 @@
         <div class="keys">
           <div class="kbd-only"><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль · <b>Пробел</b> — занос или удар</div>
           <div class="kbd-only"><b>E</b> — сесть / слезть · <b>Ctrl</b>, <b>J</b>, мышь — огонь · <b>Q</b> — оружие</div>
-          <div>Сервис 67МОТО (синий) снимает розыск и чинит байк. В салоне 67МОТО (бежевый) — мотоциклы BSE. Ящики на улицах — оружие.</div>
+          <div class="kbd-only"><b>Shift</b> — бег / нитро · <b>R</b> — радио</div>
+          <div>Сервис 67МОТО (синий) снимает розыск и чинит байк. В салоне 67МОТО (бежевый) — мотоциклы BSE. Ящики с ружьём — оружие, ящики «?» — сюрпризы: деньги, броня, нитро, взятка, ракетница… или ловушка.</div>
         </div>
         <button id="p-menu" class="link">В главное меню Moto Trials</button>
       </div>

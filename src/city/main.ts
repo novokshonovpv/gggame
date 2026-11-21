@@ -128,6 +128,8 @@ const KEYS: Record<string, string> = {
   KeyJ: "fire",
   KeyX: "fire",
   KeyQ: "swap",
+  ShiftLeft: "sprint",
+  ShiftRight: "sprint",
   Tab: "swap",
 };
 window.addEventListener("keydown", (e) => {
@@ -144,6 +146,7 @@ window.addEventListener("keydown", (e) => {
     else if (mode === "pause") resume();
     else if (mode === "shop") closeShop();
   } else if (e.code === "KeyM") sound.toggle();
+  else if (e.code === "KeyR" && mode === "play") radioNext();
 });
 window.addEventListener("keyup", (e) => {
   const k = KEYS[e.code];
@@ -198,6 +201,7 @@ function readInput(): Input {
     kick: edges.has("hb") && onFoot,
     fire: held.has("fire"),
     swap: edges.has("swap"),
+    sprint: held.has("sprint"),
   };
   edges.clear();
   return inp;
@@ -223,6 +227,7 @@ function pause() {
   const owned = save.owned.length;
   $("pause-stats").textContent = `Деньги: ${rub(world.money)} · байков BSE: ${owned} из ${BIKES.length}`;
   show("pause", true);
+  sound.radioPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
 }
@@ -236,6 +241,7 @@ function resume() {
 
 function openShop() {
   mode = "shop";
+  sound.radioPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
   renderShop();
@@ -309,6 +315,13 @@ function renderShop() {
 $("b-play").addEventListener("click", start);
 // Tap the weapon label to switch guns (on a phone there is no Q key).
 $("gun").addEventListener("click", () => world.cycleWeapon());
+$("radio").addEventListener("click", () => radioNext());
+
+function radioNext() {
+  const name = sound.radioCycle();
+  message(`📻 ${name}`, "info");
+  lastHud = "";
+}
 // The 67MOTO fonts are drawn on the canvas too (billboards, signs).
 void document.fonts?.load("800 12px Unbounded");
 void document.fonts?.load("700 12px Manrope");
@@ -370,7 +383,16 @@ function hud(dt: number) {
   }
   const clock = `${String(Math.floor(world.clock)).padStart(2, "0")}:${String(Math.floor((world.clock % 1) * 6) * 10).padStart(2, "0")}`;
   const gun = world.weapon ? `${WEAPONS[world.weapon].name} · ${world.arms[world.weapon] ?? 0}` : "";
-  const key = [money, Math.round(p.health), world.wanted, speed, job?.title, tleft, job?.idx, hint, p.bike?.model.id, Math.floor(world.time * 2) % 2, clock, gun].join("|");
+  // Bonuses from the "?" crates.
+  const perks: string[] = [];
+  if (p.nitro > 0) perks.push(`<span class="perk nitro">Нитро ×${p.nitro}</span>`);
+  if (world.boostT > 0) perks.push(`<span class="perk nitro on">Нитро!</span>`);
+  if (world.double > 0) perks.push(`<span class="perk double">Деньги ×2 · ${Math.ceil(world.double)} с</span>`);
+  if (world.rush) perks.push(`<span class="perk rush">Монеты ${world.rush.got}/10 · ${Math.ceil(world.rush.t)} с</span>`);
+  if (p.jailCard) perks.push(`<span class="perk card">Карта «Выйти из участка»</span>`);
+  const perkHtml = perks.join("");
+  const radio = sound.radioName;
+  const key = [money, Math.round(p.health), Math.round(p.armor), world.wanted, speed, job?.title, tleft, job?.idx, hint, p.bike?.model.id, p.mode, Math.floor(world.time * 2) % 2, clock, gun, perkHtml, radio].join("|");
   if (key === lastHud) return;
   lastHud = key;
   $("money").textContent = money;
@@ -379,6 +401,13 @@ function hud(dt: number) {
   $("gun").classList.toggle("hidden", !gun);
   show("t-fire", !!gun);
   $("hp").style.width = `${p.health}%`;
+  $("armor").style.width = `${p.armor}%`;
+  $("perks").innerHTML = perkHtml;
+  $("radio").textContent = `📻 ${radio.split(" — ")[0]}`;
+  $("radio").classList.toggle("off", radio === "Радио выключено");
+  const sprint = $("t-sprint");
+  sprint.textContent = p.mode === "ride" ? `Нитро ×${p.nitro}` : "Бег";
+  sprint.classList.toggle("hidden", p.mode === "ride" && p.nitro <= 0);
   $("hp").classList.toggle("low", p.health < 30);
   const w = $("wanted");
   const blink = world.wanted > 0 && world.unseen === 0 && Math.floor(world.time * 2) % 2 === 0;
@@ -446,6 +475,16 @@ function handleEvents() {
       case "shot":
         if (Math.hypot(e.x - world.px, e.y - world.py) < 700) sound.shot(e.weapon);
         break;
+      case "surprise":
+        if (e.good) sound.jobDone();
+        big(e.text.length > 26 ? "Сюрприз!" : e.text, e.good ? "surprise" : "wasted");
+        break;
+      case "nitro":
+        sound.nitro();
+        break;
+      case "coin":
+        sound.cash();
+        break;
       case "weapon":
         sound.reload();
         break;
@@ -505,6 +544,7 @@ function frame(now: number) {
     // Engine and siren.
     const bike = p.mode === "ride" ? p.bike : null;
     sound.engine(!!bike, bike ? bike.fwd / bike.model.vmax : 0, bike ? bike.thr : 0, bike?.model.id ?? "");
+    sound.radioPlaying(!!bike);
     let siren = 0;
     for (const v of world.vehicles)
       if (v.police && v.chase && v.alive) siren = Math.max(siren, 1 - Math.hypot(v.x - world.px, v.y - world.py) / 900);

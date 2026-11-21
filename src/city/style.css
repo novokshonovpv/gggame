@@ -858,3 +858,85 @@ button {
     justify-self: end;
   }
 }
+
+/* ---------- armour, perks, radio, sprint ---------- */
+
+.health .bar {
+  position: relative;
+}
+
+.health .bar i.armor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 4px;
+  background: #6fb6ff;
+}
+
+.perks {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.perk {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.perk.nitro {
+  color: #7fd8ff;
+}
+
+.perk.nitro.on {
+  color: #111;
+  background: #7fd8ff;
+}
+
+.perk.double {
+  color: #8ff0a8;
+}
+
+.perk.rush {
+  color: #ffd23a;
+}
+
+.perk.card {
+  color: #d9b778;
+}
+
+.radio {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.radio.off {
+  opacity: 0.55;
+}
+
+.big.surprise {
+  color: #ffd23a;
+  font-size: clamp(30px, 6vw, 64px);
+}
+
+.tb.sprint {
+  align-self: center;
+  font-size: 12px;
+  background: rgba(60, 140, 230, 0.4);
+}
+
+@media (max-width: 700px) {
+  .radio {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

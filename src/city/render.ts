@@ -486,6 +486,45 @@ export class Renderer {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("₽", 0, 0.5);
+      } else if (k.kind === "surprise") {
+        // Mystery crate: wood with a glowing question mark.
+        const glow = 0.55 + 0.45 * Math.sin(t * 5 + k.x);
+        ctx.fillStyle = `rgba(255,210,60,${0.25 * glow})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.rotate(Math.sin(t * 1.5 + k.y) * 0.15);
+        ctx.fillStyle = "#8a5a2b";
+        ctx.fillRect(-8, -8, 16, 16);
+        ctx.strokeStyle = "#c48a4a";
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-7, -7, 14, 14);
+        ctx.beginPath();
+        ctx.moveTo(-7, -7);
+        ctx.lineTo(7, 7);
+        ctx.stroke();
+        ctx.fillStyle = "#ffd23a";
+        ctx.strokeStyle = "#3a2410";
+        ctx.lineWidth = 1.6;
+        ctx.font = "900 13px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.strokeText("?", 0, 1);
+        ctx.fillText("?", 0, 1);
+      } else if (k.kind === "coin") {
+        ctx.scale(Math.cos(t * 4 + k.x) * 0.5 + 0.6, 1);
+        ctx.fillStyle = "#f2c230";
+        ctx.beginPath();
+        ctx.arc(0, 0, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#a87a10";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = "#7a5508";
+        ctx.font = "bold 8px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("₽", 0, 0.5);
       } else if (k.kind !== "health") {
         // Weapon crate with the gun's outline on the lid.
         ctx.fillStyle = "#6b4a2b";
@@ -494,7 +533,7 @@ export class Renderer {
         ctx.lineWidth = 1.2;
         ctx.strokeRect(-7, -6, 14, 12);
         ctx.fillStyle = "#f2e6cf";
-        const len = k.kind === "pistol" ? 7 : k.kind === "smg" ? 10 : 12;
+        const len = k.kind === "pistol" ? 7 : k.kind === "smg" ? 10 : k.kind === "rocket" ? 13 : 12;
         ctx.fillRect(-len / 2, -2.2, len, 2.4);
         ctx.fillRect(-len / 2 + (k.kind === "pistol" ? 0 : 1.5), -0.5, 2, 4);
         if (k.kind === "smg") ctx.fillRect(1, 0, 1.6, 3.5);
@@ -909,11 +948,31 @@ export class Renderer {
     ctx.strokeStyle = "rgba(255,225,140,0.9)";
     ctx.beginPath();
     for (const b of world.bullets) {
+      if (b.rocket) continue;
       ctx.moveTo(b.x - b.vx * 0.016, b.y - b.vy * 0.016);
       ctx.lineTo(b.x, b.y);
     }
     ctx.stroke();
     ctx.lineCap = "butt";
+    for (const b of world.bullets) {
+      if (!b.rocket) continue;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(Math.atan2(b.vy, b.vx));
+      ctx.fillStyle = "rgba(255,170,60,0.9)";
+      ctx.beginPath();
+      ctx.moveTo(-5, -2);
+      ctx.lineTo(-12 - Math.random() * 4, 0);
+      ctx.lineTo(-5, 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "#4a5a3a";
+      ctx.fillRect(-5, -1.6, 9, 3.2);
+      ctx.fillStyle = "#c62828";
+      ctx.fillRect(4, -1.6, 2, 3.2);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.restore();
+    }
     for (const f of world.flashes) {
       ctx.save();
       ctx.translate(f.x, f.y);
