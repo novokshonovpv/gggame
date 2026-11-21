@@ -363,15 +363,18 @@ export class World {
   constructor(map: CityMap) {
     this.map = map;
     this.flow = new Int16Array(map.n * map.n);
-    const home = map.places.find((p) => p.kind === "garage") ?? map.places[0];
+    // Start by the workshop nearest the city centre.
+    const mid = (map.n * T) / 2;
+    const home = map.nearest("garage", mid, mid) ?? map.places[0];
     const start = map.nearestWalk(home.x, home.y - T * 2);
     const body = new Ped(start.x, start.y, -Math.PI / 2);
     body.helmet = "#ff7a1a";
     body.shirt = "#1d1d1f";
     this.player = { mode: "foot", bike: null, body, health: 100, getup: 0, bust: 0, outT: 0, armor: 0, nitro: 0, jailCard: false };
-    for (let i = 0; i < 40; i++) this.placePickup("cash");
-    for (let i = 0; i < 8; i++) this.placePickup("health");
-    for (const [kind, n] of [["pistol", 7], ["smg", 4], ["shotgun", 4], ["surprise", 14]] as const) for (let i = 0; i < n; i++) this.placePickup(kind);
+    // Scaled to the size of the city.
+    for (let i = 0; i < 380; i++) this.placePickup("cash");
+    for (let i = 0; i < 70; i++) this.placePickup("health");
+    for (const [kind, n] of [["pistol", 60], ["smg", 35], ["shotgun", 35], ["surprise", 130]] as const) for (let i = 0; i < n; i++) this.placePickup(kind);
   }
 
   emit(e: GameEvent) {
@@ -420,13 +423,18 @@ export class World {
     const horiz = this.r() < 0.5;
     const list = horiz ? map.hroads : map.vroads;
     const cross = horiz ? map.vroads : map.hroads;
-    const i = Math.floor(this.r() * list.length);
+    // Only roads that pass near the player (the city is big).
+    const across = horiz ? this.py : this.px;
+    const near: number[] = [];
+    for (let k = 0; k < list.length; k++) if (Math.abs((list[k] + 1) * T - across) < maxD) near.push(k);
+    if (near.length === 0) return null;
+    const i = near[Math.floor(this.r() * near.length)];
     const dir = (horiz ? (this.r() < 0.5 ? 0 : 2) : this.r() < 0.5 ? 1 : 3) as Dir;
     const lo = cross[0] * T;
     const hi = (cross[cross.length - 1] + 2) * T;
-    // Near the player: along the stretch closest to them.
+    // Along the stretch closest to the player.
     const along = horiz ? this.px : this.py;
-    let s = anywhere ? lo + this.r() * (hi - lo) : along + (this.r() * 2 - 1) * maxD;
+    let s = along + (this.r() * 2 - 1) * maxD;
     s = clamp(s, lo + 4, hi - 4);
     const st = Math.floor(s / T);
     if (cross.some((c) => st === c || st === c + 1)) return null;
@@ -642,7 +650,8 @@ export class World {
 
   respawn(how: "wasted" | "busted") {
     const p = this.player;
-    const place = this.map.places.find((q) => q.kind === (how === "busted" ? "police" : "hospital")) ?? this.map.places[0];
+    // The nearest hospital or police station to where it happened.
+    const place = this.map.nearest(how === "busted" ? "police" : "hospital", p.body.x, p.body.y) ?? this.map.places[0];
     const card = how === "busted" && p.jailCard;
     const fee = card ? 0 : how === "busted" ? Math.min(this.money, 4000 + this.wanted * 3000) : Math.min(this.money, 3000);
     if (card) p.jailCard = false;
@@ -1902,7 +1911,9 @@ export class World {
     let reward = 0;
     let title = "";
     if (spot.kind === "delivery") {
-      const to = this.randomDoorstep(spot.x, spot.y, 900, 2600);
+      // Most addresses are a few blocks away, some across town (and pay for it).
+      const far = this.r() < 0.3;
+      const to = this.randomDoorstep(spot.x, spot.y, far ? 2600 : 900, far ? 5000 : 2600);
       const d = Math.hypot(to.x - spot.x, to.y - spot.y);
       points = [to];
       time = Math.round(d / 165 + 14);
@@ -1911,7 +1922,10 @@ export class World {
       title = `${what}: ${this.map.address(to.x, to.y)}`;
     } else if (spot.kind === "hot") {
       const garages = this.map.places.filter((p) => p.kind === "garage");
-      const to = garages.reduce((a, b) => (Math.hypot(b.x - spot.x, b.y - spot.y) > Math.hypot(a.x - spot.x, a.y - spot.y) ? b : a));
+      // The workshop that is a proper ride away, but not across the whole city.
+      const dist = (g: Place) => Math.hypot(g.x - spot.x, g.y - spot.y);
+      const fits = garages.filter((g) => dist(g) > 1500 && dist(g) < 5000);
+      const to = (fits.length ? fits : garages).reduce((a, b) => (Math.abs(dist(b) - 3000) < Math.abs(dist(a) - 3000) ? b : a));
       const d = Math.hypot(to.x - spot.x, to.y - spot.y);
       points = [{ x: to.x, y: to.y }];
       time = Math.round(d / 150 + 20);

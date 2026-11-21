@@ -2,7 +2,7 @@
 // jingles and the bike radio. Nothing to download.
 
 import { THUMPER_SOURCE, distortion } from "../thumper.ts";
-import { Radio } from "./radio.ts";
+import { Radio, STATIONS, type Station, type Track } from "./radio.ts";
 
 const KEY = "moto-city-sound";
 const RADIO_KEY = "moto-city-radio";
@@ -48,7 +48,7 @@ export class CitySound {
     try {
       this.muted = localStorage.getItem(KEY) === "off";
       const r = Number(localStorage.getItem(RADIO_KEY) ?? 0);
-      this.radioIndex = r >= -1 && r < Radio.STATIONS.length ? r : 0;
+      this.radioIndex = Number.isInteger(r) && r >= -1 && r < STATIONS.length ? r : 0;
     } catch {
       /* defaults */
     }
@@ -114,6 +114,7 @@ export class CitySound {
       so.start();
       this.siren = { o: so, g: sg };
       this.radio = new Radio(ctx, this.master, this.noiseBuf, this.radioIndex);
+      this.radio.onTrack = (s, t) => this.onTrack?.(s, t);
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
@@ -136,10 +137,12 @@ export class CitySound {
     f(this.muted);
   }
 
-  // Next radio station (or off); returns what is on now.
-  radioCycle() {
+  onTrack: ((s: Station, t: Track) => void) | null = null;
+
+  // Next (or previous) radio station, or off; returns what is on now.
+  radioCycle(step = 1) {
     this.unlock();
-    const name = this.radio?.cycle() ?? "Радио выключено";
+    const name = this.radio?.cycle(step) ?? "Радио выключено";
     try {
       localStorage.setItem(RADIO_KEY, String(this.radio?.index ?? this.radioIndex));
     } catch {
@@ -148,7 +151,9 @@ export class CitySound {
     return name;
   }
   get radioName() {
-    return this.radio?.name ?? (this.radioIndex >= 0 ? Radio.STATIONS[this.radioIndex].name : "Радио выключено");
+    if (this.radio) return this.radio.name;
+    const s = STATIONS[this.radioIndex];
+    return s ? `${s.name} — ${s.genre}` : "Радио выключено";
   }
   radioPlaying(on: boolean) {
     this.radio?.setPlaying(on);

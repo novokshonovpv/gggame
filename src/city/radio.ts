@@ -1,349 +1,233 @@
-// The bike radio: three stations of music composed on the fly with Web Audio (no recordings,
-// nothing to license). Each station has its own tempo, drums, bass, chords and a lead line;
-// the melody is generated from the station's scale and changes every few minutes ("next
-// song"). It plays only while riding, like a car radio.
+// The bike radio: three stations of real recorded music. Like a real radio, each station
+// is "on air" all the time: tuning in drops you into the middle of whatever it is playing
+// now. Switching stations hisses with static. It only plays while riding.
+//
+// Music: Kevin MacLeod (incompetech.com), licensed under Creative Commons: By Attribution
+// 4.0 (https://creativecommons.org/licenses/by/4.0/). Files are in public/radio, re-encoded
+// to 64 kbps AAC and loudness-matched; titles are listed in README.md.
+
+export interface Track {
+  file: string;
+  title: string;
+  len: number; // seconds
+}
 
 export interface Station {
   name: string;
-  bpm: number;
-  swing: number;
-  root: number; // MIDI note of the key
-  scale: number[];
-  chords: number[][]; // progression: scale-degree triads, one per bar
-  build: (r: Radio, step: number, bar: number, t: number, s: number) => void; // s = 16th length
+  genre: string;
+  tracks: Track[];
 }
 
-const mtof = (n: number) => 440 * 2 ** ((n - 69) / 12);
+export const STATIONS: Station[] = [
+  {
+    name: "Мото FM",
+    genre: "рок",
+    tracks: [
+      { file: "rocket-power.m4a", title: "Rocket Power", len: 153.6 },
+      { file: "organic-grunge.m4a", title: "Organic Grunge", len: 209.1 },
+      { file: "surf-shimmy.m4a", title: "Surf Shimmy", len: 122.9 },
+    ],
+  },
+  {
+    name: "Ночной город",
+    genre: "электроника",
+    tracks: [
+      { file: "brain-dance.m4a", title: "Brain Dance", len: 215 },
+      { file: "ouroboros.m4a", title: "Ouroboros", len: 161.6 },
+      { file: "exit-the-premises.m4a", title: "Exit the Premises", len: 210.1 },
+    ],
+  },
+  {
+    name: "Радио Грув",
+    genre: "фанк",
+    tracks: [
+      { file: "funky-chunk.m4a", title: "Funky Chunk", len: 239.1 },
+      { file: "loopster.m4a", title: "Loopster", len: 182.3 },
+      { file: "twisted.m4a", title: "Twisted", len: 187.2 },
+    ],
+  },
+];
 
-function rng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
+export const MUSIC_CREDIT = "Музыка: Kevin MacLeod (incompetech.com), лицензия CC BY 4.0";
+
+const BASE = new URL("radio/", document.baseURI).href;
 
 export class Radio {
-  ctx: AudioContext;
-  out: GainNode;
-  private bus: GainNode;
-  private echo: DelayNode;
+  private ctx: AudioContext;
+  private el: HTMLAudioElement;
+  private out: GainNode;
   private noise: AudioBuffer;
-  private drive: WaveShaperNode;
-  private next = 0;
-  private step = 0;
-  private timer = 0;
+  private dest: AudioNode;
   index: number; // -1 = off
   private on = false;
-  private melody: number[] = [];
-  private song = 0;
-
-  static readonly STATIONS: Station[] = [
-    {
-      name: "Мото FM — рок",
-      bpm: 132,
-      swing: 0,
-      root: 40, // E
-      scale: [0, 2, 3, 5, 7, 8, 10],
-      chords: [[0], [5], [2], [6]], // E C G D (power chords on the degree)
-      build: (r, st, bar, t, s) => {
-        const deg = Radio.STATIONS[0].chords[bar % 4][0];
-        const root = r.note(0, deg);
-        if (st % 8 === 0 || st === 10) r.kick(t, 0.9);
-        if (st % 8 === 4) r.snare(t, 0.7);
-        if (st % 2 === 0) r.hat(t, 0.25, st % 4 === 2);
-        if (st % 2 === 0) r.guitar(t, root + 12, s * 1.7, st % 8 === 0 ? 0.32 : 0.2);
-        if (st % 2 === 0) r.bass(t, root - 12, s * 1.6, 0.42, "sawtooth", 700);
-        if (bar % 8 >= 4) r.leadStep(t, st, s, "sawtooth", 0.08, 2400, 24);
-      },
-    },
-    {
-      name: "Ночной город — синтвейв",
-      bpm: 100,
-      swing: 0,
-      root: 45, // A
-      scale: [0, 2, 3, 5, 7, 8, 10],
-      chords: [[0, 2, 4], [5, 0, 2], [2, 4, 6], [6, 1, 3]], // Am F C G
-      build: (r, st, bar, t, s) => {
-        const ch = Radio.STATIONS[1].chords[bar % 4];
-        if (st % 4 === 0) r.kick(t, 0.75);
-        if (st % 8 === 4) r.snare(t, 0.55, true);
-        if (st % 2 === 1) r.hat(t, 0.12, false);
-        if (st === 0) r.pad(t, ch.map((d) => r.note(1, d) + 12), s * 16, 0.09);
-        if (st % 2 === 0) r.bass(t, r.note(1, ch[0]) - 12 + (st % 4 === 2 ? 12 : 0), s * 1.5, 0.38, "sawtooth", 500);
-        r.arp(t, r.note(1, ch[st % 3]) + 24 + (st % 6 >= 3 ? 12 : 0), s * 0.9, 0.045);
-        if (bar % 8 >= 4) r.leadStep(t, st, s, "square", 0.05, 1800, 24);
-      },
-    },
-    {
-      name: "Ретро 8-бит",
-      bpm: 146,
-      swing: 0.08,
-      root: 48, // C
-      scale: [0, 2, 4, 5, 7, 9, 11],
-      chords: [[0, 2, 4], [4, 6, 1], [5, 0, 2], [3, 5, 0]], // C G Am F
-      build: (r, st, bar, t, s) => {
-        const ch = Radio.STATIONS[2].chords[bar % 4];
-        if (st % 8 === 0) r.kick(t, 0.6);
-        if (st % 8 === 4) r.chipNoise(t, 0.3, 0.09);
-        if (st % 2 === 0) r.chipNoise(t, 0.08, 0.02);
-        r.bass(t, r.note(2, ch[st % 4 === 2 ? 2 : 0]) - 12, s * 0.9, 0.3, "triangle", 2000);
-        r.arp(t, r.note(2, ch[st % 3]) + 12, s * 0.5, 0.03, "square");
-        r.leadStep(t, st, s, "square", 0.06, 6000, 24);
-      },
-    },
-  ];
+  private trackNo = -1;
+  private epoch: number; // the stations' broadcast clock starts here
+  private wantSeek = -1;
+  onTrack: ((station: Station, track: Track) => void) | null = null;
 
   constructor(ctx: AudioContext, dest: AudioNode, noise: AudioBuffer, index: number) {
     this.ctx = ctx;
     this.noise = noise;
+    this.dest = dest;
     this.index = index;
+    // Each session the stations are somewhere else in their playlists.
+    this.epoch = Date.now() / 1000 - Math.random() * 3600;
+    this.el = new Audio();
+    this.el.preload = "none";
+    this.el.crossOrigin = "anonymous";
     this.out = ctx.createGain();
     this.out.gain.value = 0;
-    // A touch of "speaker": no deep sub, soft top.
+    // Radio colour: no rumble, a softened top.
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
-    hp.frequency.value = 45;
+    hp.frequency.value = 70;
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 9000;
-    this.bus = ctx.createGain();
-    this.echo = ctx.createDelay(1);
-    const fb = ctx.createGain();
-    fb.gain.value = 0.32;
-    const wet = ctx.createGain();
-    wet.gain.value = 0.3;
-    this.echo.connect(fb).connect(this.echo);
-    this.echo.connect(wet).connect(this.bus);
-    this.bus.connect(hp).connect(lp).connect(this.out);
-    this.out.connect(dest);
-    this.drive = ctx.createWaveShaper();
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < 1024; i++) {
-      const x = (i / 1023) * 2 - 1;
-      curve[i] = Math.tanh(x * 6) * 0.6;
+    lp.frequency.value = 12000;
+    try {
+      ctx.createMediaElementSource(this.el).connect(hp);
+    } catch {
+      /* already wired */
     }
-    this.drive.curve = curve;
-    const cab = ctx.createBiquadFilter();
-    cab.type = "lowpass";
-    cab.frequency.value = 2600;
-    cab.Q.value = 1.2;
-    this.drive.connect(cab).connect(this.bus);
-    this.newSong();
-    this.timer = window.setInterval(() => this.schedule(), 25);
+    hp.connect(lp).connect(this.out).connect(dest);
+    this.el.addEventListener("ended", () => {
+      // Next song on the same station.
+      this.trackNo = -1;
+      if (this.on) this.tune(false);
+    });
+    this.el.addEventListener("loadedmetadata", () => {
+      if (this.wantSeek >= 0) {
+        try {
+          this.el.currentTime = Math.min(this.wantSeek, Math.max(0, this.el.duration - 1));
+        } catch {
+          /* play from the top */
+        }
+        this.wantSeek = -1;
+      }
+    });
+    // Mobile browsers let a media element play later only if it first played in a tap.
+    const bless = () => {
+      this.el.muted = true;
+      void this.el
+        .play()
+        .then(() => {
+          this.el.pause();
+          this.el.muted = false;
+        })
+        .catch(() => (this.el.muted = false));
+      window.removeEventListener("pointerdown", bless);
+      window.removeEventListener("keydown", bless);
+    };
+    window.addEventListener("pointerdown", bless);
+    window.addEventListener("keydown", bless);
   }
 
   get station() {
-    return this.index >= 0 ? Radio.STATIONS[this.index] : null;
+    return this.index >= 0 ? STATIONS[this.index] : null;
   }
 
   get name() {
-    return this.station?.name ?? "Радио выключено";
+    const s = this.station;
+    return s ? `${s.name} — ${s.genre}` : "Радио выключено";
   }
 
-  // Next station; after the last one, off.
-  cycle() {
-    this.index = this.index + 1 >= Radio.STATIONS.length ? -1 : this.index + 1;
-    this.step = 0;
-    this.newSong();
-    this.apply();
+  get nowPlaying() {
+    const s = this.station;
+    return s && this.trackNo >= 0 ? s.tracks[this.trackNo] : null;
+  }
+
+  // Where the station is in its playlist right now.
+  private live(s: Station) {
+    const total = s.tracks.reduce((a, t) => a + t.len, 0);
+    let pos = (Date.now() / 1000 - this.epoch + (this.index + 1) * 977) % total;
+    for (let i = 0; i < s.tracks.length; i++) {
+      if (pos < s.tracks[i].len) return { i, at: pos };
+      pos -= s.tracks[i].len;
+    }
+    return { i: 0, at: 0 };
+  }
+
+  // step: +1 next station, -1 previous (off sits between the last and the first).
+  cycle(step = 1) {
+    const n = STATIONS.length + 1;
+    this.index = ((this.index + 1 + step + n) % n) - 1;
+    this.static();
+    this.trackNo = -1;
+    if (this.on) this.tune(true);
+    else this.el.pause();
+    if (!this.station) this.el.pause();
+    this.fade();
     return this.name;
   }
 
   setPlaying(on: boolean) {
     if (on === this.on) return;
     this.on = on;
-    this.apply();
+    if (on && this.station) this.tune(true);
+    if (!on) {
+      // Fade out, then stop downloading.
+      window.setTimeout(() => {
+        if (!this.on) this.el.pause();
+      }, 600);
+    }
+    this.fade();
   }
 
-  private apply() {
+  private fade() {
     const t = this.ctx.currentTime;
-    const st = this.station;
-    if (st) this.echo.delayTime.setValueAtTime(Math.min(0.9, (60 / st.bpm) * 0.75), t);
-    this.out.gain.setTargetAtTime(this.on && st ? 0.32 : 0, t, this.on ? 0.4 : 0.15);
-    if (this.on && st && this.next < t) this.next = t + 0.05;
+    this.out.gain.cancelScheduledValues(t);
+    this.out.gain.setTargetAtTime(this.on && this.station ? 0.55 : 0, t, this.on ? 0.25 : 0.12);
   }
 
-  // A new melody: two bars of 16ths, a random walk on the scale with rests.
-  private newSong() {
-    const r = rng(Date.now() + this.song++ * 7919);
-    this.melody = [];
-    let deg = Math.floor(r() * 5);
-    for (let i = 0; i < 32; i++) {
-      if (i % 2 === 1 && r() < 0.6) {
-        this.melody.push(-1);
-        continue;
+  // Start the station's current song from where the broadcast is.
+  private tune(live: boolean) {
+    const s = this.station;
+    if (!s) return;
+    const { i, at } = live ? this.live(s) : { i: (this.lastTrack + 1) % s.tracks.length, at: 0 };
+    const tr = s.tracks[i];
+    if (this.trackNo !== i || this.el.paused) {
+      this.trackNo = i;
+      this.lastTrack = i;
+      const src = BASE + tr.file;
+      if (this.el.src !== src) {
+        this.el.src = src;
+        this.wantSeek = at;
+        this.el.load();
+      } else {
+        try {
+          this.el.currentTime = at;
+        } catch {
+          this.wantSeek = at;
+        }
       }
-      if (r() < 0.22) {
-        this.melody.push(-1);
-        continue;
-      }
-      deg = Math.max(-2, Math.min(9, deg + Math.floor(r() * 5) - 2));
-      this.melody.push(deg);
+      void this.el.play().catch(() => {
+        /* blocked until the next tap */
+      });
+      this.onTrack?.(s, tr);
     }
   }
+  private lastTrack = -1;
 
-  note(station: number, degree: number) {
-    const st = Radio.STATIONS[station];
-    const sc = st.scale;
-    const oct = Math.floor(degree / sc.length);
-    const d = ((degree % sc.length) + sc.length) % sc.length;
-    return st.root + oct * 12 + sc[d];
-  }
-
-  private schedule() {
-    const st = this.station;
-    if (!st || !this.on) return;
+  // A burst of tuning static.
+  private static() {
     const ctx = this.ctx;
-    if (ctx.state !== "running") return;
-    const s = 60 / st.bpm / 4;
-    if (this.next < ctx.currentTime - 0.2) this.next = ctx.currentTime + 0.05;
-    while (this.next < ctx.currentTime + 0.15) {
-      const st16 = this.step % 16;
-      const bar = Math.floor(this.step / 16);
-      const t = this.next + (st16 % 2 === 1 ? st.swing * s : 0);
-      st.build(this, st16, bar, t, s);
-      this.step++;
-      // About every three minutes, a new tune.
-      if (this.step % (16 * 64) === 0) this.newSong();
-      this.next += s;
-    }
-  }
-
-  // ---------- instruments ----------
-
-  private env(t: number, peak: number, attack: number, dur: number) {
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(peak, t + attack);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(attack + 0.01, dur));
-    return g;
-  }
-
-  private osc(type: OscillatorType, freq: number, t: number, dur: number) {
-    const o = this.ctx.createOscillator();
-    o.type = type;
-    o.frequency.value = freq;
-    o.start(t);
-    o.stop(t + dur + 0.05);
-    return o;
-  }
-
-  kick(t: number, v: number) {
-    const o = this.osc("sine", 150, t, 0.3);
-    o.frequency.setValueAtTime(150, t);
-    o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
-    o.connect(this.env(t, v, 0.003, 0.28)).connect(this.bus);
-  }
-
-  snare(t: number, v: number, big = false) {
-    const n = this.ctx.createBufferSource();
-    n.buffer = this.noise;
-    const f = this.ctx.createBiquadFilter();
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
     f.type = "bandpass";
-    f.frequency.value = 1800;
-    f.Q.value = 0.8;
-    const g = this.env(t, v * 0.8, 0.002, big ? 0.32 : 0.16);
-    n.connect(f).connect(g).connect(this.bus);
-    if (big) g.connect(this.echo);
-    n.start(t, Math.random() * 0.5);
-    n.stop(t + 0.4);
-    this.osc("triangle", 190, t, 0.1).connect(this.env(t, v * 0.4, 0.002, 0.08)).connect(this.bus);
-  }
-
-  hat(t: number, v: number, open: boolean) {
-    const n = this.ctx.createBufferSource();
-    n.buffer = this.noise;
-    const f = this.ctx.createBiquadFilter();
-    f.type = "highpass";
-    f.frequency.value = 7500;
-    n.connect(f).connect(this.env(t, v * 0.5, 0.001, open ? 0.18 : 0.04)).connect(this.bus);
-    n.start(t, Math.random() * 0.5);
-    n.stop(t + 0.25);
-  }
-
-  chipNoise(t: number, v: number, dur: number) {
-    const n = this.ctx.createBufferSource();
-    n.buffer = this.noise;
-    n.playbackRate.value = 0.35; // grainy, like an old sound chip
-    n.connect(this.env(t, v, 0.001, dur)).connect(this.bus);
-    n.start(t, Math.random() * 0.5);
-    n.stop(t + dur + 0.05);
-  }
-
-  bass(t: number, note: number, dur: number, v: number, type: OscillatorType, cutoff: number) {
-    const f = this.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = cutoff;
-    f.Q.value = 2;
-    this.osc(type, mtof(note), t, dur).connect(f).connect(this.env(t, v * 0.5, 0.005, dur)).connect(this.bus);
-  }
-
-  guitar(t: number, note: number, dur: number, v: number) {
-    // Power chord: root, fifth, octave, slightly detuned, through the overdrive.
-    for (const [iv, det] of [
-      [0, -4],
-      [7, 3],
-      [12, 0],
-    ]) {
-      const o = this.osc("sawtooth", mtof(note + iv), t, dur);
-      o.detune.value = det;
-      o.connect(this.env(t, v * 0.35, 0.004, dur)).connect(this.drive);
-    }
-  }
-
-  pad(t: number, notes: number[], dur: number, v: number) {
-    const f = this.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.setValueAtTime(700, t);
-    f.frequency.linearRampToValueAtTime(1600, t + dur * 0.5);
-    const g = this.ctx.createGain();
+    f.frequency.value = 2500;
+    f.Q.value = 0.6;
+    const g = ctx.createGain();
+    const t = ctx.currentTime;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(v, t + dur * 0.25);
-    g.gain.linearRampToValueAtTime(v * 0.7, t + dur * 0.8);
-    g.gain.linearRampToValueAtTime(0.0001, t + dur);
-    f.connect(g).connect(this.bus);
-    for (const n of notes)
-      for (const det of [-9, 9]) {
-        const o = this.osc("sawtooth", mtof(n), t, dur);
-        o.detune.value = det;
-        o.connect(f);
-      }
-  }
-
-  arp(t: number, note: number, dur: number, v: number, type: OscillatorType = "square") {
-    const f = this.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = 3000;
-    const g = this.env(t, v, 0.003, dur);
-    this.osc(type, mtof(note), t, dur).connect(f).connect(g).connect(this.bus);
-    g.connect(this.echo);
-  }
-
-  // One 16th of the current melody.
-  leadStep(t: number, st: number, s: number, type: OscillatorType, v: number, cutoff: number, up: number) {
-    const bar = Math.floor(this.step / 16);
-    const deg = this.melody[(bar % 2) * 16 + st];
-    if (deg === undefined || deg < 0) return;
-    let len = 1;
-    while (len < 4 && this.melody[((bar % 2) * 16 + st + len) % 32] === -1) len++;
-    const f = this.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = cutoff;
-    const g = this.env(t, v, 0.008, s * len * 0.95);
-    const o = this.osc(type, mtof(this.note(this.index, deg) + up), t, s * len);
-    // A little vibrato on long notes.
-    if (len > 2) {
-      const lfo = this.osc("sine", 5.5, t, s * len);
-      const depth = this.ctx.createGain();
-      depth.gain.value = 6;
-      lfo.connect(depth).connect(o.detune);
-    }
-    o.connect(f).connect(g).connect(this.bus);
-    g.connect(this.echo);
+    g.gain.linearRampToValueAtTime(this.on ? 0.12 : 0, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    src.connect(f).connect(g).connect(this.dest);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + 0.5);
   }
 
   dispose() {
-    window.clearInterval(this.timer);
+    this.el.pause();
   }
 }

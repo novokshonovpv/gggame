@@ -24,10 +24,15 @@
       <div class="hud-tr">
         <div id="money" class="money">0 ₽</div>
         <div class="hud-row">
-          <button id="radio" class="radio" title="Радио (R)">📻</button>
+          <div id="radio" class="radio" title="Радио: R, колесо мыши">
+            <button id="radio-prev" class="rarr" aria-label="Предыдущая станция">◀</button>
+            <button id="radio-name" class="rname">📻</button>
+            <button id="radio-next" class="rarr" aria-label="Следующая станция">▶</button>
+          </div>
           <span id="clock" class="clock">17:00</span>
           <div class="hud-btns">
             <button id="b-mute" class="ibtn mute" aria-label="Звук" title="Звук (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4" /><path class="off" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg></button>
+            <button id="b-map" class="ibtn" aria-label="Карта города" title="Карта города (Tab)"><svg viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></svg></button>
             <button id="b-fs" class="ibtn" aria-label="Во весь экран" title="Во весь экран"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
             <button id="b-pause" class="ibtn" aria-label="Пауза" title="Пауза (Esc)"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" /></svg></button>
           </div>
@@ -35,6 +40,7 @@
       </div>
       <div id="job" class="job hidden"><b id="job-title"></b><span id="job-time"></span></div>
       <div id="msgs" class="msgs"></div>
+      <div id="radio-banner" class="radio-banner hidden"></div>
       <div id="hint" class="hint hidden"></div>
       <canvas id="mini" class="mini"></canvas>
       <div class="speedo"><b id="spd">0</b><small>км/ч</small><span id="bike-name"></span></div>
@@ -49,6 +55,7 @@
       <div class="tpad tr">
         <button data-k="fire" id="t-fire" class="tb small fire hidden" aria-label="Огонь">Огонь</button>
         <button data-k="action" class="tb small act" aria-label="Сесть или слезть">E</button>
+        <button id="t-radio" class="tb small tradio hidden" aria-label="Сменить радиостанцию">📻</button>
         <button data-k="hb" class="tb small" id="t-hb" aria-label="Занос">Занос</button>
         <button data-k="brake" class="tb brake" aria-label="Тормоз">Тормоз</button>
         <button data-k="gas" class="tb gas" aria-label="Газ">Газ</button>
@@ -66,7 +73,7 @@
         <div class="keys kbd-only">
           <div><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль · <b>Пробел</b> — занос (пешком — удар)</div>
           <div><b>E</b> — сесть / слезть · <b>Ctrl</b>, <b>J</b> или мышь — огонь · <b>Q</b> — сменить оружие</div>
-          <div><b>Shift</b> — бег (на байке — нитро) · <b>R</b> — радио · <b>Esc</b> — пауза · <b>M</b> — звук</div>
+          <div><b>Shift</b> — бег (на байке — нитро) · <b>R</b> / колесо мыши — радио · <b>Tab</b> — карта · <b>Esc</b> — пауза · <b>M</b> — звук</div>
         </div>
         <div class="keys touch-only">
           <div><b>◀ ▶</b> — руль, <b>Газ</b> и <b>Тормоз</b> — справа</div>
@@ -81,6 +88,7 @@
           <span><i style="background: #d9b778"></i>салон 67МОТО</span>
         </div>
         <p class="site">67МОТО — мотоциклы BSE, Смоленск</p>
+        <p id="title-credit" class="credit"></p>
       </div>
     </div>
 
@@ -96,6 +104,27 @@
           <div>Сервис 67МОТО (синий) снимает розыск и чинит байк. В салоне 67МОТО (бежевый) — мотоциклы BSE. Ящики с ружьём — оружие, ящики «?» — сюрпризы: деньги, броня, нитро, взятка, ракетница… или ловушка.</div>
         </div>
         <button id="p-menu" class="link">В главное меню Moto Trials</button>
+        <p id="pause-credit" class="credit"></p>
+      </div>
+    </div>
+
+    <div id="bigmap" class="overlay bigmap hidden">
+      <div class="panel wide map-panel">
+        <div class="map-head">
+          <h2>Карта города</h2>
+          <div class="legend">
+            <span><i style="background: #3ddc6e"></i>доставка</span>
+            <span><i style="background: #ff9f1a"></i>гонка</span>
+            <span><i style="background: #ff3b3b"></i>горячий груз</span>
+            <span><i style="background: #2f8fe0"></i>С — сервис</span>
+            <span><i style="background: #d9b778"></i>₽ — салон</span>
+            <span><i style="background: #ff5a5a"></i>+ больница</span>
+            <span><i style="background: #5b8dff"></i>П — полиция</span>
+            <span><i style="background: #ffe14a"></i>цель</span>
+          </div>
+          <button id="map-close" class="ibtn" aria-label="Закрыть">✕</button>
+        </div>
+        <canvas id="bigmap-canvas" class="bigmap-canvas"></canvas>
       </div>
     </div>
 

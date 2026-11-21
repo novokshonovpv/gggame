@@ -3,6 +3,7 @@
 
 import { enterFullscreen, exitFullscreen, isFullscreen, isTouch, onFullscreenChange } from "../fullscreen.ts";
 import { CitySound } from "./audio.ts";
+import { MUSIC_CREDIT } from "./radio.ts";
 import { CityMap } from "./map.ts";
 import { type Camera, Renderer } from "./render.ts";
 import { BIKE, BIKES, type Input, WEAPONS, type WeaponId, World, rub } from "./sim.ts";
@@ -103,7 +104,7 @@ const cam: Camera = { x: world.px, y: world.py, zoom: 1 };
 world.view = { x0: cam.x - 500, y0: cam.y - 300, x1: cam.x + 500, y1: cam.y + 300 };
 world.populate(true);
 
-type Mode = "title" | "play" | "pause" | "shop";
+type Mode = "title" | "play" | "pause" | "shop" | "map";
 let mode: Mode = "title";
 
 // ---------- input ----------
@@ -130,7 +131,6 @@ const KEYS: Record<string, string> = {
   KeyQ: "swap",
   ShiftLeft: "sprint",
   ShiftRight: "sprint",
-  Tab: "swap",
 };
 window.addEventListener("keydown", (e) => {
   const k = KEYS[e.code];
@@ -141,12 +141,21 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.repeat) return;
+  if (e.code === "Tab") {
+    e.preventDefault();
+    if (mode === "play") openMap();
+    else if (mode === "map") closeMap();
+    return;
+  }
   if (e.code === "Escape" || e.code === "KeyP") {
-    if (mode === "play") pause();
+    if (mode === "map") closeMap();
+    else if (mode === "play") pause();
     else if (mode === "pause") resume();
     else if (mode === "shop") closeShop();
   } else if (e.code === "KeyM") sound.toggle();
-  else if (e.code === "KeyR" && mode === "play") radioNext();
+  else if (e.code === "KeyR" && mode === "play") radioNext(e.shiftKey ? -1 : 1);
+  else if (e.code === "Period" && mode === "play") radioNext(1);
+  else if (e.code === "Comma" && mode === "play") radioNext(-1);
 });
 window.addEventListener("keyup", (e) => {
   const k = KEYS[e.code];
@@ -239,6 +248,20 @@ function resume() {
   window.focus();
 }
 
+function openMap() {
+  mode = "map";
+  sound.radioPlaying(false);
+  sound.engine(false, 0, 0, "");
+  sound.sirenLevel(0, 0);
+  show("bigmap", true);
+}
+
+function closeMap() {
+  mode = "play";
+  show("bigmap", false);
+  window.focus();
+}
+
 function openShop() {
   mode = "shop";
   sound.radioPlaying(false);
@@ -313,13 +336,52 @@ function renderShop() {
 }
 
 $("b-play").addEventListener("click", start);
+$("b-map").addEventListener("click", () => (mode === "map" ? closeMap() : mode === "play" ? openMap() : undefined));
+$("map-close").addEventListener("click", closeMap);
 // Tap the weapon label to switch guns (on a phone there is no Q key).
 $("gun").addEventListener("click", () => world.cycleWeapon());
-$("radio").addEventListener("click", () => radioNext());
+$("radio-prev").addEventListener("click", () => radioNext(-1));
+$("radio-next").addEventListener("click", () => radioNext(1));
+$("t-radio").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  radioNext(1);
+});
+$("radio-name").addEventListener("click", () => radioNext(1));
+// Mouse wheel tunes the radio while riding.
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (mode !== "play" || world.player.mode !== "ride") return;
+    e.preventDefault();
+    radioNext(e.deltaY > 0 ? 1 : -1);
+  },
+  { passive: false },
+);
+for (const id of ["title-credit", "pause-credit"]) $(id).textContent = MUSIC_CREDIT;
 
-function radioNext() {
-  const name = sound.radioCycle();
-  message(`📻 ${name}`, "info");
+let bannerT = 0;
+function radioBanner(station: string, song: string) {
+  const el = $("radio-banner");
+  el.innerHTML = `<b>📻 ${station}</b>${song ? `<span>${song}</span>` : ""}`;
+  el.classList.remove("hidden");
+  el.classList.remove("show");
+  void el.offsetWidth;
+  el.classList.add("show");
+  bannerT = 3.5;
+}
+sound.onTrack = (s, t) => {
+  if (world.player.mode === "ride") radioBanner(`${s.name} · ${s.genre}`, `Kevin MacLeod — «${t.title}»`);
+};
+let wasRiding = false;
+let radioWheel = 0;
+
+function radioNext(step: number) {
+  const now = performance.now();
+  if (now - radioWheel < 150) return; // a wheel flick is one click
+  radioWheel = now;
+  const name = sound.radioCycle(step);
+  if (name === "Радио выключено") radioBanner("Радио выключено", "");
+  else if (world.player.mode !== "ride") radioBanner(name.replace(" — ", " · "), "заиграет, когда сядешь на мотоцикл");
   lastHud = "";
 }
 // The 67MOTO fonts are drawn on the canvas too (billboards, signs).
@@ -403,8 +465,10 @@ function hud(dt: number) {
   $("hp").style.width = `${p.health}%`;
   $("armor").style.width = `${p.armor}%`;
   $("perks").innerHTML = perkHtml;
-  $("radio").textContent = `📻 ${radio.split(" — ")[0]}`;
+  $("radio-name").textContent = `📻 ${radio.split(" — ")[0]}`;
   $("radio").classList.toggle("off", radio === "Радио выключено");
+  $("radio").classList.toggle("riding", p.mode === "ride");
+  show("t-radio", p.mode === "ride");
   const sprint = $("t-sprint");
   sprint.textContent = p.mode === "ride" ? `Нитро ×${p.nitro}` : "Бег";
   sprint.classList.toggle("hidden", p.mode === "ride" && p.nitro <= 0);
@@ -545,6 +609,12 @@ function frame(now: number) {
     const bike = p.mode === "ride" ? p.bike : null;
     sound.engine(!!bike, bike ? bike.fwd / bike.model.vmax : 0, bike ? bike.thr : 0, bike?.model.id ?? "");
     sound.radioPlaying(!!bike);
+    // Getting on a bike: say what is on and how to change it.
+    if (!!bike && !wasRiding) {
+      const tip = isTouch() ? "кнопка 📻 — сменить станцию" : "R или колесо мыши — сменить станцию";
+      radioBanner(sound.radioName.replace(" — ", " · "), tip);
+    }
+    wasRiding = !!bike;
     let siren = 0;
     for (const v of world.vehicles)
       if (v.police && v.chase && v.alive) siren = Math.max(siren, 1 - Math.hypot(v.x - world.px, v.y - world.py) / 900);
@@ -571,7 +641,12 @@ function frame(now: number) {
   const view = { ...cam, x: cam.x + (Math.random() - 0.5) * shake, y: cam.y + (Math.random() - 0.5) * shake };
   renderer.draw(world, view, time);
   if (mode !== "title") renderer.drawMinimap($<HTMLCanvasElement>("mini"), world, time);
+  if (mode === "map") renderer.drawFullMap($<HTMLCanvasElement>("bigmap-canvas"), world, time);
   if (mode === "play") hud(dt);
+  if (bannerT > 0) {
+    bannerT -= dt;
+    if (bannerT <= 0) $("radio-banner").classList.remove("show");
+  }
   if (bigT > 0) {
     bigT -= dt;
     if (bigT <= 0) $("big").classList.add("hidden");
