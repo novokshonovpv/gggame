@@ -13,6 +13,7 @@ export const GRASS = 4;
 export const LOT = 5;
 export const BRIDGE = 6;
 export const SAND = 7;
+export const DIRT = 8; // the enduro stadium floor
 
 export type Dir = 0 | 1 | 2 | 3; // east, south, west, north (y grows down)
 export const DX = [1, 0, -1, 0];
@@ -50,7 +51,7 @@ export interface Place {
   a: number; // facing for respawn
 }
 
-export type JobKind = "delivery" | "race" | "hot";
+export type JobKind = "delivery" | "race" | "hot" | "stadium" | "phone";
 export interface JobSpot {
   kind: JobKind;
   x: number;
@@ -88,6 +89,23 @@ const ROOFS = {
   glass: ["#4a5560", "#566370", "#3f4a54"],
 };
 
+// Things on the ground you ride over, into or off: the stadium's obstacles and the ramps.
+export type ObstacleKind = "log" | "tire" | "rock" | "ramp" | "mud" | "whoop";
+export interface Obstacle {
+  kind: ObstacleKind;
+  x: number;
+  y: number;
+  a: number; // ramps: the launch direction; logs and whoops: along their length
+  len: number;
+  wid: number;
+  power?: number; // ramps: minimum take-off speed they give (river jumps)
+}
+
+export interface Stadium {
+  rect: Rect; // world units, inside the fence
+  path: { x: number; y: number }[]; // the lap: start/finish first
+}
+
 export interface Lamp {
   x: number;
   y: number;
@@ -99,6 +117,7 @@ export interface Chunk {
   buildings: Building[];
   trees: Tree[];
   lamps: Lamp[];
+  obstacles: Obstacle[];
 }
 export const CHUNK = 16;
 
@@ -125,6 +144,11 @@ export class CityMap {
   land: Rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
   doorsteps: number[] = []; // pavement tiles next to a building (delivery addresses)
   lamps: Lamp[] = []; // street lights
+  obstacles: Obstacle[] = [];
+  obCells = new Map<number, Obstacle[]>(); // tile -> obstacles touching it
+  stadium: Stadium | null = null;
+  phones: { x: number; y: number }[] = []; // payphones that ring with special jobs
+  packages: { x: number; y: number }[] = []; // hidden packages
   readonly size: number;
 
   constructor(seed = 67) {
@@ -139,10 +163,19 @@ export class CityMap {
     this.bid = new Int32Array(n * n).fill(-1);
     this.riverRow = new Uint8Array(n);
     this.cn = Math.ceil(n / CHUNK);
-    for (let i = 0; i < this.cn * this.cn; i++) this.chunks.push({ buildings: [], trees: [], lamps: [] });
+    for (let i = 0; i < this.cn * this.cn; i++) this.chunks.push({ buildings: [], trees: [], lamps: [], obstacles: [] });
 
     // Road grid with uneven blocks; two wide gaps hold the rivers (a third and two thirds down).
-    for (let x = 7; x <= n - 10; x += 2 + ri(8, 11)) this.vroads.push(x);
+    // One extra-wide column and row cross at the enduro stadium.
+    let stadiumCol = -1;
+    let stadiumRow = -1;
+    for (let x = 7, i = 0; x <= n - 10; i++) {
+      this.vroads.push(x);
+      if (stadiumCol < 0 && x > n * 0.18) {
+        stadiumCol = i;
+        x += 2 + 34;
+      } else x += 2 + ri(8, 11);
+    }
     const riverGaps = new Set<number>();
     const riverAt = [0.3, 0.68];
     for (let y = 7, i = 0; y <= n - 10; i++) {
@@ -151,6 +184,9 @@ export class CityMap {
         riverAt.shift();
         riverGaps.add(i);
         y += 15;
+      } else if (stadiumRow < 0 && y > n * 0.45) {
+        stadiumRow = i;
+        y += 2 + 34;
       } else y += 2 + ri(8, 11);
     }
     const vs = this.vroads;
@@ -229,6 +265,12 @@ export class CityMap {
               { x0: bx0, y0: river[1] + 1, x1: bx1, y1: by1 },
             ]
           : [{ x0: bx0, y0: by0, x1: bx1, y1: by1 }];
+        if (i === stadiumCol && j === stadiumRow && !river) {
+          for (let y = by0; y <= by1; y++)
+            for (let x = bx0; x <= bx1; x++) this.set(x, y, x === bx0 || x === bx1 || y === by0 || y === by1 ? WALK : DIRT);
+          this.buildStadium({ x0: bx0 + 1, y0: by0 + 1, x1: bx1 - 1, y1: by1 - 1 }, r);
+          continue;
+        }
         for (const b of blocks) {
           for (let y = b.y0; y <= b.y1; y++)
             for (let x = b.x0; x <= b.x1; x++) {
@@ -287,6 +329,7 @@ export class CityMap {
     for (let k = 0; k < wantLots.garage + wantLots.shop; k++)
       pickLot(k < wantLots.garage ? "garage" : "shop", this.places.map((p) => ({ x: p.x, y: p.y })));
 
+    const parks: Rect[] = [];
     // Three hospitals and three police stations, far apart.
     const civic: { kind: "hospital" | "police"; x: number; y: number }[] = [];
     const wantCivic = (kind: "hospital" | "police", x: number, y: number) =>
@@ -301,6 +344,7 @@ export class CityMap {
       const d = Math.min(1, Math.hypot(mx - cx, my - cy) / half);
       if (park) {
         for (let y = q.y0; y <= q.y1; y++) for (let x = q.x0; x <= q.x1; x++) this.set(x, y, GRASS);
+        parks.push(q);
         continue;
       }
       const roll = r();
@@ -378,10 +422,61 @@ export class CityMap {
         this.chunkAt(x, y).lamps.push(lamp);
       }
 
+    // Kicker ramps in parks, and over the rivers from one embankment to the other.
+    let ramps = 0;
+    for (const q of [...parks].sort(() => r() - 0.5)) {
+      if (ramps >= 16) break;
+      const w = q.x1 - q.x0 + 1;
+      const h = q.y1 - q.y0 + 1;
+      if (Math.max(w, h) < 5 || Math.min(w, h) < 2) continue;
+      if (this.rivers.some(([a, b]) => q.y1 >= a - 3 && q.y0 <= b + 3)) continue;
+      const along = w >= h ? (r() < 0.5 ? 0 : Math.PI) : r() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
+      const x = ((q.x0 + q.x1 + 1) / 2) * T;
+      const y = ((q.y0 + q.y1 + 1) / 2) * T;
+      this.addObstacle({ kind: "ramp", x, y, a: along, len: 44, wid: 46 });
+      ramps++;
+    }
+    for (const [ry0, ry1] of this.rivers) {
+      const cols = vs.map((_, i) => i).filter((i) => i + 1 < vs.length && i !== stadiumCol).sort(() => r() - 0.5).slice(0, 4);
+      for (const i of cols) {
+        const x = ((vs[i] + 2 + vs[i + 1]) / 2) * T;
+        this.addObstacle({ kind: "ramp", x, y: (ry0 - 1.5) * T, a: Math.PI / 2, len: 40, wid: 50, power: 330 });
+        this.addObstacle({ kind: "ramp", x: x + 2 * T, y: (ry1 + 2.5) * T, a: -Math.PI / 2, len: 40, wid: 50, power: 330 });
+      }
+    }
+
     // Delivery addresses: pavement in front of a building.
     for (let y = L.y0; y <= L.y1; y++)
       for (let x = L.x0; x <= L.x1; x++)
         if (this.at(x, y) === WALK && [0, 1, 2, 3].some((d) => this.at(x + DX[d], y + DY[d]) === BUILD)) this.doorsteps.push(y * n + x);
+
+    // Payphones that ring with special jobs.
+    for (let tries = 0; tries < 3000 && this.phones.length < 10; tries++) {
+      const k = pick(this.doorsteps);
+      const x = ((k % n) + 0.5) * T;
+      const y = (Math.floor(k / n) + 0.5) * T;
+      if ([...this.phones, ...this.places].some((p) => Math.hypot(p.x - x, p.y - y) < 2200)) continue;
+      this.phones.push({ x, y });
+    }
+
+    // Hidden packages: deep in parks, on the beach, in the stadium's corners.
+    const st = this.stadium as Stadium | null;
+    if (st) {
+      this.packages.push({ x: st.rect.x0 + 40, y: st.rect.y0 + 40 }, { x: st.rect.x1 - 40, y: st.rect.y1 - 40 });
+    }
+    for (let tries = 0; tries < 6000 && this.packages.length < 20; tries++) {
+      const x = L.x0 + Math.floor(r() * (L.x1 - L.x0));
+      const y = L.y0 + Math.floor(r() * (L.y1 - L.y0));
+      const t = this.at(x, y);
+      const beach = t === SAND && this.packages.length < 6;
+      if (!beach && t !== GRASS) continue;
+      if (t === GRASS && [0, 1, 2, 3].some((d) => this.at(x + DX[d], y + DY[d]) !== GRASS)) continue;
+      const wx = (x + 0.5) * T;
+      const wy = (y + 0.5) * T;
+      if (this.packages.some((p) => Math.hypot(p.x - wx, p.y - wy) < 1500)) continue;
+      if (this.treeCells.has(y * n + x)) continue;
+      this.packages.push({ x: wx, y: wy });
+    }
 
     // Job spots spread out over the city.
     const kinds: JobKind[] = [];
@@ -397,6 +492,143 @@ export class CityMap {
         break;
       }
     }
+  }
+
+  // No trees on a ramp, its run-up or where it lands.
+  private clearTrees(o: Obstacle) {
+    const ca = Math.cos(o.a);
+    const sa = Math.sin(o.a);
+    const hit = (t: Tree) => {
+      const dx = t.x - o.x;
+      const dy = t.y - o.y;
+      const u = dx * ca + dy * sa;
+      const w = -dx * sa + dy * ca;
+      return u > -160 && u < 340 && Math.abs(w) < o.wid / 2 + 26;
+    };
+    const gone = new Set(this.trees.filter(hit));
+    if (!gone.size) return;
+    this.trees = this.trees.filter((t) => !gone.has(t));
+    for (const c of this.chunks) c.trees = c.trees.filter((t) => !gone.has(t));
+    for (const [k, list] of this.treeCells) {
+      const left = list.filter((t) => !gone.has(t));
+      if (left.length) this.treeCells.set(k, left);
+      else this.treeCells.delete(k);
+    }
+  }
+
+  private addObstacle(o: Obstacle) {
+    if (o.kind === "ramp") this.clearTrees(o);
+    this.obstacles.push(o);
+    this.chunkAt(Math.floor(o.x / T), Math.floor(o.y / T)).obstacles.push(o);
+    const rad = Math.max(o.len, o.wid) / 2 + 2;
+    for (let ty = Math.floor((o.y - rad) / T); ty <= Math.floor((o.y + rad) / T); ty++)
+      for (let tx = Math.floor((o.x - rad) / T); tx <= Math.floor((o.x + rad) / T); tx++) {
+        const k = ty * this.n + tx;
+        const c = this.obCells.get(k);
+        if (c) c.push(o);
+        else this.obCells.set(k, [o]);
+      }
+  }
+
+  // Obstacles near a point.
+  obstaclesAt(x: number, y: number) {
+    return this.obCells.get(Math.floor(y / T) * this.n + Math.floor(x / T));
+  }
+
+  // The enduro stadium: a fenced dirt arena with a lap of gates and obstacles along it.
+  private buildStadium(q: Rect, r: () => number) {
+    const X0 = q.x0 * T;
+    const Y0 = q.y0 * T;
+    const X1 = (q.x1 + 1) * T;
+    const Y1 = (q.y1 + 1) * T;
+    const W = X1 - X0;
+    const H = Y1 - Y0;
+    // Fence with a gate in the middle of each side.
+    const g = 2 * T;
+    const mx = (X0 + X1) / 2;
+    const my = (Y0 + Y1) / 2;
+    this.walls.push(
+      { x0: X0, y0: Y0, x1: mx - g, y1: Y0 + 4 },
+      { x0: mx + g, y0: Y0, x1: X1, y1: Y0 + 4 },
+      { x0: X0, y0: Y1 - 4, x1: mx - g, y1: Y1 },
+      { x0: mx + g, y0: Y1 - 4, x1: X1, y1: Y1 },
+      { x0: X0, y0: Y0, x1: X0 + 4, y1: my - g },
+      { x0: X0, y0: my + g, x1: X0 + 4, y1: Y1 },
+      { x0: X1 - 4, y0: Y0, x1: X1, y1: my - g },
+      { x0: X1 - 4, y0: my + g, x1: X1, y1: Y1 },
+    );
+    const P = (u: number, v: number) => ({ x: X0 + u * W, y: Y0 + v * H });
+    const path = [
+      P(0.5, 0.86),
+      P(0.86, 0.86),
+      P(0.86, 0.6),
+      P(0.58, 0.5),
+      P(0.86, 0.37),
+      P(0.86, 0.13),
+      P(0.14, 0.13),
+      P(0.14, 0.42),
+      P(0.4, 0.56),
+      P(0.14, 0.7),
+      P(0.14, 0.86),
+    ];
+    this.stadium = { rect: { x0: X0, y0: Y0, x1: X1, y1: Y1 }, path };
+    const seg = (i: number, t: number) => {
+      const a = path[i];
+      const b = path[(i + 1) % path.length];
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, a: Math.atan2(b.y - a.y, b.x - a.x) };
+    };
+    const across = (i: number, t: number, kind: ObstacleKind, wid: number) => {
+      const p = seg(i, t);
+      this.addObstacle({ kind, x: p.x, y: p.y, a: p.a + Math.PI / 2, len: 84, wid });
+    };
+    const ramp = (i: number, t: number) => {
+      const p = seg(i, t);
+      this.addObstacle({ kind: "ramp", x: p.x, y: p.y, a: p.a, len: 40, wid: 70 });
+    };
+    const side = (i: number, t: number, off: number) => {
+      const p = seg(i, t);
+      return { x: p.x - Math.sin(p.a) * off, y: p.y + Math.cos(p.a) * off };
+    };
+    // 0: three logs across the track.
+    for (const t of [0.25, 0.5, 0.75]) across(0, t, "log", 9);
+    // 1: a tabletop.
+    ramp(1, 0.35);
+    // 2: tractor tyres, staggered.
+    for (let k = 0; k < 5; k++) {
+      const p = side(2, 0.2 + k * 0.15, k % 2 ? 22 : -22);
+      this.addObstacle({ kind: "tire", x: p.x, y: p.y, a: 0, len: 24, wid: 24 });
+    }
+    // 3: a mud pit.
+    {
+      const p = seg(3, 0.5);
+      this.addObstacle({ kind: "mud", x: p.x, y: p.y, a: p.a, len: 120, wid: 90 });
+    }
+    // 4: whoops.
+    for (let k = 0; k < 7; k++) across(4, 0.2 + k * 0.09, "whoop", 12);
+    // 5: the big double: a ramp over two logs.
+    ramp(5, 0.22);
+    across(5, 0.36, "log", 10);
+    across(5, 0.44, "log", 10);
+    // 6: rock garden.
+    for (let k = 0; k < 9; k++) {
+      const p = side(6, 0.15 + r() * 0.7, (r() - 0.5) * 70);
+      const rr = 6 + r() * 5;
+      this.addObstacle({ kind: "rock", x: p.x, y: p.y, a: r() * 6, len: rr * 2, wid: rr * 2 });
+    }
+    // 7: more tyres.
+    for (let k = 0; k < 4; k++) {
+      const p = side(7, 0.25 + k * 0.17, k % 2 ? -20 : 20);
+      this.addObstacle({ kind: "tire", x: p.x, y: p.y, a: 0, len: 24, wid: 24 });
+    }
+    // 8: two logs.
+    for (const t of [0.4, 0.6]) across(8, t, "log", 9);
+    // 9: a second mud pit.
+    {
+      const p = seg(9, 0.5);
+      this.addObstacle({ kind: "mud", x: p.x, y: p.y, a: p.a, len: 100, wid: 90 });
+    }
+    // 10: a kicker before the finish.
+    ramp(10, 0.5);
   }
 
   private chunkAt(tx: number, ty: number) {
@@ -452,6 +684,7 @@ export class CityMap {
 
   // Where a vehicle can go at all (police chase paths).
   drivable(x: number, y: number) {
+    // (dirt, grass, pavement, roads and car parks)
     const t = this.at(x, y);
     return t !== WATER && t !== BUILD;
   }

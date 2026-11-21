@@ -2,7 +2,7 @@
 // jingles and the bike radio. Nothing to download.
 
 import { THUMPER_SOURCE, distortion } from "../thumper.ts";
-import { Radio, STATIONS, type Station, type Track } from "./radio.ts";
+import { Radio, STATIONS, type Station, type Track, WALK_MUSIC } from "./radio.ts";
 
 const KEY = "moto-city-sound";
 const RADIO_KEY = "moto-city-radio";
@@ -40,6 +40,8 @@ export class CitySound {
   private shiftT = 0;
   private lastT = 0;
   radio: Radio | null = null;
+  walk: Radio | null = null;
+  walkOn = true;
   private radioIndex = 0;
   muted = false;
   private listeners: ((m: boolean) => void)[] = [];
@@ -48,6 +50,7 @@ export class CitySound {
     try {
       this.muted = localStorage.getItem(KEY) === "off";
       const r = Number(localStorage.getItem(RADIO_KEY) ?? 0);
+      this.walkOn = localStorage.getItem("moto-city-walk") !== "off";
       this.radioIndex = Number.isInteger(r) && r >= -1 && r < STATIONS.length ? r : 0;
     } catch {
       /* defaults */
@@ -115,6 +118,8 @@ export class CitySound {
       this.siren = { o: so, g: sg };
       this.radio = new Radio(ctx, this.master, this.noiseBuf, this.radioIndex);
       this.radio.onTrack = (s, t) => this.onTrack?.(s, t);
+      this.walk = new Radio(ctx, this.master, this.noiseBuf, this.walkOn ? 0 : -1, WALK_MUSIC, 0.3);
+      this.walk.onTrack = (s, t) => this.onWalkTrack?.(s, t);
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
@@ -138,6 +143,23 @@ export class CitySound {
   }
 
   onTrack: ((s: Station, t: Track) => void) | null = null;
+  onWalkTrack: ((s: Station, t: Track) => void) | null = null;
+
+  // Background music on foot: on/off.
+  walkToggle() {
+    this.unlock();
+    this.walkOn = !this.walkOn;
+    try {
+      localStorage.setItem("moto-city-walk", this.walkOn ? "on" : "off");
+    } catch {
+      /* not saved */
+    }
+    if (this.walk && (this.walk.index >= 0) !== this.walkOn) this.walk.cycle(1);
+    return this.walkOn;
+  }
+  walkPlaying(on: boolean) {
+    this.walk?.setPlaying(on);
+  }
 
   // Next (or previous) radio station, or off; returns what is on now.
   radioCycle(step = 1) {
@@ -297,6 +319,16 @@ export class CitySound {
     src.connect(f).connect(g).connect(this.master);
     src.start(t);
     src.stop(t + 1.3);
+  }
+  // An old payphone bell, quieter further away.
+  ring(dist: number) {
+    const v = Math.max(0, 1 - dist / 900) * 0.12;
+    if (v <= 0) return;
+    for (let k = 0; k < 2; k++)
+      for (let i = 0; i < 8; i++) {
+        this.tone(1250, k * 0.45 + i * 0.045, 0.04, v, "square");
+        this.tone(1500, k * 0.45 + i * 0.045 + 0.02, 0.03, v * 0.6, "square");
+      }
   }
   reload() {
     this.tone(320, 0, 0.04, 0.12);

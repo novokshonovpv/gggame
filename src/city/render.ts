@@ -2,7 +2,7 @@
 // camera hanging above the screen centre, so their roofs slide outwards as you ride past
 // (the classic look of the old top-down city games, drawn from scratch here).
 
-import { BRIDGE, BUILD, type Building, type Chunk, CityMap, type Lamp, GRASS, LOT, ROAD, SAND, T, WALK, WATER } from "./map.ts";
+import { BRIDGE, BUILD, type Building, type Chunk, CityMap, DIRT, type Lamp, GRASS, LOT, type Obstacle, ROAD, SAND, T, WALK, WATER } from "./map.ts";
 import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 
 // The 67MOTO logo for the showroom and the rooftop billboards.
@@ -65,6 +65,11 @@ function makePatterns(ctx: CanvasRenderingContext2D) {
       g.fillStyle = COL.grass;
       g.fillRect(0, 0, s, s);
       noise(g, s, s, 500, ["#5a9845", "#46803a", "#629f4b", "#3f7434"], [2, 4]);
+    }),
+    dirt: mk(128, 64, (g, s) => {
+      g.fillStyle = "#8a6a44";
+      g.fillRect(0, 0, s, s);
+      noise(g, s, s, 700, ["#7d5f3c", "#96764e", "#6e5232", "#a08058"], [1.5, 4]);
     }),
     sand: mk(128, 64, (g, s) => {
       g.fillStyle = COL.sand;
@@ -170,6 +175,7 @@ export class Renderer {
       [GRASS]: [70, 120, 60],
       [LOT]: [90, 90, 95],
       [SAND]: [190, 170, 120],
+      [DIRT]: [150, 110, 70],
     };
     for (let i = 0; i < map.n * map.n; i++) {
       const [r, gg, b] = rgb[map.tiles[i]] ?? [0, 0, 0];
@@ -207,7 +213,11 @@ export class Renderer {
     this.drawLamps(v);
     this.drawPlaces(world, t);
     this.drawSkids(world);
+    this.drawStadium(world, t);
+    this.drawObstacles();
     this.drawPickups(world, t);
+    this.drawPhones(world, t);
+    this.drawPackages(world, t);
     this.drawJobs(world, t);
 
     // Bodies on the ground, then everything with wheels.
@@ -233,6 +243,9 @@ export class Renderer {
     this.dark = darkness(world.clock);
     if (this.dark > 0.01) this.drawNight(world, cam, this.dark, t);
     this.drawTall(cam, Hc);
+    // Bikes in the air fly over the low roofs' shadows; drawn again on top while high.
+    for (const veh of world.vehicles) if (veh.z > 14 && vis(veh.x, veh.y, 60)) this.drawVehicle(veh, world, t);
+    this.drawHeli(world, t);
     this.drawTarget(world, t, cam, Hc);
 
     // Screen space: arrow to the job and the bust warning.
@@ -272,6 +285,8 @@ export class Renderer {
           return this.pat.grass;
         case LOT:
           return this.pat.lot;
+        case DIRT:
+          return this.pat.dirt;
         case SAND:
           return this.pat.sand;
         default:
@@ -599,15 +614,324 @@ export class Renderer {
     }
   }
 
+  // ---------- stadium, obstacles, phones, packages ----------
+
+  private drawStadium(world: World, t: number) {
+    const st = world.map.stadium;
+    const v = this.view;
+    if (!st || st.rect.x1 < v.x0 || st.rect.x0 > v.x1 || st.rect.y1 < v.y0 || st.rect.y0 > v.y1) return;
+    const ctx = this.ctx;
+    const P = st.path;
+    // The racing line: packed darker dirt with tyre tracks.
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(60,40,22,0.35)";
+    ctx.lineWidth = 92;
+    ctx.beginPath();
+    P.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(40,26,14,0.35)";
+    ctx.lineWidth = 2;
+    for (const off of [-16, -6, 8, 18]) {
+      ctx.setLineDash([22, 9]);
+      ctx.beginPath();
+      P.forEach((q, i) => (i ? ctx.lineTo(q.x + off * 0.3, q.y + off) : ctx.moveTo(q.x + off * 0.3, q.y + off)));
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // Gates: a flag each side; start/finish chequered.
+    const job = world.job?.kind === "stadium" ? world.job : null;
+    for (let i = 0; i < P.length; i++) {
+      const q = P[i];
+      const n = P[(i + 1) % P.length];
+      const a = Math.atan2(n.y - q.y, n.x - q.x) + Math.PI / 2;
+      const next = job && (job.idx + 1) % P.length === i;
+      for (const sgn of [-1, 1]) {
+        const fx = q.x + Math.cos(a) * 50 * sgn;
+        const fy = q.y + Math.sin(a) * 50 * sgn;
+        ctx.fillStyle = "#3a2a1a";
+        ctx.fillRect(fx - 1, fy - 1, 2, 2);
+        ctx.fillStyle = next ? "#ffd23a" : i === 0 ? "#fff" : sgn < 0 ? "#e53935" : "#1e88e5";
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx + 9 + Math.sin(t * 6 + i) * 1.5, fy - 4);
+        ctx.lineTo(fx, fy - 8);
+        ctx.fill();
+      }
+      if (i === 0) {
+        ctx.save();
+        ctx.translate(q.x, q.y);
+        ctx.rotate(a);
+        for (let k = -5; k < 5; k++)
+          for (let j = 0; j < 2; j++) {
+            ctx.fillStyle = (k + j) % 2 === 0 ? "#111" : "#f4f4f4";
+            ctx.fillRect(k * 9, -9 + j * 9, 9, 9);
+          }
+        ctx.restore();
+      }
+    }
+    // Name on the infield.
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "#f3ead8";
+    ctx.font = `900 34px ${BRAND_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const lx = st.rect.x0 + (st.rect.x1 - st.rect.x0) * 0.47;
+    const ly = st.rect.y0 + (st.rect.y1 - st.rect.y0) * 0.27;
+    ctx.fillText("ЭНДУРО-АРЕНА", lx, ly);
+    ctx.font = `700 14px ${BRAND_FONT}`;
+    ctx.fillText(world.bestLap ? `рекорд круга ${world.bestLap.toFixed(2)} с` : "въезжай на старт — круг на время", lx, ly + 28);
+    ctx.restore();
+  }
+
+  private drawObstacles() {
+    const ctx = this.ctx;
+    const v = this.view;
+    const list: Obstacle[] = this.chunks.flatMap((c) => c.obstacles);
+    // Mud first: it is part of the ground.
+    list.sort((a, b) => (a.kind === "mud" ? -1 : 0) - (b.kind === "mud" ? -1 : 0));
+    for (const o of list) {
+      if (o.x < v.x0 - 60 || o.x > v.x1 + 60 || o.y < v.y0 - 60 || o.y > v.y1 + 60) continue;
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      ctx.rotate(o.a);
+      const L = o.len;
+      const W = o.wid;
+      switch (o.kind) {
+        case "mud": {
+          ctx.fillStyle = "#4a3420";
+          ctx.beginPath();
+          ctx.ellipse(0, 0, L / 2, W / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(120,150,170,0.25)";
+          ctx.beginPath();
+          ctx.ellipse(-L * 0.12, -W * 0.1, L * 0.28, W * 0.2, 0.3, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+        case "log": {
+          ctx.fillStyle = "rgba(0,0,0,0.3)";
+          ctx.fillRect(-L / 2 + 3, -W / 2 + 4, L, W);
+          const g = ctx.createLinearGradient(0, -W / 2, 0, W / 2);
+          g.addColorStop(0, "#a0784c");
+          g.addColorStop(0.5, "#7a5530");
+          g.addColorStop(1, "#4e351c");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.roundRect(-L / 2, -W / 2, L, W, W / 2);
+          ctx.fill();
+          ctx.fillStyle = "#c9a77a";
+          ctx.beginPath();
+          ctx.ellipse(L / 2 - 2, 0, 2.5, W / 2 - 0.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+        case "whoop": {
+          const g = ctx.createLinearGradient(0, -W / 2, 0, W / 2);
+          g.addColorStop(0, "rgba(170,130,85,0.9)");
+          g.addColorStop(1, "rgba(70,48,26,0.9)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, L / 2, W / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+        case "tire": {
+          ctx.fillStyle = "rgba(0,0,0,0.3)";
+          ctx.beginPath();
+          ctx.arc(3, 4, L / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#1b1b1b";
+          ctx.beginPath();
+          ctx.arc(0, 0, L / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#333";
+          ctx.lineWidth = 2;
+          for (let k = 0; k < 10; k++) {
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(k * 0.63) * L * 0.32, Math.sin(k * 0.63) * L * 0.32);
+            ctx.lineTo(Math.cos(k * 0.63) * L * 0.49, Math.sin(k * 0.63) * L * 0.49);
+            ctx.stroke();
+          }
+          ctx.fillStyle = "#6e5232";
+          ctx.beginPath();
+          ctx.arc(0, 0, L * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+        case "rock": {
+          ctx.fillStyle = "rgba(0,0,0,0.3)";
+          ctx.beginPath();
+          ctx.arc(2, 3, L / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#8d8a84";
+          ctx.beginPath();
+          for (let k = 0; k < 7; k++) {
+            const rr = (L / 2) * (0.8 + 0.2 * Math.sin(k * 2.3 + o.x));
+            const a = (k / 7) * Math.PI * 2;
+            if (k) ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+            else ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = "#b3b0a8";
+          ctx.beginPath();
+          ctx.arc(-L * 0.12, -L * 0.12, L * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+        case "ramp": {
+          // A wooden kicker rising towards the launch edge.
+          ctx.fillStyle = "rgba(0,0,0,0.35)";
+          ctx.fillRect(-L / 2 + 4, -W / 2 + 5, L + 4, W);
+          const g = ctx.createLinearGradient(-L / 2, 0, L / 2, 0);
+          g.addColorStop(0, "#7a5a36");
+          g.addColorStop(1, "#c89a5a");
+          ctx.fillStyle = g;
+          ctx.fillRect(-L / 2, -W / 2, L, W);
+          ctx.strokeStyle = "rgba(60,40,20,0.6)";
+          ctx.lineWidth = 1;
+          for (let k = 1; k < 5; k++) {
+            ctx.beginPath();
+            ctx.moveTo(-L / 2 + (k * L) / 5, -W / 2);
+            ctx.lineTo(-L / 2 + (k * L) / 5, W / 2);
+            ctx.stroke();
+          }
+          ctx.fillStyle = o.power ? "#ff9f1a" : "#ffd23a";
+          for (let k = -1; k <= 1; k++) {
+            ctx.beginPath();
+            ctx.moveTo(L * 0.3, k * W * 0.28);
+            ctx.lineTo(L * 0.05, k * W * 0.28 - 6);
+            ctx.lineTo(L * 0.05, k * W * 0.28 + 6);
+            ctx.fill();
+          }
+          ctx.fillStyle = "#e8e0d0";
+          ctx.fillRect(L / 2 - 2, -W / 2, 2, W);
+          break;
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  private drawPhones(world: World, t: number) {
+    const ctx = this.ctx;
+    const v = this.view;
+    world.map.phones.forEach((ph, i) => {
+      if (ph.x < v.x0 - 40 || ph.x > v.x1 + 40 || ph.y < v.y0 - 40 || ph.y > v.y1 + 40) return;
+      const ring = world.ringing === i;
+      ctx.save();
+      ctx.translate(ph.x, ph.y);
+      if (ring) {
+        const k = (t * 1.5) % 1;
+        ctx.strokeStyle = `rgba(255,255,255,${1 - k})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10 + k * 26, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(-5, -5, 12, 12);
+      ctx.fillStyle = ring && Math.floor(t * 6) % 2 ? "#ffd23a" : "#1f5fa8";
+      ctx.fillRect(-7, -7, 12, 12);
+      ctx.fillStyle = "#e8eef8";
+      ctx.font = "bold 9px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("☎", -1, -0.5);
+      ctx.restore();
+    });
+  }
+
+  private drawPackages(world: World, t: number) {
+    const ctx = this.ctx;
+    const v = this.view;
+    world.map.packages.forEach((pk, i) => {
+      if (world.packagesGot.has(i)) return;
+      if (pk.x < v.x0 - 20 || pk.x > v.x1 + 20 || pk.y < v.y0 - 20 || pk.y > v.y1 + 20) return;
+      ctx.save();
+      ctx.translate(pk.x, pk.y + Math.sin(t * 2 + i) * 1.5);
+      ctx.rotate(Math.sin(t + i) * 0.2);
+      ctx.fillStyle = `rgba(255,240,150,${0.25 + 0.15 * Math.sin(t * 4)})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#b07a3c";
+      ctx.fillRect(-6, -6, 12, 12);
+      ctx.strokeStyle = "#5a3a18";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(0, 6);
+      ctx.moveTo(-6, 0);
+      ctx.lineTo(6, 0);
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+
+  private drawHeli(world: World, t: number) {
+    const h = world.heli;
+    if (!h) return;
+    const ctx = this.ctx;
+    // Shadow far below, then the machine.
+    ctx.save();
+    ctx.translate(h.x + 50, h.y + 70);
+    ctx.rotate(h.a);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 22, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-46, -2, 26, 4);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(h.x, h.y);
+    ctx.rotate(h.a);
+    ctx.fillStyle = "#1b2a4a";
+    ctx.fillRect(-48, -2.5, 30, 5);
+    ctx.fillRect(-50, -8, 5, 16);
+    ctx.fillStyle = "#24407a";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 22, 11, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#e8eef8";
+    ctx.fillRect(-14, -11, 20, 3);
+    ctx.fillRect(-14, 8, 20, 3);
+    ctx.fillStyle = "rgba(140,200,255,0.8)";
+    ctx.beginPath();
+    ctx.ellipse(12, 0, 8, 8, 0, -1.2, 1.2);
+    ctx.fill();
+    ctx.fillStyle = Math.floor(t * 4) % 2 ? "#ff3030" : "#3060ff";
+    ctx.fillRect(-4, -2, 4, 4);
+    // Rotor: a blurred disc and two blades.
+    ctx.fillStyle = "rgba(30,30,30,0.18)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(20,20,20,0.8)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (const k of [0, Math.PI / 2]) {
+      const a = h.rotor + k;
+      ctx.moveTo(Math.cos(a) * 40, Math.sin(a) * 40);
+      ctx.lineTo(-Math.cos(a) * 40, -Math.sin(a) * 40);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // ---------- things that move ----------
 
   private shadow(v: Vehicle) {
     const ctx = this.ctx;
     if (v.sink > 0) return;
     ctx.save();
-    ctx.translate(v.x + 2.5, v.y + 3.5);
+    ctx.translate(v.x + 2.5 + v.z * 0.6, v.y + 3.5 + v.z * 0.8);
     ctx.rotate(v.a);
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.fillStyle = `rgba(0,0,0,${0.3 / (1 + v.z / 60)})`;
     ctx.beginPath();
     if (v.bike) ctx.ellipse(0, 0, v.model.len / 2, v.down ? 6 : 4, 0, 0, Math.PI * 2);
     else ctx.roundRect(-v.model.len / 2, -v.model.wid / 2, v.model.len, v.model.wid, 4);
@@ -623,6 +947,10 @@ export class Renderer {
     if (v.sink > 0) {
       ctx.globalAlpha = Math.max(0, 1 - v.sink / 2.2);
       const s = Math.max(0.5, 1 - v.sink * 0.2);
+      ctx.scale(s, s);
+    }
+    if (v.z > 0) {
+      const s = 1 + v.z / 90;
       ctx.scale(s, s);
     }
     if (v.bike) this.drawBike(v, world, t);
@@ -1073,6 +1401,8 @@ export class Renderer {
       if (veh.police && veh.chase) glow(veh.x, veh.y, 75, 0.6);
     }
     glow(world.px, world.py, 120, 0.45);
+    if (world.heli && Math.hypot(world.heli.x - world.px, world.heli.y - world.py) < 260) glow(world.px, world.py, 80, 0.95);
+    if (world.ringing >= 0) glow(world.map.phones[world.ringing].x, world.map.phones[world.ringing].y, 60, 0.8);
     let fires = 0;
     for (const q of world.particles) if (q.kind === "fire" && fires++ < 50) glow(q.x, q.y, 34, 0.55 * (q.life / q.max));
     for (const f of world.flashes) glow(f.x, f.y, 70, 0.9);
@@ -1382,7 +1712,7 @@ export class Renderer {
     const job = world.job;
     const p = this.jobTarget(world);
     if (!job || !p) return;
-    const col = job.kind === "race" ? "#ff9f1a" : job.kind === "hot" ? "#ff3b3b" : "#3ddc6e";
+    const col = job.kind === "race" || job.kind === "stadium" ? "#ff9f1a" : job.kind === "hot" || job.kind === "phone" ? "#ff3b3b" : "#3ddc6e";
     const r = job.kind === "race" ? 46 : 26;
     ctx.save();
     ctx.globalAlpha = 0.3;
@@ -1509,7 +1839,16 @@ export class Renderer {
       g.fillText({ garage: "С", shop: "₽", hospital: "+", police: "П" }[pl.kind], px(pl.x), px(pl.y) + r(0.5));
     }
     const flash = Math.floor(t * 4) % 2 === 0;
+    map.phones.forEach((ph, i) => dot(ph.x, ph.y, world.ringing === i ? (flash ? "#ffffff" : "#ffd23a") : "#9fb3c8", world.ringing === i ? 6 : 3, true));
+    const st = map.stadium;
+    if (st) {
+      g.fillStyle = "#f3ead8";
+      g.font = `900 ${r(11)}px system-ui, sans-serif`;
+      g.textAlign = "center";
+      g.fillText("СТАДИОН", (st.rect.x0 + st.rect.x1) / 2 / T, (st.rect.y0 + st.rect.y1) / 2 / T);
+    }
     for (const v of world.vehicles) if (v.police && v.chase) dot(v.x, v.y, flash ? "#ff3030" : "#3060ff", 3);
+    if (world.heli) dot(world.heli.x, world.heli.y, flash ? "#ff3030" : "#3060ff", 5, true);
     const target = this.jobTarget(world);
     if (target) dot(target.x, target.y, "#ffe14a", 7 + (flash ? 2 : 0), true);
     const a = world.player.mode === "ride" && world.player.bike ? world.player.bike.a : world.player.body.a;
@@ -1571,6 +1910,11 @@ export class Renderer {
     const flash = Math.floor(t * 6) % 2 === 0;
     for (const v of world.vehicles)
       if (v.police && v.chase && Math.abs(v.x / T - cx) < span / 2 && Math.abs(v.y / T - cy) < span / 2) dot(v.x, v.y, flash ? "#ff3030" : "#3060ff", 0.8);
+    if (world.ringing >= 0) {
+      const ph = map.phones[world.ringing];
+      dot(ph.x, ph.y, flash ? "#ffffff" : "#ffd23a", 1.2);
+    }
+    if (world.heli) dot(world.heli.x, world.heli.y, flash ? "#ff3030" : "#3060ff", 1.1);
     const target = this.jobTarget(world);
     if (target) dot(target.x, target.y, "#ffe14a", 1.3 + (flash ? 0.3 : 0));
     // The player: an arrowhead.

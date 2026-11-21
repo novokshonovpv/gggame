@@ -48,6 +48,20 @@ export const STATIONS: Station[] = [
   },
 ];
 
+// Quiet background music on foot (not a radio: no stations, no static).
+export const WALK_MUSIC: Station[] = [
+  {
+    name: "Прогулка",
+    genre: "джаз и грув",
+    tracks: [
+      { file: "local-forecast.m4a", title: "Local Forecast", len: 165.3 },
+      { file: "night-in-venice.m4a", title: "Night in Venice", len: 218.2 },
+      { file: "groundwork.m4a", title: "Groundwork", len: 169.5 },
+      { file: "late-night-radio.m4a", title: "Late Night Radio", len: 263.7 },
+    ],
+  },
+];
+
 export const MUSIC_CREDIT = "Музыка: Kevin MacLeod (incompetech.com), лицензия CC BY 4.0";
 
 const BASE = new URL("radio/", document.baseURI).href;
@@ -64,8 +78,12 @@ export class Radio {
   private epoch: number; // the stations' broadcast clock starts here
   private wantSeek = -1;
   onTrack: ((station: Station, track: Track) => void) | null = null;
+  private stations: Station[];
+  private level: number;
 
-  constructor(ctx: AudioContext, dest: AudioNode, noise: AudioBuffer, index: number) {
+  constructor(ctx: AudioContext, dest: AudioNode, noise: AudioBuffer, index: number, stations = STATIONS, level = 0.55) {
+    this.stations = stations;
+    this.level = level;
     this.ctx = ctx;
     this.noise = noise;
     this.dest = dest;
@@ -123,7 +141,7 @@ export class Radio {
   }
 
   get station() {
-    return this.index >= 0 ? STATIONS[this.index] : null;
+    return this.index >= 0 ? this.stations[this.index] : null;
   }
 
   get name() {
@@ -149,7 +167,7 @@ export class Radio {
 
   // step: +1 next station, -1 previous (off sits between the last and the first).
   cycle(step = 1) {
-    const n = STATIONS.length + 1;
+    const n = this.stations.length + 1;
     this.index = ((this.index + 1 + step + n) % n) - 1;
     this.static();
     this.trackNo = -1;
@@ -176,7 +194,7 @@ export class Radio {
   private fade() {
     const t = this.ctx.currentTime;
     this.out.gain.cancelScheduledValues(t);
-    this.out.gain.setTargetAtTime(this.on && this.station ? 0.55 : 0, t, this.on ? 0.25 : 0.12);
+    this.out.gain.setTargetAtTime(this.on && this.station ? this.level : 0, t, this.on ? 0.25 : 0.12);
   }
 
   // Start the station's current song from where the broadcast is.
