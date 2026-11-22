@@ -159,6 +159,7 @@ export class Renderer {
   private lg = this.light.getContext("2d")!;
   private dark = 0;
   adHits: AdHit[] = [];
+  private lastZoom = 1;
   private chunks: Chunk[] = [];
   private lampsInView: Lamp[] = [];
   lightsT = 0; // game minutes, to switch windows on and off now and then
@@ -212,6 +213,7 @@ export class Renderer {
     const ctx = this.ctx;
     const { w, h, dpr } = this;
     const z = cam.zoom;
+    this.lastZoom = z;
     const vw = w / z;
     const vh = h / z;
     const v = (this.view = { x0: cam.x - vw / 2, y0: cam.y - vh / 2, x1: cam.x + vw / 2, y1: cam.y + vh / 2 });
@@ -258,6 +260,14 @@ export class Renderer {
       this.drawPed(p.body, t, !!world.weapon);
     }
     for (const veh of world.vehicles) if (vis(veh.x, veh.y, 60) && !veh.down) this.drawVehicle(veh, world, t);
+    // Other players.
+    for (const r of world.remotes) {
+      if (!vis(r.x, r.y, 60)) continue;
+      if (r.veh) {
+        this.shadow(r.veh);
+        this.drawVehicle(r.veh, world, t);
+      } else if (r.ped) this.drawPed(r.ped, t, false);
+    }
     this.drawParticles(world);
     this.drawBullets(world);
 
@@ -267,6 +277,7 @@ export class Renderer {
     // Bikes in the air fly over the low roofs' shadows; drawn again on top while high.
     for (const veh of world.vehicles) if (veh.z > 14 && vis(veh.x, veh.y, 60)) this.drawVehicle(veh, world, t);
     this.drawHeli(world, t);
+    this.drawNames(world);
     this.drawTarget(world, t, cam, Hc);
 
     // Screen space: arrow to the job and the bust warning.
@@ -956,6 +967,27 @@ export class Renderer {
       ctx.stroke();
       ctx.restore();
     });
+  }
+
+  // Nicknames over the other players (and a crosshair mark if PvP is on for both).
+  private drawNames(world: World) {
+    const ctx = this.ctx;
+    const v = this.view;
+    const z = Math.max(0.6, this.lastZoom);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.font = `800 ${12 / z}px Manrope, system-ui, sans-serif`;
+    ctx.lineJoin = "round";
+    for (const r of world.remotes) {
+      if (r.x < v.x0 - 40 || r.x > v.x1 + 40 || r.y < v.y0 - 40 || r.y > v.y1 + 40) continue;
+      const label = r.pvp && world.pvp ? `⚔ ${r.nick}` : r.nick;
+      const y = r.y - 16 - r.z * 0.4;
+      ctx.lineWidth = 3 / z;
+      ctx.strokeStyle = "rgba(0,0,0,0.75)";
+      ctx.strokeText(label, r.x, y);
+      ctx.fillStyle = r.pvp && world.pvp ? "#ffb4a8" : "#9fe7ff";
+      ctx.fillText(label, r.x, y);
+    }
   }
 
   private drawHeli(world: World, t: number) {
@@ -1923,6 +1955,7 @@ export class Renderer {
     }
     for (const v of world.vehicles) if (v.police && v.chase) dot(v.x, v.y, flash ? "#ff3030" : "#3060ff", 3);
     if (world.heli) dot(world.heli.x, world.heli.y, flash ? "#ff3030" : "#3060ff", 5, true);
+    for (const r of world.remotes) dot(r.x, r.y, "#4fd8ff", 4.5, true);
     const target = this.jobTarget(world);
     if (target) dot(target.x, target.y, "#ffe14a", 7 + (flash ? 2 : 0), true);
     const a = world.player.mode === "ride" && world.player.bike ? world.player.bike.a : world.player.body.a;
@@ -1989,6 +2022,7 @@ export class Renderer {
       dot(ph.x, ph.y, flash ? "#ffffff" : "#ffd23a", 1.2);
     }
     if (world.heli) dot(world.heli.x, world.heli.y, flash ? "#ff3030" : "#3060ff", 1.1);
+    for (const r of world.remotes) dot(r.x, r.y, "#4fd8ff", 1.1);
     const target = this.jobTarget(world);
     if (target) dot(target.x, target.y, "#ffe14a", 1.3 + (flash ? 0.3 : 0));
     // The player: an arrowhead.

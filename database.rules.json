@@ -1,0 +1,40 @@
+{
+  "rules": {
+    "city67": {
+      "players": {
+        ".read": true,
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['n', 't']) && newData.child('n').isString() && newData.child('n').val().length <= 16"
+        }
+      },
+      "pos": {
+        "$chunk": {
+          ".read": true,
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "newData.hasChildren(['n', 'x', 'y', 'a', 'm']) && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('n').isString() && newData.child('n').val().length <= 16"
+          }
+        }
+      },
+      "ev": {
+        "$chunk": {
+          ".read": true,
+          ".indexOn": ["t"],
+          "$id": {
+            ".write": "auth != null && ((!data.exists() && newData.child('u').val() === auth.uid) || (!newData.exists() && data.child('u').val() === auth.uid))",
+            ".validate": "newData.hasChildren(['u', 'k', 't'])"
+          }
+        }
+      },
+      "chat": {
+        ".read": true,
+        ".indexOn": ["t"],
+        "$id": {
+          ".write": "auth != null && ((!data.exists() && newData.child('u').val() === auth.uid) || (!newData.exists() && data.child('u').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['u', 'n', 'm', 't']) && newData.child('m').isString() && newData.child('m').val().length <= 80 && newData.child('n').isString() && newData.child('n').val().length <= 16"
+        }
+      }
+    }
+  }
+}

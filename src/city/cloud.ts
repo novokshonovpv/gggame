@@ -5,6 +5,7 @@
 // The existing rules store any record as { time: number > 10 }, so "time" holds the value.
 // The Firebase SDK is loaded only when the menu asks for it.
 
+import type { FirebaseApp } from "firebase/app";
 import type { Auth, User } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import { CLOUD_CONFIG } from "../cloud-config.ts";
@@ -28,6 +29,7 @@ type Sdk = {
 export class CityCloud {
   status: "off" | "loading" | "ready" | "error" = CLOUD_CONFIG ? "loading" : "off";
   user: User | null = null;
+  app: FirebaseApp | null = null;
   private sdk: Sdk | null = null;
   private nicks = new Map<string, string | null>();
   private ready: Promise<void> | null = null;
@@ -39,6 +41,7 @@ export class CityCloud {
       try {
         const [appMod, authMod, fs] = await Promise.all([import("firebase/app"), import("firebase/auth"), import("firebase/firestore")]);
         const app = appMod.getApps()[0] ?? appMod.initializeApp(CLOUD_CONFIG);
+        this.app = app;
         const auth = authMod.getAuth(app);
         this.sdk = { auth, db: fs.getFirestore(app), fs };
         await new Promise<void>((resolve) => {

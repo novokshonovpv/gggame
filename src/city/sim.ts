@@ -86,7 +86,7 @@ export interface Bullet {
   vy: number;
   life: number;
   dmg: number;
-  owner: "player" | "police";
+  owner: "player" | "police" | "remote"; // remote: another player's shot, only for show
   rocket?: boolean;
 }
 
@@ -295,7 +295,7 @@ export type GameEvent =
   | { type: "wasted" }
   | { type: "shop" }
   | { type: "kick" }
-  | { type: "shot"; weapon: WeaponId | "police"; x: number; y: number }
+  | { type: "shot"; weapon: WeaponId | "police"; x: number; y: number; remote?: boolean }
   | { type: "weapon"; id: WeaponId }
   | { type: "surprise"; text: string; good: boolean }
   | { type: "nitro" }
@@ -303,7 +303,23 @@ export type GameEvent =
   | { type: "stunt"; text: string; amount: number }
   | { type: "ring"; x: number; y: number }
   | { type: "package"; got: number; total: number }
-  | { type: "lap"; time: number; best: number; record: boolean };
+  | { type: "lap"; time: number; best: number; record: boolean }
+  | { type: "pvpHit"; uid: string; dmg: number; weapon: string }
+  | { type: "pvpDown"; by: string };
+
+// Another player in the city, as this client sees them (moved by the network code).
+export interface RemoteView {
+  uid: string;
+  nick: string;
+  pvp: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  z: number;
+  veh: Vehicle | null; // riding: a display-only bike
+  ped: Ped | null; // on foot or thrown off
+}
 
 export interface Input {
   gas: boolean;
@@ -361,6 +377,10 @@ export class World {
   private ringT = 0;
   private ringCool = 25;
   target: Vehicle | null = null; // a payphone job's mark
+  remotes: RemoteView[] = []; // other online players
+  pvp = true; // this player takes part in PvP
+  pvpGrace = 0; // seconds of PvP protection after respawning
+  private lastHitBy: { uid: string; t: number } | null = null;
   boostT = 0; // nitro burning
   rush: { t: number; left: number; got: number } | null = null; // money rain
   private sprintPrev = false;
@@ -639,6 +659,24 @@ export class World {
     v.brk = 0;
   }
 
+  // Another player says they hit us.
+  remoteHit(uid: string, dmg: number) {
+    const p = this.player;
+    if (!this.pvp || this.pvpGrace > 0 || p.mode === "out") return false;
+    this.lastHitBy = { uid, t: this.time };
+    dmg *= 0.5; // players take half the damage the guns do to everything else
+    if (p.mode === "ride" && p.bike) {
+      this.damage(p.bike, dmg * 0.3);
+      p.bike.hit = 0.15;
+    }
+    this.hurt(dmg);
+    return true;
+  }
+
+  private canHit(r: RemoteView) {
+    return this.pvp && r.pvp && this.pvpGrace <= 0 && this.player.mode !== "out";
+  }
+
   hurt(dmg: number) {
     const p = this.player;
     if (p.mode === "out" || dmg <= 0) return;
@@ -669,6 +707,8 @@ export class World {
     p.bike = null;
     if (this.job) this.failJob(how === "busted" ? "Задание провалено: задержан" : "Задание провалено");
     this.emit({ type: how });
+    if (how === "wasted" && this.lastHitBy && this.time - this.lastHitBy.t < 6) this.emit({ type: "pvpDown", by: this.lastHitBy.uid });
+    this.lastHitBy = null;
   }
 
   respawn(how: "wasted" | "busted") {
@@ -685,6 +725,7 @@ export class World {
     this.heat = 0;
     for (const v of this.vehicles) v.chase = false;
     p.health = 100;
+    this.pvpGrace = 5;
     p.mode = "foot";
     p.body.state = "walk";
     p.body.x = place.x;
@@ -752,6 +793,8 @@ export class World {
       this.integrate(v, dt);
     }
     this.collideVehicles();
+    this.collideRemotes();
+    this.pvpGrace = Math.max(0, this.pvpGrace - dt);
     for (const ped of this.peds) this.stepPed(ped, dt);
     this.peds = this.peds.filter((q) => q.state !== "swim" || q.t > 0);
     if (p.mode !== "ride" && p.mode !== "out") this.stepBody(dt);
@@ -1229,6 +1272,11 @@ export class World {
     this.burst(x, y, Math.round(20 * power), "smoke");
     this.burst(x, y, 20, "spark");
     const R = 95 * Math.sqrt(power);
+    if (byPlayer)
+      for (const r of this.remotes) {
+        const d = Math.hypot(r.x - x, r.y - y);
+        if (d < R && this.canHit(r)) this.emit({ type: "pvpHit", uid: r.uid, dmg: Math.round(70 * power * (1 - d / R)), weapon: "rocket" });
+      }
     for (const o of this.vehicles) {
       if (o === skip) continue;
       const dx = o.x - x;
@@ -2433,10 +2481,14 @@ export class World {
         const tile = map.tileAt(b.x, b.y);
         if (tile === BUILD || map.walls.some((w) => b.x > w.x0 && b.x < w.x1 && b.y > w.y0 && b.y < w.y1)) {
           this.burst(b.x - b.vx * h, b.y - b.vy * h, 3, "spark");
-          if (b.rocket) this.blast(b.x - b.vx * h, b.y - b.vy * h, null, true, 1);
+          if (b.rocket) {
+            if (b.owner === "remote") this.showBlast(b.x - b.vx * h, b.y - b.vy * h);
+            else this.blast(b.x - b.vx * h, b.y - b.vy * h, null, true, 1);
+          }
           b.life = -1;
           break;
         }
+        if (b.owner === "remote") continue;
         if (b.rocket ? this.rocketHits(b) : this.bulletHits(b)) {
           if (b.rocket) this.blast(b.x, b.y, null, true, 1);
           b.life = -1;
@@ -2446,14 +2498,36 @@ export class World {
       if (b.rocket) {
         this.puff(b.x - b.vx * 0.02, b.y - b.vy * 0.02, "smoke", 0.5);
         // Out of range: goes off where it is.
-        if (b.life <= 0 && b.life > -1) this.blast(b.x, b.y, null, true, 1);
+        if (b.life <= 0 && b.life > -1) {
+          if (b.owner === "remote") this.showBlast(b.x, b.y);
+          else this.blast(b.x, b.y, null, true, 1);
+        }
       }
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
   }
 
+  // Someone else's explosion: fire and noise, no damage (their client sends the hits).
+  showBlast(x: number, y: number) {
+    this.emit({ type: "explode", x, y });
+    this.burst(x, y, 30, "fire");
+    this.burst(x, y, 20, "smoke");
+    this.burst(x, y, 20, "spark");
+  }
+
+  // The other player a shot struck, if any (their bike or their body).
+  private remoteAt(x: number, y: number, pad: number) {
+    for (const r of this.remotes) {
+      if (r.z > 20) continue;
+      const rad = r.veh ? 11 : 5.5;
+      if (Math.hypot(r.x - x, r.y - y) < rad + pad) return r;
+    }
+    return null;
+  }
+
   private rocketHits(b: Bullet) {
     const p = this.player;
+    if (b.owner === "player" && this.remoteAt(b.x, b.y, 2)) return true;
     for (const v of this.vehicles) if (v !== p.bike && !v.sink && Math.hypot(b.x - v.x, b.y - v.y) < v.model.len / 2 + 3) return true;
     for (const q of this.peds) if (q.state !== "swim" && Math.abs(q.x - b.x) < 6 && Math.abs(q.y - b.y) < 6) return true;
     return false;
@@ -2461,6 +2535,14 @@ export class World {
 
   private bulletHits(b: Bullet) {
     const p = this.player;
+    if (b.owner === "player") {
+      const r = this.remoteAt(b.x, b.y, 0);
+      if (r) {
+        this.burst(b.x, b.y, 4, "spark");
+        if (this.canHit(r)) this.emit({ type: "pvpHit", uid: r.uid, dmg: b.dmg, weapon: this.weapon ?? "" });
+        return true;
+      }
+    }
     for (const v of this.vehicles) {
       if (v.sink || (b.owner === "player" && v === p.bike) || (b.owner === "police" && v.police)) continue;
       const reach = v.model.len / 2 + 2;
@@ -2502,6 +2584,54 @@ export class World {
       }
     }
     return false;
+  }
+
+  // Other players are solid: bikes push each other; a hard ram with PvP on knocks the rider off.
+  private collideRemotes() {
+    const p = this.player;
+    if (p.mode === "out") return;
+    const me = p.mode === "ride" && p.bike ? p.bike : null;
+    const mx = me ? me.x : p.body.x;
+    const my = me ? me.y : p.body.y;
+    const mz = me ? me.z : 0;
+    const mr = me ? 9 : 4.5;
+    for (const r of this.remotes) {
+      if (Math.abs(r.z - mz) > 10) continue;
+      const rr = r.veh ? 9 : 4.5;
+      let nx = mx - r.x;
+      let ny = my - r.y;
+      const d = Math.hypot(nx, ny);
+      const pen = mr + rr - d;
+      if (pen <= 0 || d === 0) continue;
+      nx /= d;
+      ny /= d;
+      const mvx = me ? me.vx : p.body.vx;
+      const mvy = me ? me.vy : p.body.vy;
+      const vn = (mvx - r.vx) * nx + (mvy - r.vy) * ny;
+      const body = me ?? p.body;
+      body.x += nx * pen;
+      body.y += ny * pen;
+      if (vn < 0) {
+        // Bounce off them (they are as heavy as us).
+        body.vx -= vn * nx * 1.1;
+        body.vy -= vn * ny * 1.1;
+      }
+      const hard = Math.max(-vn, Math.hypot(r.vx, r.vy) * 0.6);
+      if (!this.canHit(r) || hard < 120) continue;
+      this.lastHitBy = { uid: r.uid, t: this.time };
+      if (me) {
+        this.emit({ type: "crash", power: hard, x: mx, y: my });
+        this.throwRider(me, hard);
+      } else if (r.veh) {
+        this.hurt(hard * 0.12);
+        p.mode = "fly";
+        p.body.state = "fly";
+        p.body.vx = r.vx * 0.8 + nx * 50;
+        p.body.vy = r.vy * 0.8 + ny * 50;
+        p.body.spin = 9;
+        p.getup = 0;
+      }
+    }
   }
 
   // ---------- effects ----------

@@ -20,6 +20,7 @@
         <div id="wanted" class="wanted" title="Розыск"></div>
         <button id="gun" class="gun hidden" title="Сменить оружие (Q)"></button>
         <div id="perks" class="perks"></div>
+        <div id="net" class="net hidden"></div>
       </div>
       <div class="hud-tr">
         <div id="money" class="money">0 ₽</div>
@@ -32,6 +33,7 @@
           <span id="clock" class="clock">17:00</span>
           <div class="hud-btns">
             <button id="b-mute" class="ibtn mute" aria-label="Звук" title="Звук (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4" /><path class="off" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg></button>
+            <button id="b-chat" class="ibtn" aria-label="Чат" title="Чат с игроками (T)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" /></svg></button>
             <button id="b-map" class="ibtn" aria-label="Карта города" title="Карта города (Tab)"><svg viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></svg></button>
             <button id="b-fs" class="ibtn" aria-label="Во весь экран" title="Во весь экран"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
             <button id="b-pause" class="ibtn" aria-label="Пауза" title="Пауза (Esc)"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" /></svg></button>
@@ -42,6 +44,11 @@
       <div id="msgs" class="msgs"></div>
       <div id="radio-banner" class="radio-banner hidden"></div>
       <div id="hint" class="hint hidden"></div>
+      <div id="chat-log" class="chat-log"></div>
+      <form id="chat-form" class="chat-form hidden" autocomplete="off">
+        <input id="chat-input" maxlength="80" placeholder="Сообщение игрокам… (без мата — он заменится звёздочками)" enterkeyhint="send" />
+        <button type="submit">Отправить</button>
+      </form>
       <canvas id="mini" class="mini" title="Открыть карту города (Tab)"></canvas>
       <div class="speedo"><b id="spd">0</b><small>км/ч</small><span id="bike-name"></span></div>
     </div>
