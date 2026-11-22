@@ -828,6 +828,8 @@ let time = 0;
 let shake = 0;
 
 function frame(now: number) {
+  // Next frame first: a bug in one frame must not freeze the whole game.
+  requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   time += dt;
@@ -906,7 +908,6 @@ function frame(now: number) {
     bigT -= dt;
     if (bigT <= 0) $("big").classList.add("hidden");
   }
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 

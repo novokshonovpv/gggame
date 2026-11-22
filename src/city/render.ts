@@ -1535,8 +1535,9 @@ export class Renderer {
     for (const q of world.particles) if (q.kind === "fire" && fires++ < 50) glow(q.x, q.y, 34, 0.55 * (q.life / q.max));
     for (const f of world.flashes) glow(f.x, f.y, 70, 0.9);
     const job = world.job;
-    if (job) glow(job.points[job.idx].x, job.points[job.idx].y, 80, 0.75);
-    else for (const s of this.map.jobs) glow(s.x, s.y, 45, 0.7);
+    const jt = this.jobTarget(world);
+    if (jt) glow(jt.x, jt.y, 80, 0.75);
+    else if (!job) for (const s of this.map.jobs) glow(s.x, s.y, 45, 0.7);
     for (const pl of this.map.places) glow(pl.x, pl.y, 70, 0.7);
     for (const k of world.pickups) if (k.respawn <= 0) glow(k.x, k.y, 20, 0.6);
     ctx.save();
@@ -1821,7 +1822,7 @@ export class Renderer {
   private jobTarget(world: World) {
     const job = world.job;
     if (!job) return null;
-    return job.points[job.idx];
+    return job.points[job.idx] ?? null; // a "get away" call has no point to go to
   }
 
   private drawTarget(world: World, t: number, cam: Camera, Hc: number) {
