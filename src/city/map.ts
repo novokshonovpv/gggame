@@ -36,7 +36,8 @@ export interface Building extends Rect {
   roof: string;
   kind: BuildingKind;
   seed: number;
-  ad?: string; // a billboard on the roof: brand key (see ADS in render.ts)
+  ad?: string; // a billboard on the roof: brand id (brands.ts)
+  helipad?: boolean;
 }
 
 export interface Tree {
@@ -409,8 +410,20 @@ export class CityMap {
         else this.treeCells.set(key, [t]);
       }
 
+    // A handful of helipads: the tallest towers, far apart.
+    const towers = this.buildings
+      .filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.h > T * 6.5 && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 2)
+      .sort((a, b) => b.h - a.h);
+    const pads: Building[] = [];
+    for (const b of towers) {
+      if (pads.length >= 6) break;
+      if (pads.some((q) => Math.hypot(q.x0 - b.x0, q.y0 - b.y0) * T < 1000)) continue;
+      b.helipad = true;
+      pads.push(b);
+    }
+
     // Rooftop billboards.
-    const roomy = this.buildings.filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
+    const roomy = this.buildings.filter((b) => !b.helipad && b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
     // Brands from the 67MOTO catalogue (BSE three times as often), spread over the city.
     const ads = [...BILLBOARDS];
     for (let k = 0; k < ads.length && roomy.length; k++) {

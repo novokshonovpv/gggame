@@ -1690,7 +1690,7 @@ export class Renderer {
     const cy = y0 + h / 2;
     let s = b.seed;
     const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-    if (b.kind !== "hospital" && b.kind !== "police" && !b.ad && !(b.h > T * 6.5 && w >= 2.5 * T && h >= 2.5 * T)) {
+    if (b.kind !== "hospital" && b.kind !== "police" && !b.ad && !b.helipad) {
       // Vents and air conditioners.
       const n = 1 + Math.floor(rnd() * 3);
       for (let i = 0; i < n; i++) {
@@ -1729,7 +1729,7 @@ export class Renderer {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("ПОЛИЦИЯ", cx, cy);
-    } else if (b.h > T * 6.5 && w >= 2.5 * T && h >= 2.5 * T) {
+    } else if (b.helipad) {
       {
         ctx.strokeStyle = "#e9e3c8";
         ctx.lineWidth = 2;
