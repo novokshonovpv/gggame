@@ -1168,88 +1168,7 @@ button {
   opacity: 0;
 }
 
-.logo-bike {
-  position: absolute;
-  left: 0;
-  bottom: -96px;
-  width: 130px;
-  overflow: visible;
-  opacity: 0;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.logo-bike .tyre {
-  fill: none;
-  stroke: #3b3b3b;
-  stroke-width: 7;
-}
-.logo-bike .knobs {
-  fill: none;
-  stroke: #6a6a6a;
-  stroke-width: 3;
-  stroke-dasharray: 3 4;
-}
-.logo-bike .rim {
-  fill: none;
-  stroke: #d0d0d0;
-  stroke-width: 2.5;
-}
-.logo-bike .hub {
-  fill: #d0d0d0;
-}
-.logo-bike .arm,
-.logo-bike .fork {
-  fill: none;
-  stroke: #c9c9c9;
-  stroke-width: 3.5;
-}
-.logo-bike .bar {
-  fill: none;
-  stroke: #2a2a2a;
-  stroke-width: 3.5;
-}
-.logo-bike .pipe {
-  fill: none;
-  stroke: #8a8a8a;
-  stroke-width: 4;
-}
-.logo-bike .engine {
-  fill: #3a3a3a;
-}
-.logo-bike .frame {
-  fill: #2b2b2b;
-}
-.logo-bike .tank,
-.logo-bike .fender,
-.logo-bike .plate {
-  fill: #f2c230;
-}
-.logo-bike .fender {
-  fill: none;
-  stroke: #f2c230;
-  stroke-width: 4;
-}
-.logo-bike .seat {
-  fill: #1d1d1f;
-}
-.logo-bike .leg,
-.logo-bike .armr {
-  fill: none;
-  stroke: #1d3f7a;
-  stroke-width: 6;
-}
-.logo-bike .body {
-  fill: #1d3f7a;
-}
-.logo-bike .helmet {
-  fill: #ff7a1a;
-}
-.logo-bike .visor {
-  fill: #1a1f28;
-}
-
-/* The intro: letters drop in one by one, "67" stamps down with a jolt, the bike rides past. */
+/* The intro: letters drop in one by one, "67" stamps down with a jolt. */
 .menu.intro .logo-pre {
   animation: fade-in 0.6s 0.1s ease-out forwards;
 }
@@ -1268,10 +1187,7 @@ button {
 .menu.intro .logo-sub {
   animation: fade-in 0.6s 1.4s ease-out forwards;
 }
-.menu.intro .logo-bike {
-  animation: ride 6s 1.6s linear infinite;
-}
-.menu.intro .menu-body {
+.menu.intro .menu.intro .menu-body {
   animation: slide-in 0.6s 0.2s ease-out both;
 }
 
@@ -1322,20 +1238,6 @@ button {
   }
   75% {
     transform: translate(-3px, 2px);
-  }
-}
-@keyframes ride {
-  0% {
-    opacity: 0;
-    transform: translateX(-60px);
-  }
-  8%,
-  80% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(min(60vw, 600px));
   }
 }
 @keyframes slide-in {
@@ -1675,11 +1577,7 @@ button.danger {
     font-size: clamp(56px, 12vw, 100px);
     margin-left: 0.15em;
   }
-  .logo-bike,
-  .logo-sub {
-    display: none;
-  }
-  .menu-body {
+    .menu-body {
     grid-template-columns: 130px minmax(0, 1fr);
   }
   .menu-nav button {
