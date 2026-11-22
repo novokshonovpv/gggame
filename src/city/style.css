@@ -282,6 +282,7 @@ button {
   border: 3px solid rgba(0, 0, 0, 0.6);
   border-radius: 50%;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
 }
 
 .speedo {
