@@ -5,7 +5,7 @@
 import { censor } from "./censor.ts";
 import type { CityCloud } from "./cloud.ts";
 import { type ChatLine, FirebaseNet, LocalNet, type NetEvent, type PlayerState, type Transport, chunkOf, chunksAround } from "./net.ts";
-import { BIKE, Ped, type RemoteView, Vehicle, WEAPONS, type WeaponId, type World } from "./sim.ts";
+import { BIKE, MODELS, Ped, type RemoteView, Vehicle, WEAPONS, type WeaponId, type World } from "./sim.ts";
 
 const DELAY = 130; // ms: draw others this far in the past, between two received states
 const STALE = 8000;
@@ -238,7 +238,7 @@ export class Online {
     v.vy = s.vy;
     v.z = z;
     if (s.m === "r") {
-      const model = BIKE[s.b] ?? BIKE.z3;
+      const model = MODELS[s.b] ?? BIKE.z3;
       if (!v.veh || r.bikeId !== model.id) {
         v.veh = new Vehicle(model, x, y, ang, s.c);
         r.bikeId = model.id;

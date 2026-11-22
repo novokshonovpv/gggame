@@ -107,7 +107,10 @@ const CARS: Model[] = [
   m({ id: "van", name: "Фургон", type: "car", len: 40, wid: 18, mass: 6, vmax: 190, accel: 145, brake: 360, turn: 1.9, grip: 9, hp: 130, colors: ["#f0f0f0", "#3c6e9f", "#c9c2b0"] }),
   m({ id: "bus", name: "Автобус", type: "bus", len: 70, wid: 20, mass: 14, vmax: 160, accel: 100, brake: 300, turn: 1.4, grip: 9, hp: 250, colors: ["#e0b02a", "#3b8f5a"] }),
 ];
+export const MODELS: Record<string, Model> = {};
 const POLICE: Model = m({ id: "police", name: "Полиция", type: "police", len: 35, wid: 16, mass: 4.5, vmax: 275, accel: 240, brake: 520, turn: 2.7, grip: 11, hp: 170, colors: ["#f4f4f4"] });
+
+for (const md of [...BIKES, ...STREET, ...CARS, POLICE]) MODELS[md.id] = md;
 
 export interface Look {
   jacket: string;
@@ -197,7 +200,7 @@ export class Vehicle {
   }
 }
 
-export type PedState = "walk" | "flee" | "fly" | "down" | "swim";
+export type PedState = "walk" | "flee" | "fly" | "down" | "swim" | "dead";
 
 export class Ped {
   vx = 0;
@@ -212,6 +215,7 @@ export class Ped {
   off = (Math.random() - 0.5) * 14;
   speed = 22 + Math.random() * 12;
   crossing = 0;
+  hits = 0; // gunshots taken: the third one kills
   shirt = pickOf(SHIRTS);
   pants = pickOf(PANTS);
   hair = pickOf(HAIRS);
@@ -261,6 +265,7 @@ export interface Skid {
 export interface Pickup {
   kind: "cash" | "health" | "surprise" | "coin" | WeaponId;
   temp?: boolean; // money-rain coins: gone once taken or when time runs out
+  ttl?: number; // dropped money: seconds before it is gone
   x: number;
   y: number;
   amount: number;
@@ -588,9 +593,11 @@ export class World {
   mount(v: Vehicle) {
     const p = this.player;
     if (v.rider === "npc") {
-      this.throwRider(v, 60);
-      this.crime(0.7, v.x, v.y);
-      this.say("Байк угнан!", "info");
+      if (v.bike) this.throwRider(v, 60);
+      else this.bail(v);
+      this.crime(v.police ? 2.5 : 0.7, v.x, v.y);
+      if (v.police) this.setWanted(Math.max(this.wanted, 2));
+      this.say(v.bike ? "Байк угнан!" : v.police ? "Угнана полицейская машина!" : "Машина угнана!", "info");
     }
     v.ai = null;
     v.chase = false;
@@ -616,13 +623,31 @@ export class World {
     v.brk = 1;
     const rx = -Math.sin(v.a);
     const ry = Math.cos(v.a);
-    p.body.x = v.x + rx * 12;
-    p.body.y = v.y + ry * 12;
+    const side = v.bike ? 12 : v.model.wid / 2 + 7;
+    p.body.x = v.x - rx * side;
+    p.body.y = v.y - ry * side;
     p.body.a = v.a;
     p.body.vx = v.vx;
     p.body.vy = v.vy;
     p.mode = "foot";
     p.bike = null;
+  }
+
+  // The vehicle the player on foot can get on or into (the nearest, bikes and cars alike).
+  enterable() {
+    const b = this.player.body;
+    let best: Vehicle | null = null;
+    let bd = Infinity;
+    for (const v of this.vehicles) {
+      if (!v.alive || v.burn > 0 || v.speed > 160) continue;
+      const reach = v.bike ? 34 : v.model.len / 2 + 16;
+      const d = Math.hypot(v.x - b.x, v.y - b.y);
+      if (d < reach && d - reach < bd) {
+        bd = d - reach;
+        best = v;
+      }
+    }
+    return best;
   }
 
   // Rider leaves the bike through the air.
@@ -656,7 +681,7 @@ export class World {
     v.rider = null;
     v.ai = null;
     v.chase = false;
-    v.down = true;
+    v.down = v.bike; // a car rolls on without its driver
     v.thr = 0;
     v.brk = 0;
   }
@@ -855,26 +880,15 @@ export class World {
       b.vy = Math.sin(b.a) * sp;
       if (sp !== 0) b.phase += dt * Math.abs(sp) * 0.25;
       if (inp.action) {
-        let best: Vehicle | null = null;
-        let bd = 34;
-        let car: Vehicle | null = null;
-        for (const v of this.vehicles) {
-          const d = Math.hypot(v.x - b.x, v.y - b.y);
-          if (!v.alive || v.burn > 0) continue;
-          if (v.bike && d < bd) {
-            bd = d;
-            best = v;
-          } else if (!v.bike && d < v.model.len / 2 + 14) car = v;
-        }
-        if (best && best.speed < 160) this.mount(best);
-        else if (car) this.say("Байкеры не угоняют машины — ищи мотоцикл", "info");
+        const v = this.enterable();
+        if (v) this.mount(v);
       }
       if (inp.kick) {
         this.emit({ type: "kick" });
         const fx = Math.cos(b.a);
         const fy = Math.sin(b.a);
         for (const q of this.peds) {
-          if (q.state === "fly" || q.state === "down") continue;
+          if (q.state === "fly" || q.state === "down" || q.state === "dead") continue;
           const dx = q.x - b.x;
           const dy = q.y - b.y;
           const along = dx * fx + dy * fy;
@@ -909,7 +923,7 @@ export class World {
       this.emit({ type: "splash", x: v.x, y: v.y });
       this.burst(v.x, v.y, 18, "splash");
       if (v.rider === "player") {
-        this.say("Байк утонул!", "bad");
+        this.say(v.bike ? "Байк утонул!" : "Машина утонула!", "bad");
         this.endLife("wasted");
       }
       if (v.rider === "npc") v.rider = null;
@@ -1241,6 +1255,7 @@ export class World {
     this.damage(v, Math.max(0, power - 60) * (v.bike ? 0.18 : 0.22) * (other ? Math.sqrt(other.model.mass / v.model.mass) : 1));
     if (v === this.player.bike || (other && other === this.player.bike)) this.emit({ type: "crash", power, x, y });
     if (v.bike && v.rider && power > CRASH) this.throwRider(v, power);
+    if (!v.bike && v.rider === "player" && power > 200) this.hurt((power - 200) * 0.06);
     if (v.rider === "player" && other?.police && other.alive) this.crime(power > 120 ? 1.2 : 0.4, x, y);
   }
 
@@ -1251,7 +1266,7 @@ export class World {
       v.hp = 0;
       v.burn = v.bike ? 2.5 : 4 + this.r() * 2;
       if (!v.bike && v.rider === "npc") this.bail(v);
-      if (v.rider === "player") this.say("Байк горит — прыгай!", "bad");
+      if (v.rider === "player") this.say(v.bike ? "Байк горит — прыгай!" : "Машина горит — выбирайся!", "bad");
     }
   }
 
@@ -1306,9 +1321,12 @@ export class World {
       const dx = q.x - x;
       const dy = q.y - y;
       const d = Math.hypot(dx, dy) || 1;
-      if (d < R && q.state !== "swim") {
-        this.knock(q, (dx / d) * 220, (dy / d) * 220);
-        if (byPlayer) this.crime(0.7, q.x, q.y);
+      if (d < R && q.state !== "swim" && q.state !== "dead") {
+        if (d < R * 0.55) this.kill(q, (dx / d) * 120, (dy / d) * 120, byPlayer);
+        else {
+          this.knock(q, (dx / d) * 220, (dy / d) * 220);
+          if (byPlayer) this.crime(0.7, q.x, q.y);
+        }
       }
     }
     const b = this.player.body;
@@ -1392,6 +1410,21 @@ export class World {
 
   // ---------- pedestrians ----------
 
+  // Dead: lies where they fell, and their money drops beside them.
+  private kill(q: Ped, vx: number, vy: number, byPlayer: boolean) {
+    q.state = "dead";
+    q.vx = vx;
+    q.vy = vy;
+    q.x += vx * 0.05;
+    q.y += vy * 0.05;
+    q.a = Math.atan2(vy, vx) + (this.r() - 0.5);
+    this.emit({ type: "ped", x: q.x, y: q.y });
+    const amount = 100 + 50 * Math.floor(this.r() * 9);
+    const a = this.r() * Math.PI * 2;
+    this.pickups.push({ kind: "cash", x: q.x + Math.cos(a) * 9, y: q.y + Math.sin(a) * 9, amount, respawn: 0, ttl: 30 });
+    if (byPlayer) this.crime(2, q.x, q.y);
+  }
+
   private knock(q: Ped, vx: number, vy: number) {
     q.state = "fly";
     q.vx = vx;
@@ -1407,6 +1440,7 @@ export class World {
 
   private stepPed(q: Ped, dt: number) {
     const map = this.map;
+    if (q.state === "dead") return;
     if (q.state === "swim") {
       q.t -= dt;
       return;
@@ -1569,7 +1603,7 @@ export class World {
 
   private collidePeds() {
     const p = this.player;
-    const bodies = this.peds.filter((q) => q.state !== "swim");
+    const bodies = this.peds.filter((q) => q.state !== "swim" && q.state !== "dead");
     const playerOnFoot = p.mode === "foot" || p.mode === "fly";
     if (playerOnFoot) bodies.push(p.body);
     for (const v of this.vehicles) {
@@ -1745,7 +1779,7 @@ export class World {
       }
       test(o.x, o.y, o.model.wid / 2, o === this.player.bike ? "player" : "other");
     }
-    for (const q of this.peds) if (q.state !== "swim") test(q.x, q.y, 4, "other");
+    for (const q of this.peds) if (q.state !== "swim" && q.state !== "dead") test(q.x, q.y, 4, "other");
     const p = this.player;
     if (p.mode === "foot" || p.mode === "fly") test(p.body.x, p.body.y, 5, "player");
     return { dist: best, blocker };
@@ -2143,6 +2177,8 @@ export class World {
         this.rush = null;
       }
     }
+    for (const k of this.pickups) if (k.ttl !== undefined) k.ttl -= dt;
+    this.pickups = this.pickups.filter((k) => k.ttl === undefined || (k.ttl > 0 && k.respawn <= 0));
     if (!this.rush) this.pickups = this.pickups.filter((k) => !k.temp);
     else this.pickups = this.pickups.filter((k) => !k.temp || k.respawn <= 0);
   }
@@ -2373,7 +2409,7 @@ export class World {
       for (const s of this.map.jobs)
         if (Math.hypot(s.x - this.px, s.y - this.py) < 26) {
           if (p.mode !== "ride") {
-            if (this.tick % 120 === 0) this.say("Задания берут на мотоцикле", "info");
+            if (this.tick % 120 === 0) this.say("Задания берут на мотоцикле или машине", "info");
             continue;
           }
           this.startJob(s);
@@ -2530,7 +2566,7 @@ export class World {
   private remoteAt(x: number, y: number, pad: number) {
     for (const r of this.remotes) {
       if (r.z > 20) continue;
-      const rad = r.veh ? 11 : 5.5;
+      const rad = r.veh ? (r.veh.bike ? 11 : r.veh.model.len / 2) : 5.5;
       if (Math.hypot(r.x - x, r.y - y) < rad + pad) return r;
     }
     return null;
@@ -2540,7 +2576,7 @@ export class World {
     const p = this.player;
     if (b.owner === "player" && this.remoteAt(b.x, b.y, 2)) return true;
     for (const v of this.vehicles) if (v !== p.bike && !v.sink && Math.hypot(b.x - v.x, b.y - v.y) < v.model.len / 2 + 3) return true;
-    for (const q of this.peds) if (q.state !== "swim" && Math.abs(q.x - b.x) < 6 && Math.abs(q.y - b.y) < 6) return true;
+    for (const q of this.peds) if (q.state !== "swim" && q.state !== "dead" && Math.abs(q.x - b.x) < 6 && Math.abs(q.y - b.y) < 6) return true;
     return false;
   }
 
@@ -2568,7 +2604,7 @@ export class World {
       v.vx += b.vx * 0.004 * (v.bike ? 3 : 1);
       v.vy += b.vy * 0.004 * (v.bike ? 3 : 1);
       if (v.rider === "player") {
-        this.hurt(b.dmg);
+        this.hurt(b.dmg * (v.bike ? 1 : 0.4));
         this.damage(v, b.dmg * 0.3);
         return true;
       }
@@ -2581,11 +2617,19 @@ export class World {
       return true;
     }
     for (const q of this.peds) {
-      if (q.state === "swim" || q.state === "fly" || q.state === "down") continue;
+      if (q.state === "swim" || q.state === "dead") continue;
       if (Math.abs(q.x - b.x) > 5 || Math.abs(q.y - b.y) > 5) continue;
-      this.knock(q, b.vx * 0.12, b.vy * 0.12);
-      q.t = 10 + this.r() * 8;
-      if (b.owner === "player") this.crime(1, q.x, q.y);
+      q.hits++;
+      this.burst(q.x, q.y, 3, "dust");
+      if (q.hits >= 3) this.kill(q, b.vx * 0.1, b.vy * 0.1, b.owner === "player");
+      else if (q.state === "walk" || q.state === "flee") {
+        // Wounded: runs for it.
+        q.state = "flee";
+        q.t = 4;
+        q.a = Math.atan2(b.vy, b.vx) + (this.r() - 0.5) * 1.2;
+        this.emit({ type: "ped", x: q.x, y: q.y });
+        if (b.owner === "player") this.crime(0.5, q.x, q.y);
+      }
       return true;
     }
     if (b.owner === "police" && (p.mode === "foot" || p.mode === "fly")) {
@@ -2605,10 +2649,10 @@ export class World {
     const mx = me ? me.x : p.body.x;
     const my = me ? me.y : p.body.y;
     const mz = me ? me.z : 0;
-    const mr = me ? 9 : 4.5;
+    const mr = me ? (me.bike ? 9 : me.model.wid / 2 + 4) : 4.5;
     for (const r of this.remotes) {
       if (Math.abs(r.z - mz) > 10) continue;
-      const rr = r.veh ? 9 : 4.5;
+      const rr = r.veh ? (r.veh.bike ? 9 : r.veh.model.wid / 2 + 4) : 4.5;
       let nx = mx - r.x;
       let ny = my - r.y;
       const d = Math.hypot(nx, ny);
