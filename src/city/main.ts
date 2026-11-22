@@ -158,6 +158,11 @@ window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (e.code === "Tab") {
     e.preventDefault();
+    if (mode === "play") openChat("near");
+    else if (mode === "map") closeMap();
+    return;
+  }
+  if (e.code === "KeyK") {
     if (mode === "play") openMap();
     else if (mode === "map") closeMap();
     return;
@@ -170,7 +175,7 @@ window.addEventListener("keydown", (e) => {
   } else if (e.code === "KeyM") sound.toggle();
   else if ((e.code === "KeyT" || e.code === "Slash") && mode === "play") {
     e.preventDefault();
-    openChat();
+    openChat("all");
   }
   else if (e.code === "KeyR" && mode === "play") {
     if (world.player.mode === "ride") radioNext(e.shiftKey ? -1 : 1);
@@ -652,11 +657,16 @@ const msgs = $("msgs");
 // ---------- chat and the online badge ----------
 
 const chatLog = $("chat-log");
-function chatLine(nick: string, text: string, mine: boolean) {
+function chatLine(nick: string, text: string, mine: boolean, near = false) {
   const el = document.createElement("div");
-  el.className = `chat-line${mine ? " mine" : ""}`;
+  el.className = `chat-line${mine ? " mine" : ""}${near ? " near" : ""}`;
   const b = document.createElement("b");
   b.textContent = `${nick}: `;
+  if (near) {
+    const tag = document.createElement("i");
+    tag.textContent = "рядом · ";
+    el.append(tag);
+  }
   el.append(b, document.createTextNode(text));
   chatLog.append(el);
   while (chatLog.children.length > 6) chatLog.firstElementChild!.remove();
@@ -664,6 +674,7 @@ function chatLine(nick: string, text: string, mine: boolean) {
   setTimeout(() => el.remove(), 21000);
 }
 online.onChat = (c, mine) => chatLine(c.n, c.m, mine);
+online.onSay = (nick, text, mine) => chatLine(nick, text, mine, true);
 online.onMessage = (text, tone) => message(text, tone);
 online.onChange = () => {
   const el = $("net");
@@ -677,11 +688,23 @@ online.onChange = () => {
 
 const chatForm = $<HTMLFormElement>("chat-form");
 const chatInput = $<HTMLInputElement>("chat-input");
-function openChat() {
-  if (!online.online) {
-    message("Чат работает, когда игра онлайн", "info");
+// Two ways to talk: "near" — a bubble over the head that players close by see (Tab),
+// "all" — the city-wide chat (T).
+let chatTo: "near" | "all" = "near";
+const chatMode = $("chat-mode");
+function setChatTo(to: "near" | "all") {
+  chatTo = to;
+  chatMode.textContent = to === "near" ? "Рядом" : "Всем";
+  chatMode.classList.toggle("all", to === "all");
+  chatInput.placeholder =
+    to === "near" ? "Сказать тем, кто рядом… (облачко над головой)" : "Сообщение всем игрокам… (без мата — он заменится звёздочками)";
+}
+function openChat(to: "near" | "all") {
+  if (to === "all" && !online.online) {
+    message("Чат со всеми работает, когда игра онлайн", "info");
     return;
   }
+  setChatTo(to);
   held.clear();
   chatForm.classList.remove("hidden");
   chatInput.value = "";
@@ -695,14 +718,32 @@ function closeChat() {
 chatForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = chatInput.value.trim();
-  if (text) online.sendChat(text);
+  if (text && chatTo === "all") online.sendChat(text);
+  else if (text) {
+    if (!online.say(text)) message("Не так быстро — подожди секунду", "info");
+    else if (!online.online) message("Игра офлайн — тебя никто не услышит", "info");
+    else if (online.nearby === 0) message("Рядом никого — сказанное никто не услышал", "info");
+  }
   closeChat();
 });
 chatInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeChat();
+  else if (e.key === "Tab") {
+    // Tab in the box switches who hears it.
+    e.preventDefault();
+    if (chatTo === "near" && online.online) setChatTo("all");
+    else setChatTo("near");
+  }
   e.stopPropagation();
 });
-$("b-chat").addEventListener("click", () => (chatForm.classList.contains("hidden") ? openChat() : closeChat()));
+chatMode.addEventListener("click", () => {
+  if (chatTo === "near" && !online.online) message("Чат со всеми работает, когда игра онлайн", "info");
+  else setChatTo(chatTo === "near" ? "all" : "near");
+  chatInput.focus();
+});
+const chatOpen = (to: "near" | "all") => (chatForm.classList.contains("hidden") || chatTo !== to ? openChat(to) : closeChat());
+$("b-chat").addEventListener("click", () => chatOpen("all"));
+$("b-say").addEventListener("click", () => chatOpen("near"));
 
 function message(text: string, tone: "good" | "bad" | "info") {
   const el = document.createElement("div");

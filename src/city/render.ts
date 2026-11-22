@@ -992,6 +992,58 @@ export class Renderer {
       ctx.fillStyle = r.pvp && world.pvp ? "#ffb4a8" : "#9fe7ff";
       ctx.fillText(label, r.x, y);
     }
+    // Speech bubbles: the others', then the player's own.
+    for (const r of world.remotes) if (r.speech && r.speech.until > world.time) this.bubble(r.speech.m, r.x, r.y - 30 - r.z * 0.4, z, r.speech.until - world.time);
+    const sp = world.speech;
+    if (sp && sp.until > world.time) this.bubble(sp.m, world.px, world.py - 22, z, sp.until - world.time, true);
+  }
+
+  // A rounded speech bubble with a tail, its bottom tip at (x, y); sized for the screen.
+  private bubble(text: string, x: number, y: number, z: number, left: number, mine = false) {
+    const ctx = this.ctx;
+    const k = 1 / z;
+    const fs = 13 * k;
+    ctx.font = `700 ${fs}px Manrope, system-ui, sans-serif`;
+    // Wrap to lines of about 26 characters, three lines at most.
+    const lines: string[] = [];
+    let cur = "";
+    for (const word of text.split(/\s+/)) {
+      const next = cur ? `${cur} ${word}` : word;
+      if (next.length > 26 && cur) {
+        lines.push(cur);
+        cur = word;
+      } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > 3) {
+      lines.length = 3;
+      lines[2] = `${lines[2].slice(0, 24)}…`;
+    }
+    const lh = fs * 1.25;
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16 * k;
+    const h = lines.length * lh + 10 * k;
+    const tail = 7 * k;
+    const x0 = x - w / 2;
+    const y0 = y - tail - h;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, left / 0.5);
+    ctx.fillStyle = mine ? "#fff4d6" : "#ffffff";
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.lineWidth = 1.5 * k;
+    ctx.beginPath();
+    ctx.roundRect(x0, y0, w, h, 8 * k);
+    ctx.moveTo(x - 5 * k, y0 + h);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + 5 * k, y0 + h);
+    ctx.fill();
+    ctx.stroke();
+    // Cover the seam between the box and the tail.
+    ctx.fillRect(x - 4 * k, y0 + h - 2 * k, 8 * k, 3 * k);
+    ctx.fillStyle = "#1c1a17";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    lines.forEach((l, i) => ctx.fillText(l, x, y0 + 5 * k + i * lh + fs * 0.05));
+    ctx.restore();
   }
 
   private drawHeli(world: World, t: number) {

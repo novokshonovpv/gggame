@@ -9,6 +9,8 @@ import { BIKE, MODELS, Ped, type RemoteView, Vehicle, WEAPONS, type WeaponId, ty
 
 const DELAY = 130; // ms: draw others this far in the past, between two received states
 const STALE = 8000;
+export const HEAR = 1000; // units (~125 m, about two screens): how far a said line carries
+const SAY_TIME = 7; // seconds a bubble stays up
 
 interface Remote {
   view: RemoteView;
@@ -30,6 +32,8 @@ export class Online {
   private nick: () => string;
   private hero: () => { helmet: string; jacket: string };
   onChat: (c: ChatLine, mine: boolean) => void = () => {};
+  onSay: (nick: string, text: string, mine: boolean) => void = () => {};
+  private sayAt = 0;
   onMessage: (text: string, tone: "good" | "bad" | "info") => void = () => {};
   onChange: () => void = () => {};
 
@@ -81,6 +85,28 @@ export class Online {
     this.net.sendChat(censor(this.nick()), m);
   }
 
+  // Says a line out loud: a bubble over the head, heard by the players nearby.
+  say(text: string) {
+    const m = censor(text.trim()).slice(0, 80);
+    if (!m) return false;
+    const now = performance.now();
+    if (now - this.sayAt < 1500) return false;
+    this.sayAt = now;
+    const w = this.world;
+    w.speech = { m, until: w.time + SAY_TIME };
+    this.onSay(censor(this.nick()), m, true);
+    if (this.net && this.online) this.net.sendEvent(chunkOf(w.px, w.py), { k: "say", m, x: Math.round(w.px), y: Math.round(w.py) });
+    return true;
+  }
+
+  // How many other players are close enough to hear.
+  get nearby() {
+    const w = this.world;
+    let n = 0;
+    for (const r of this.remotes.values()) if (Math.hypot(r.view.x - w.px, r.view.y - w.py) < HEAR) n++;
+    return n;
+  }
+
   // ---------- receiving ----------
 
   private state(uid: string, s: PlayerState) {
@@ -130,6 +156,14 @@ export class Online {
     } else if (e.k === "down") {
       if (e.by === this.uid) this.onMessage(`Ты сбил игрока ${this.nameOf(uid)}!`, "good");
       else this.onMessage(`${this.nameOf(e.by)} сбил игрока ${this.nameOf(uid)}`, "info");
+    } else if (e.k === "say") {
+      const m = censor(String(e.m ?? "")).slice(0, 80);
+      const x = Number(e.x);
+      const y = Number(e.y);
+      if (!m || !Number.isFinite(x) || !Number.isFinite(y) || Math.hypot(x - w.px, y - w.py) > HEAR) return;
+      const r = this.remotes.get(uid);
+      if (r) r.view.speech = { m, until: w.time + SAY_TIME };
+      this.onSay(this.nameOf(uid), m, false);
     } else if (e.k === "lap") {
       this.onMessage(`${this.nameOf(uid)}: круг Эндуро-арены за ${Number(e.time).toFixed(2)} с`, "info");
     }

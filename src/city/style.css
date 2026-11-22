@@ -1671,6 +1671,35 @@ button.danger {
   color: var(--accent);
 }
 
+.chat-line.near b {
+  color: #fff4d6;
+}
+
+.chat-line.near i {
+  color: #c9c2b0;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.chat-mode {
+  flex: none;
+  padding: 0 12px;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chat-mode.all {
+  border-color: #4fd8ff;
+  color: #4fd8ff;
+}
+
 .chat-line.fade {
   opacity: 0;
 }
