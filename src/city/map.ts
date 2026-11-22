@@ -423,20 +423,21 @@ export class CityMap {
     }
 
     // Rooftop billboards.
-    const roomy = this.buildings.filter((b) => !b.helipad && b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
-    // Brands from the 67MOTO catalogue (BSE three times as often), spread over the city.
-    const ads = [...BILLBOARDS];
-    for (let k = 0; k < ads.length && roomy.length; k++) {
-      // Keep billboards apart: pick the roomy roof farthest from those already up (of a few tries).
-      let best = -1;
-      let bestD = -1;
-      for (let tries = 0; tries < 12; tries++) {
-        const i = Math.floor(r() * roomy.length);
-        const b = roomy[i];
-        const d = Math.min(Infinity, ...this.buildings.filter((o) => o.ad).map((o) => Math.hypot(o.x0 - b.x0, o.y0 - b.y0)));
-        if (d > bestD) (bestD = d), (best = i);
+    // Brands from the 67MOTO catalogue (BSE three times as often). Billboards go on the
+    // tallest roofs: a tower that stands above everything around it (nothing taller within
+    // four tiles leans over the sign), with room for a whole board, spread over the city.
+    const near = (a: Building, b: Building) => b.x0 <= a.x1 + 4 && b.x1 >= a.x0 - 4 && b.y0 <= a.y1 + 4 && b.y1 >= a.y0 - 4;
+    const tops = this.buildings
+      .filter((b) => !b.helipad && b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 4.5)
+      .filter((b) => !this.buildings.some((o) => o !== b && o.h > b.h && near(b, o)))
+      .sort((a, b) => b.h - a.h);
+    const ads = [...BILLBOARDS].sort(() => r() - 0.5);
+    for (const gap of [1800, 1200, 800, 400]) {
+      for (const b of tops) {
+        if (!ads.length) break;
+        if (b.ad || this.buildings.some((o) => o.ad && Math.hypot(o.x0 - b.x0, o.y0 - b.y0) * T < gap)) continue;
+        b.ad = ads.pop();
       }
-      roomy.splice(best, 1)[0].ad = ads[k];
     }
 
     // Street lights along the kerbs.
@@ -773,6 +774,111 @@ export class CityMap {
       }
     }
   }
+
+  // A route for the navigator: A* over tiles, roads preferred to pavements and lawns,
+  // through no buildings or water. Returns the turning points (world units) or null.
+  route(sx: number, sy: number, tx: number, ty: number) {
+    const n = this.n;
+    const cost = (t: number) => (t === ROAD || t === BRIDGE ? 1 : t === LOT ? 1.6 : t === DIRT ? 2 : t === WALK ? 2.6 : t === GRASS ? 3.2 : t === SAND ? 3.6 : 0);
+    const snap = (wx: number, wy: number) => {
+      const x0 = Math.floor(wx / T);
+      const y0 = Math.floor(wy / T);
+      for (let rad = 0; rad < 8; rad++)
+        for (let y = y0 - rad; y <= y0 + rad; y++)
+          for (let x = x0 - rad; x <= x0 + rad; x++)
+            if (Math.max(Math.abs(x - x0), Math.abs(y - y0)) === rad && cost(this.at(x, y)) > 0) return y * n + x;
+      return -1;
+    };
+    const start = snap(sx, sy);
+    const goal = snap(tx, ty);
+    if (start < 0 || goal < 0) return null;
+    const gx = goal % n;
+    const gy = (goal - gx) / n;
+    const g = (this.gScore ??= new Float32Array(n * n));
+    const from = (this.cameFrom ??= new Int32Array(n * n));
+    g.fill(Infinity);
+    // Binary heap of [f, cell].
+    const heapF: number[] = [];
+    const heapC: number[] = [];
+    const pushH = (f: number, c: number) => {
+      let i = heapF.length;
+      heapF.push(f);
+      heapC.push(c);
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (heapF[p] <= f) break;
+        heapF[i] = heapF[p];
+        heapC[i] = heapC[p];
+        i = p;
+      }
+      heapF[i] = f;
+      heapC[i] = c;
+    };
+    const popH = () => {
+      const c = heapC[0];
+      const lf = heapF.pop()!;
+      const lc = heapC.pop()!;
+      if (heapF.length) {
+        let i = 0;
+        for (;;) {
+          const l = 2 * i + 1;
+          if (l >= heapF.length) break;
+          const r = l + 1 < heapF.length && heapF[l + 1] < heapF[l] ? l + 1 : l;
+          if (heapF[r] >= lf) break;
+          heapF[i] = heapF[r];
+          heapC[i] = heapC[r];
+          i = r;
+        }
+        heapF[i] = lf;
+        heapC[i] = lc;
+      }
+      return c;
+    };
+    g[start] = 0;
+    from[start] = -1;
+    pushH(0, start);
+    let found = false;
+    for (let steps = 0; heapF.length && steps < 400000; steps++) {
+      const c = popH();
+      if (c === goal) {
+        found = true;
+        break;
+      }
+      const x = c % n;
+      const y = (c - x) / n;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DX[d];
+        const ny = y + DY[d];
+        if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+        const k = cost(this.tiles[ny * n + nx]);
+        if (!k) continue;
+        const ng = g[c] + k;
+        const ci = ny * n + nx;
+        if (ng >= g[ci]) continue;
+        g[ci] = ng;
+        from[ci] = c;
+        pushH(ng + Math.abs(nx - gx) + Math.abs(ny - gy), ci);
+      }
+    }
+    if (!found) return null;
+    // Tiles back to the start, keeping only where the way turns.
+    const cells: number[] = [];
+    for (let c = goal; c >= 0; c = from[c]) cells.push(c);
+    cells.reverse();
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      if (i > 0 && i < cells.length - 1) {
+        const a = cells[i - 1];
+        const b = cells[i + 1];
+        if (c - a === b - c) continue;
+      }
+      pts.push({ x: ((c % n) + 0.5) * T, y: (Math.floor(c / n) + 0.5) * T });
+    }
+    return pts;
+  }
+  private gScore: Float32Array | null = null;
+  private cameFrom: Int32Array | null = null;
 
   // Straight line of sight between two points (buildings block it).
   sees(ax: number, ay: number, bx: number, by: number) {

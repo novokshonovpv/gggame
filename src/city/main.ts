@@ -6,6 +6,7 @@ import { CitySound } from "./audio.ts";
 import { brandUrl } from "./brands.ts";
 import { BOARD_LAP, BOARD_MONEY, CityCloud } from "./cloud.ts";
 import { initMenu } from "./menu.ts";
+import { Navigator, fmtDist } from "./nav.ts";
 import { Online } from "./online.ts";
 import { MUSIC_CREDIT } from "./radio.ts";
 import { type Save, activeSlot, fresh, loadSlot, localNick, removeSlot, setActive, setLocalNick, write } from "./saves.ts";
@@ -86,6 +87,14 @@ try {
 } catch {
   /* PvP on */
 }
+
+// ---------- navigator ----------
+
+const navi = new Navigator(world);
+navi.onArrive = () => {
+  message("Вы прибыли — маршрут завершён", "good");
+  sound.checkpoint();
+};
 
 // ---------- online ----------
 
@@ -471,6 +480,28 @@ $("mini").addEventListener("pointerdown", (e) => {
   openMap();
 });
 $("map-close").addEventListener("click", closeMap);
+// The navigator: a click on the city map puts a destination there and plans the route.
+$("bigmap-canvas").addEventListener("pointerdown", (e) => {
+  if (mode !== "map") return;
+  e.preventDefault();
+  const pt = renderer.mapToWorld(e.offsetX, e.offsetY);
+  if (!pt) return;
+  // A click on the current destination removes it.
+  const nav = world.nav;
+  if (nav && Math.hypot(nav.x - pt.x, nav.y - pt.y) < 200) {
+    navi.clear();
+    $("map-hint").textContent = "Маршрут сброшен. Нажми на карту, чтобы проложить новый";
+    return;
+  }
+  if (navi.set(pt.x, pt.y)) {
+    sound.checkpoint();
+    $("map-hint").textContent = `Маршрут проложен: ${fmtDist(world.nav!.dist)}. Нажми на флажок, чтобы сбросить`;
+  } else $("map-hint").textContent = "Туда не проехать — выбери точку на улице";
+});
+$("nav").addEventListener("click", () => {
+  navi.clear();
+  message("Маршрут сброшен", "info");
+});
 // Tap the weapon label to switch guns (on a phone there is no Q key).
 $("gun").addEventListener("click", () => world.cycleWeapon());
 $("radio-prev").addEventListener("click", () => radioNext(-1));
@@ -647,7 +678,8 @@ function hud(dt: number) {
   if (p.jailCard) perks.push(`<span class="perk card">Карта «Выйти из участка»</span>`);
   const perkHtml = perks.join("");
   const radio = sound.radioName;
-  const key = [money, Math.round(p.health), Math.round(p.armor), world.wanted, speed, job?.title, tleft, job?.idx, hint, p.bike?.model.id, p.mode, Math.floor(world.time * 2) % 2, clock, gun, perkHtml, radio].join("|");
+  const navText = world.nav ? `📍 ${fmtDist(world.nav.dist)}` : "";
+  const key = [money, Math.round(p.health), Math.round(p.armor), world.wanted, speed, job?.title, tleft, job?.idx, hint, p.bike?.model.id, p.mode, Math.floor(world.time * 2) % 2, clock, gun, perkHtml, radio, navText].join("|");
   if (key === lastHud) return;
   lastHud = key;
   $("money").textContent = money;
@@ -658,6 +690,8 @@ function hud(dt: number) {
   $("hp").style.width = `${p.health}%`;
   $("armor").style.width = `${p.armor}%`;
   $("perks").innerHTML = perkHtml;
+  $("nav").textContent = navText ? `${navText} ✕` : "";
+  $("nav").classList.toggle("hidden", !navText);
   $("radio-name").textContent = `📻 ${radio.split(" — ")[0]}`;
   $("radio").classList.toggle("off", radio === "Радио выключено");
   $("radio").classList.toggle("riding", p.mode === "ride");
@@ -807,6 +841,7 @@ function frame(now: number) {
     if (steps === 6) acc = 0;
     for (const e of world.events) if (e.type === "crash" && e.power > 90) shake = Math.max(shake, Math.min(10, e.power / 30));
     online.update(dt);
+    navi.update(dt);
     handleEvents();
     const p = world.player;
     if (p.mode === "out" && p.outT <= 0) {
