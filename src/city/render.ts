@@ -247,12 +247,13 @@ export class Renderer {
 
     // Bodies on the ground, then everything with wheels.
     const p = world.player;
+    for (const q of world.peds) if (q.state === "dead" && q.x > v.x0 - 20 && q.x < v.x1 + 20 && q.y > v.y0 - 20 && q.y < v.y1 + 20) this.drawPed(q, t, false);
     for (const q of world.peds) if (q.state === "down" || q.state === "fly") this.drawPed(q, t, false);
     if (p.mode === "fly" || p.mode === "out") this.drawPed(p.body, t, false);
     const vis = (x: number, y: number, m: number) => x > v.x0 - m && x < v.x1 + m && y > v.y0 - m && y < v.y1 + m;
     for (const veh of world.vehicles) if (vis(veh.x, veh.y, 60)) this.shadow(veh);
     for (const veh of world.vehicles) if (vis(veh.x, veh.y, 60) && veh.down) this.drawVehicle(veh, world, t);
-    for (const q of world.peds) if (q.state !== "down" && q.state !== "fly" && vis(q.x, q.y, 20)) this.drawPed(q, t, false);
+    for (const q of world.peds) if (q.state !== "down" && q.state !== "fly" && q.state !== "dead" && vis(q.x, q.y, 20)) this.drawPed(q, t, false);
     if (p.mode === "foot") {
       ctx.strokeStyle = `rgba(255,210,40,${0.5 + 0.3 * Math.sin(t * 6)})`;
       ctx.lineWidth = 1.5;
@@ -1302,7 +1303,14 @@ export class Renderer {
     ctx.translate(q.x, q.y);
     ctx.rotate(q.a);
     if (q.state === "swim") ctx.globalAlpha = Math.max(0, q.t);
-    if (q.state === "down" || q.state === "fly") {
+    if (q.state === "dead") {
+      // A dark patch under them.
+      ctx.fillStyle = "rgba(70,10,10,0.55)";
+      ctx.beginPath();
+      ctx.ellipse(-1, 1, 9, 6, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (q.state === "down" || q.state === "fly" || q.state === "dead") {
       ctx.fillStyle = q.pants;
       ctx.beginPath();
       ctx.ellipse(-5, -1.6, 4, 1.6, 0.1, 0, Math.PI * 2);

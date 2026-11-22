@@ -23,6 +23,13 @@ const PROFILES: Record<string, EngineProfile> = {
   scooter: { idle: 2200, max: 8500, pulses: 1, tone: 1500, vol: 0.6 },
   chopper: { idle: 900, max: 5500, pulses: 1, tone: 420, vol: 1.2 },
   sport: { idle: 2000, max: 14000, pulses: 2, tone: 1700, vol: 0.9 },
+  // Cars: four cylinders, lower revs, a softer note; the bus a big slow diesel.
+  sedan: { idle: 800, max: 6200, pulses: 2, tone: 480, vol: 0.85 },
+  hatch: { idle: 850, max: 6500, pulses: 2, tone: 560, vol: 0.8 },
+  taxi: { idle: 800, max: 6000, pulses: 2, tone: 480, vol: 0.85 },
+  police: { idle: 800, max: 6800, pulses: 2, tone: 520, vol: 0.95 },
+  van: { idle: 700, max: 4800, pulses: 2, tone: 400, vol: 0.95 },
+  bus: { idle: 600, max: 2600, pulses: 3, tone: 300, vol: 1.1 },
 };
 // Top road speed of each gear, as a share of the bike's top speed.
 const GEARS = [0.17, 0.31, 0.46, 0.62, 0.8, 1.02];

@@ -662,8 +662,9 @@ function hud(dt: number) {
   const tleft = job ? Math.max(0, Math.ceil(job.time)) : 0;
   let hint = "";
   if (p.mode === "foot") {
-    const near = world.vehicles.some((v) => v.bike && v.alive && v.burn <= 0 && Math.hypot(v.x - p.body.x, v.y - p.body.y) < 34);
-    hint = near ? (isTouch() ? "Жми E — сесть на мотоцикл" : "E — сесть на мотоцикл") : "";
+    const v = world.enterable();
+    const what = v ? (v.bike ? "сесть на мотоцикл" : v.police ? "угнать полицейскую машину" : "сесть в машину") : "";
+    hint = v ? (isTouch() ? `Жми E — ${what}` : `E — ${what}`) : "";
   }
   const clock = `${String(Math.floor(world.clock)).padStart(2, "0")}:${String(Math.floor((world.clock % 1) * 6) * 10).padStart(2, "0")}`;
   const gun = world.weapon ? `${WEAPONS[world.weapon].name} · ${world.arms[world.weapon] ?? 0}` : "";
