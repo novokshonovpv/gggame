@@ -40,16 +40,16 @@ const m = (o: Partial<Model> & Pick<Model, "id" | "name" | "type" | "len" | "wid
 
 // The 67MOTO showroom sells the BSE line (prices in roubles); the player starts on a Z3.
 export const BIKES: Model[] = [
-  m({ id: "z3", name: "BSE Z3 250", type: "bike", len: 20, wid: 8, vmax: 330, accel: 440, brake: 540, turn: 3.3, grip: 15, offroad: 0.95, hp: 60, price: 0, colors: ["#f2c230", "#1d1d1f"] }),
-  m({ id: "ex125", name: "BSE EX 125", type: "bike", len: 18, wid: 7, mass: 0.85, vmax: 300, accel: 470, brake: 560, turn: 3.8, grip: 17, offroad: 1, hp: 50, price: 45000, colors: ["#2f7de1", "#f2f2f2"] }),
-  m({ id: "t5", name: "BSE T5 300", type: "bike", len: 21, wid: 8, vmax: 385, accel: 510, brake: 600, turn: 3.3, grip: 16, offroad: 0.95, hp: 75, price: 180000, colors: ["#e8e8e8", "#1d1d1f"] }),
-  m({ id: "2t", name: "BSE 2T 300", type: "bike", len: 20, wid: 8, mass: 0.95, vmax: 425, accel: 620, brake: 640, turn: 3.5, grip: 17, offroad: 1, hp: 70, price: 350000, colors: ["#ff7a1a", "#1d1d1f"] }),
+  m({ id: "z3", name: "BSE Z3 250", type: "bike", len: 20, wid: 8, vmax: 285, accel: 400, brake: 540, turn: 3.3, grip: 15, offroad: 0.95, hp: 60, price: 0, colors: ["#f2c230", "#1d1d1f"] }),
+  m({ id: "ex125", name: "BSE EX 125", type: "bike", len: 18, wid: 7, mass: 0.85, vmax: 265, accel: 425, brake: 560, turn: 3.8, grip: 17, offroad: 1, hp: 50, price: 45000, colors: ["#2f7de1", "#f2f2f2"] }),
+  m({ id: "t5", name: "BSE T5 300", type: "bike", len: 21, wid: 8, vmax: 330, accel: 460, brake: 600, turn: 3.3, grip: 16, offroad: 0.95, hp: 75, price: 180000, colors: ["#e8e8e8", "#1d1d1f"] }),
+  m({ id: "2t", name: "BSE 2T 300", type: "bike", len: 20, wid: 8, mass: 0.95, vmax: 365, accel: 555, brake: 640, turn: 3.5, grip: 17, offroad: 1, hp: 70, price: 350000, colors: ["#ff7a1a", "#1d1d1f"] }),
 ];
 // Other people's bikes: can be taken off the street, not bought.
 const STREET: Model[] = [
-  m({ id: "scooter", name: "Скутер", type: "bike", len: 16, wid: 7, vmax: 210, accel: 300, brake: 420, turn: 3.7, grip: 14, offroad: 0.55, hp: 40, colors: ["#f2c230", "#7cc4e8", "#e86a8f", "#9ad06a"] }),
-  m({ id: "chopper", name: "Чоппер", type: "bike", len: 24, wid: 10, mass: 1.5, vmax: 360, accel: 360, brake: 480, turn: 2.5, grip: 14, offroad: 0.55, hp: 100, colors: ["#1d1d1f", "#6b1414", "#2b3a55"] }),
-  m({ id: "sport", name: "Спортбайк", type: "bike", len: 22, wid: 8, vmax: 470, accel: 580, brake: 660, turn: 2.9, grip: 16, offroad: 0.45, hp: 55, colors: ["#d81f26", "#1c4fd8", "#111", "#f2f2f2"] }),
+  m({ id: "scooter", name: "Скутер", type: "bike", len: 16, wid: 7, vmax: 185, accel: 270, brake: 420, turn: 3.7, grip: 14, offroad: 0.55, hp: 40, colors: ["#f2c230", "#7cc4e8", "#e86a8f", "#9ad06a"] }),
+  m({ id: "chopper", name: "Чоппер", type: "bike", len: 24, wid: 10, mass: 1.5, vmax: 305, accel: 325, brake: 480, turn: 2.5, grip: 14, offroad: 0.55, hp: 100, colors: ["#1d1d1f", "#6b1414", "#2b3a55"] }),
+  m({ id: "sport", name: "Спортбайк", type: "bike", len: 22, wid: 8, vmax: 400, accel: 520, brake: 660, turn: 2.9, grip: 16, offroad: 0.45, hp: 55, colors: ["#d81f26", "#1c4fd8", "#111", "#f2f2f2"] }),
 ];
 const ALL_BIKES = [...BIKES, ...STREET];
 export const BIKE = Object.fromEntries(ALL_BIKES.map((b) => [b.id, b])) as Record<string, Model>;
@@ -100,13 +100,13 @@ export function darkness(h: number) {
 export const HOUR = 20; // real seconds per game hour
 
 const CARS: Model[] = [
-  m({ id: "sedan", name: "Седан", type: "car", len: 34, wid: 16, mass: 4, vmax: 270, accel: 220, brake: 420, turn: 2.3, grip: 10, hp: 100, colors: ["#b8bcc2", "#2e5aa8", "#a82e2e", "#2d2d33", "#e9e6dc", "#3d7a4f", "#6b4f9a"] }),
-  m({ id: "hatch", name: "Хэтчбек", type: "car", len: 29, wid: 15, mass: 3.2, vmax: 250, accel: 230, brake: 420, turn: 2.5, grip: 10, hp: 80, colors: ["#d65b2a", "#f0d04a", "#4ab0d6", "#e9e6dc", "#8a8f96"] }),
-  m({ id: "taxi", name: "Такси", type: "car", len: 34, wid: 16, mass: 4, vmax: 280, accel: 230, brake: 420, turn: 2.3, grip: 10, hp: 100, colors: ["#f5c518"] }),
-  m({ id: "van", name: "Фургон", type: "car", len: 40, wid: 18, mass: 6, vmax: 220, accel: 160, brake: 360, turn: 1.9, grip: 9, hp: 130, colors: ["#f0f0f0", "#3c6e9f", "#c9c2b0"] }),
-  m({ id: "bus", name: "Автобус", type: "bus", len: 70, wid: 20, mass: 14, vmax: 190, accel: 110, brake: 300, turn: 1.4, grip: 9, hp: 250, colors: ["#e0b02a", "#3b8f5a"] }),
+  m({ id: "sedan", name: "Седан", type: "car", len: 34, wid: 16, mass: 4, vmax: 230, accel: 200, brake: 420, turn: 2.3, grip: 10, hp: 100, colors: ["#b8bcc2", "#2e5aa8", "#a82e2e", "#2d2d33", "#e9e6dc", "#3d7a4f", "#6b4f9a"] }),
+  m({ id: "hatch", name: "Хэтчбек", type: "car", len: 29, wid: 15, mass: 3.2, vmax: 215, accel: 205, brake: 420, turn: 2.5, grip: 10, hp: 80, colors: ["#d65b2a", "#f0d04a", "#4ab0d6", "#e9e6dc", "#8a8f96"] }),
+  m({ id: "taxi", name: "Такси", type: "car", len: 34, wid: 16, mass: 4, vmax: 240, accel: 205, brake: 420, turn: 2.3, grip: 10, hp: 100, colors: ["#f5c518"] }),
+  m({ id: "van", name: "Фургон", type: "car", len: 40, wid: 18, mass: 6, vmax: 190, accel: 145, brake: 360, turn: 1.9, grip: 9, hp: 130, colors: ["#f0f0f0", "#3c6e9f", "#c9c2b0"] }),
+  m({ id: "bus", name: "Автобус", type: "bus", len: 70, wid: 20, mass: 14, vmax: 160, accel: 100, brake: 300, turn: 1.4, grip: 9, hp: 250, colors: ["#e0b02a", "#3b8f5a"] }),
 ];
-const POLICE: Model = m({ id: "police", name: "Полиция", type: "police", len: 35, wid: 16, mass: 4.5, vmax: 380, accel: 320, brake: 520, turn: 2.7, grip: 11, hp: 170, colors: ["#f4f4f4"] });
+const POLICE: Model = m({ id: "police", name: "Полиция", type: "police", len: 35, wid: 16, mass: 4.5, vmax: 275, accel: 240, brake: 520, turn: 2.7, grip: 11, hp: 170, colors: ["#f4f4f4"] });
 
 export interface Look {
   jacket: string;
@@ -331,8 +331,8 @@ export interface Player {
   jailCard: boolean;
 }
 
-const WANTED_LOSE = 12; // seconds out of sight per star
-const POLICE_FOR = [0, 2, 3, 4, 6, 8];
+const WANTED_LOSE = 8; // seconds out of sight per star
+const POLICE_FOR = [0, 1, 2, 3, 4, 6];
 const CRASH = 150; // impact speed that throws a rider off
 const GRAV = 520; // jumps: units/s² (stretched for the top-down view)
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -483,7 +483,7 @@ export class World {
     else model = POLICE;
     const v = new Vehicle(model, spot.x, spot.y, (spot.dir * Math.PI) / 2, pickOf(model.colors));
     v.rider = "npc";
-    const cruise = model.type === "bike" ? 100 + this.r() * 50 : model.type === "bus" ? 70 : 80 + this.r() * 35;
+    const cruise = model.type === "bike" ? 85 + this.r() * 40 : model.type === "bus" ? 60 : 70 + this.r() * 30;
     v.ai = { dir: spot.dir, road: spot.road, path: [], cruise, wait: 0, impatient: 0, off: 0 };
     const f = cruise * 0.8;
     v.vx = Math.cos(v.a) * f;
@@ -706,9 +706,9 @@ export class World {
 
   crime(points: number, x: number, y: number) {
     let witnessed = false;
-    for (const v of this.vehicles) if (v.police && v.alive && Math.hypot(v.x - x, v.y - y) < 420) witnessed = true;
+    for (const v of this.vehicles) if (v.police && v.alive && Math.hypot(v.x - x, v.y - y) < 300) witnessed = true;
     this.heat += points * (witnessed ? 2 : 1);
-    const need = this.wanted === 0 ? 1 : 1.5 + this.wanted;
+    const need = this.wanted === 0 ? 1.5 : 2 + this.wanted;
     if (this.heat >= need && this.wanted < 5) {
       this.heat = 0;
       this.setWanted(this.wanted + 1);
@@ -1755,7 +1755,7 @@ export class World {
     const d = Math.hypot(px - v.x, py - v.y);
     let tx = px + pv.vx * 0.35;
     let ty = py + pv.vy * 0.35;
-    if (!(d < 300 && map.sees(v.x, v.y, px, py))) {
+    if (!(d < 180 && map.sees(v.x, v.y, px, py))) {
       // Follow the breadth-first distances towards the player, two tiles ahead.
       let cx = Math.floor(v.x / T);
       let cy = Math.floor(v.y / T);
@@ -1791,8 +1791,8 @@ export class World {
       v.steer = -Math.sign(diff);
       return;
     }
-    v.steer = clamp(diff * 2.5, -1, 1);
-    v.hb = Math.abs(diff) > 1.2 && v.fwd > 120;
+    v.steer = clamp(diff * 1.6, -1, 1);
+    v.hb = false;
     const close = d < 60 && (p.mode !== "ride" || (p.bike?.speed ?? 0) < 40);
     v.thr = close ? 0 : Math.abs(diff) < 1.3 ? 1 : 0.5;
     v.brk = close || (v.fwd > 200 && Math.abs(diff) > 0.9) ? 1 : 0;
@@ -1814,7 +1814,7 @@ export class World {
       this.flowT -= dt;
       const tile = Math.floor(py / T) * this.map.n + Math.floor(px / T);
       if (this.flowT <= 0 && tile !== this.flowTile) {
-        this.flowT = 0.35;
+        this.flowT = 1.5; // the police radio is slow: routes go stale
         this.flowTile = tile;
         this.map.flowFrom(Math.floor(px / T), Math.floor(py / T), this.flow);
       }
@@ -1824,24 +1824,23 @@ export class World {
         if (!v.police || !v.alive || v.rider !== "npc") continue;
         v.chase = true;
         const d = Math.hypot(v.x - px, v.y - py);
-        const sees = d < 520 - 200 * darkness(this.clock) && this.map.sees(v.x, v.y, px, py);
+        const sees = d < 380 - 150 * darkness(this.clock) && this.map.sees(v.x, v.y, px, py);
         if (sees) seen = true;
         // From three stars the police open fire.
         v.gunT -= dt;
-        if (this.wanted >= 3 && sees && d < 330 && v.gunT <= 0 && p.mode !== "fly") {
-          v.gunT = 0.8 + this.r() * 0.7;
-          const pv = p.mode === "ride" && p.bike ? p.bike : p.body;
-          const a = Math.atan2(py + pv.vy * 0.25 - v.y, px + pv.vx * 0.25 - v.x) + (this.r() - 0.5) * 0.2;
+        if (this.wanted >= 3 && sees && d < 260 && v.gunT <= 0 && p.mode !== "fly") {
+          v.gunT = 1.4 + this.r() * 1.2;
+          const a = Math.atan2(py - v.y, px - v.x) + (this.r() - 0.5) * 0.4;
           const sx = v.x + Math.cos(a) * 20;
           const sy = v.y + Math.sin(a) * 20;
-          this.bullets.push({ x: sx, y: sy, vx: Math.cos(a) * 800, vy: Math.sin(a) * 800, life: 0.5, dmg: 7, owner: "police" });
+          this.bullets.push({ x: sx, y: sy, vx: Math.cos(a) * 800, vy: Math.sin(a) * 800, life: 0.5, dmg: 6, owner: "police" });
           this.flashes.push({ x: sx, y: sy, a, t: 0.06 });
           this.emit({ type: "shot", weapon: "police", x: sx, y: sy });
         }
-        if (d < 46 && v.speed < 90) near = true;
+        if (d < 40 && v.speed < 80) near = true;
       }
       const h = this.heli;
-      if (h && Math.hypot(h.x - px, h.y - py) < 240) seen = true;
+      if (h && Math.hypot(h.x - px, h.y - py) < 170) seen = true;
       this.unseen = seen ? 0 : this.unseen + dt;
       if (this.unseen > WANTED_LOSE) {
         this.unseen = 0;
@@ -1851,7 +1850,7 @@ export class World {
       const slow = p.mode !== "ride" || (p.bike?.speed ?? 0) < 25;
       if (near && slow && p.mode !== "fly") p.bust += dt;
       else p.bust = Math.max(0, p.bust - dt * 0.5);
-      if (p.bust > 1.4) this.endLife("busted");
+      if (p.bust > 2.2) this.endLife("busted");
     } else p.bust = 0;
   }
 
@@ -1874,7 +1873,7 @@ export class World {
     const tx = px + pv.vx * 0.5 - h.x;
     const ty = py + pv.vy * 0.5 - h.y;
     const d = Math.hypot(tx, ty) || 1;
-    const want = Math.min(310, d * 1.6);
+    const want = Math.min(230, d * 1.4);
     const k = Math.min(1, dt * 1.1);
     h.vx += ((tx / d) * want - h.vx) * k;
     h.vy += ((ty / d) * want - h.vy) * k;
@@ -1884,7 +1883,7 @@ export class World {
     if (Math.hypot(h.vx, h.vy) > 20) h.a += wrap(Math.atan2(h.vy, h.vx) - h.a) * Math.min(1, dt * 2);
     h.gunT -= dt;
     if (this.wanted >= 5 && d < 280 && h.gunT <= 0 && p.mode !== "fly") {
-      h.gunT = 1.1;
+      h.gunT = 1.8;
       const a = Math.atan2(ty, tx) + (this.r() - 0.5) * 0.25;
       this.bullets.push({ x: h.x, y: h.y, vx: Math.cos(a) * 850, vy: Math.sin(a) * 850, life: 0.45, dmg: 6, owner: "police" });
       this.emit({ type: "shot", weapon: "police", x: h.x, y: h.y });
@@ -1943,7 +1942,7 @@ export class World {
         v.color = "#111";
         v.look = { jacket: "#c62828", helmet: "#c62828" };
         v.hp = v.model.hp;
-        if (v.ai) v.ai.cruise = 150;
+        if (v.ai) v.ai.cruise = 125;
         this.job = { kind: "phone", spot, points: [{ x: v.x, y: v.y }], idx: 0, time: 150, reward: 15000, title: "Звонок: «Перехвати курьера конкурентов — чёрный спортбайк»", phone: { type, stage: 0, target: v } };
       } else {
         v.model = CARS[3];

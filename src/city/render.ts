@@ -9,6 +9,27 @@ import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 const LOGO = new Image();
 LOGO.src = new URL("../assets/67moto/logo-512.png", import.meta.url).href;
 const BRAND = "#d9b778";
+
+// Billboards: 67MOTO and brands it sells (names only, no logos copied).
+interface Ad {
+  title: string;
+  sub: string;
+  bg: string;
+  fg: string;
+  accent: string;
+  logo?: boolean;
+}
+const ADS: Record<string, Ad> = {
+  "67moto": { title: "67МОТО", sub: "мотоциклы BSE", bg: "#1c1a17", fg: "#f3ead8", accent: "#d9b778", logo: true },
+  motoland: { title: "MOTOLAND", sub: "эндуро и питбайки · в 67МОТО", bg: "#f26b1d", fg: "#ffffff", accent: "#1a1a1a" },
+  regulmoto: { title: "REGULMOTO", sub: "мотоциклы · в 67МОТО", bg: "#141414", fg: "#ffffff", accent: "#e53935" },
+  kayo: { title: "KAYO", sub: "питбайки и эндуро · в 67МОТО", bg: "#f5c400", fg: "#141414", accent: "#141414" },
+  leatt: { title: "LEATT", sub: "защита для мотокросса · в 67МОТО", bg: "#f4f4f4", fg: "#141414", accent: "#d32f2f" },
+  acerbis: { title: "ACERBIS", sub: "экипировка · в 67МОТО", bg: "#1565c0", fg: "#ffffff", accent: "#ffffff" },
+  motul: { title: "MOTUL", sub: "моторные масла · в 67МОТО", bg: "#d71920", fg: "#ffffff", accent: "#ffffff" },
+  liquimoly: { title: "LIQUI MOLY", sub: "масла и химия · в 67МОТО", bg: "#0d3c8c", fg: "#ffffff", accent: "#e30613" },
+  shark: { title: "SHARK", sub: "мотошлемы · в 67МОТО", bg: "#262626", fg: "#ffffff", accent: "#b0b0b0" },
+};
 const BRAND_FONT = "Unbounded, system-ui, sans-serif";
 
 const hash = (...n: number[]) => {
@@ -614,6 +635,41 @@ export class Renderer {
     }
   }
 
+  // A sign: brand name and what it is, in the brand's colours.
+  private adBoard(bx: number, by: number, bw: number, bh: number, ad: Ad) {
+    const ctx = this.ctx;
+    const dark = this.dark;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(bx + 3, by + 3, bw, bh);
+    ctx.fillStyle = ad.bg;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = ad.accent;
+    ctx.lineWidth = Math.max(1, bh * 0.05);
+    ctx.strokeRect(bx + 1, by + 1, bw - 2, bh - 2);
+    let tx = bx + bh * 0.25;
+    if (ad.logo && LOGO.complete && LOGO.naturalWidth) {
+      ctx.drawImage(LOGO, bx + 3, by + 3, bh - 6, bh - 6);
+      tx = bx + bh + 1;
+    }
+    const room = bx + bw - tx - 4;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = ad.fg;
+    ctx.font = `900 ${bh * 0.36}px ${BRAND_FONT}`;
+    ctx.fillText(ad.title, tx, by + bh * 0.38, room);
+    ctx.fillStyle = ad.logo ? BRAND : ad.fg;
+    ctx.globalAlpha = 0.85;
+    ctx.font = `700 ${bh * 0.18}px Manrope, system-ui, sans-serif`;
+    ctx.fillText(ad.sub, tx, by + bh * 0.74, room);
+    ctx.globalAlpha = 1;
+    if (dark > 0.05) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `rgba(255,240,210,${0.1 * dark})`;
+      ctx.fillRect(bx - 3, by - 3, bw + 6, bh + 6);
+      ctx.globalCompositeOperation = "source-over";
+    }
+  }
+
   // ---------- stadium, obstacles, phones, packages ----------
 
   private drawStadium(world: World, t: number) {
@@ -672,6 +728,17 @@ export class Renderer {
         ctx.restore();
       }
     }
+    // Sponsor banners along the fence, clear of the gates.
+    const R = st.rect;
+    const bw = 150;
+    const bh = 26;
+    const banners: [number, number, string][] = [
+      [R.x0 + (R.x1 - R.x0) * 0.2, R.y0 + 8, "motoland"],
+      [R.x0 + (R.x1 - R.x0) * 0.8, R.y0 + 8, "kayo"],
+      [R.x0 + (R.x1 - R.x0) * 0.2, R.y1 - 8 - bh, "leatt"],
+      [R.x0 + (R.x1 - R.x0) * 0.8, R.y1 - 8 - bh, "motul"],
+    ];
+    for (const [x, y, k] of banners) this.adBoard(x - bw / 2, y, bw, bh, ADS[k]);
     // Name on the infield.
     ctx.save();
     ctx.globalAlpha = 0.55;
@@ -1632,7 +1699,7 @@ export class Renderer {
       ctx.fillRect(x0, y0, w, h);
     }
     // What glows: signs, the hospital cross, the helipad, the billboards.
-    if (b.ad) this.billboard(cx, cy, w, h, dark);
+    if (b.ad) this.billboard(cx, cy, w, h, dark, ADS[b.ad] ?? ADS["67moto"]);
     else if (b.kind === "hospital") {
       ctx.fillStyle = "#d32f2f";
       const s = Math.min(w, h) * 0.5;
@@ -1667,30 +1734,14 @@ export class Renderer {
   }
 
   // A lit 67MOTO billboard, in roof coordinates.
-  private billboard(cx: number, cy: number, w: number, h: number, dark: number) {
+  private billboard(cx: number, cy: number, w: number, h: number, dark: number, ad: Ad) {
     const ctx = this.ctx;
     const bw = Math.min(w * 0.82, 130);
     const bh = Math.min(h * 0.6, bw * 0.34);
     const bx = cx - bw / 2;
     const by = cy - bh / 2;
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.fillRect(bx + 3, by + 3, bw, bh);
-    ctx.fillStyle = "#1c1a17";
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = BRAND;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(bx + 1, by + 1, bw - 2, bh - 2);
-    if (LOGO.complete && LOGO.naturalWidth) ctx.drawImage(LOGO, bx + 3, by + 3, bh - 6, bh - 6);
-    const tx = bx + bh + 1;
-    const room = bw - bh - 5;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#f3ead8";
-    ctx.font = `800 ${bh * 0.34}px ${BRAND_FONT}`;
-    ctx.fillText("67МОТО", tx, by + bh * 0.38, room);
-    ctx.fillStyle = BRAND;
-    ctx.font = `700 ${bh * 0.19}px Manrope, system-ui, sans-serif`;
-    ctx.fillText("мотоциклы BSE", tx, by + bh * 0.74, room);
+    this.adBoard(bx, by, bw, bh, ad);
+    void dark;
     if (dark > 0.05) {
       ctx.globalCompositeOperation = "lighter";
       ctx.fillStyle = `rgba(217,183,120,${0.12 * dark})`;
