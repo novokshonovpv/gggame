@@ -2,7 +2,8 @@
 // camera hanging above the screen centre, so their roofs slide outwards as you ride past
 // (the classic look of the old top-down city games, drawn from scratch here).
 
-import { BRIDGE, BUILD, type Building, type Chunk, CityMap, DIRT, type Lamp, GRASS, LOT, type Obstacle, ROAD, SAND, T, WALK, WATER } from "./map.ts";
+import { BRIDGE, BUILD, type Building, type Chunk, CityMap, DIRT, type Lamp, GRASS, LOT, type Obstacle, ROAD, SAND, T, TARMAC, TRACK, WALK, WATER } from "./map.ts";
+import { airportLights, drawAirportGround, drawHome, drawPlanesHigh, drawPlanesLow, drawTracks } from "./render-zones.ts";
 import { BRAND_BY_ID, BRANDS, type Brand } from "./brands.ts";
 import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 
@@ -140,6 +141,9 @@ function makePatterns(ctx: CanvasRenderingContext2D) {
   };
 }
 
+export const jobColour = (k: string) =>
+  k === "race" || k === "stadium" || k === "circuit" ? "#ff9f1a" : k === "hot" || k === "phone" ? "#ff3b3b" : k === "plane" ? "#38b6ff" : "#3ddc6e";
+
 const shade = (hex: string, k: number) => {
   const n = parseInt(hex.slice(1), 16);
   const f = (v: number) => Math.max(0, Math.min(255, Math.round(v * k)));
@@ -198,6 +202,8 @@ export class Renderer {
       [LOT]: [90, 90, 95],
       [SAND]: [190, 170, 120],
       [DIRT]: [150, 110, 70],
+      [TARMAC]: [120, 122, 128],
+      [TRACK]: [165, 165, 170],
     };
     for (let i = 0; i < map.n * map.n; i++) {
       const [r, gg, b] = rgb[map.tiles[i]] ?? [0, 0, 0];
@@ -237,7 +243,10 @@ export class Renderer {
     this.drawLamps(v);
     this.drawPlaces(world, t);
     this.drawSkids(world);
+    drawAirportGround(ctx, v, world);
     this.drawStadium(world, t);
+    drawTracks(ctx, v, world, t, this.pat.road, this.pat.dirt);
+    drawHome(ctx, v, world, t);
     this.drawObstacles();
     this.drawPickups(world, t);
     this.drawPhones(world, t);
@@ -271,6 +280,7 @@ export class Renderer {
         this.drawVehicle(r.veh, world, t);
       } else if (r.ped) this.drawPed(r.ped, t, false);
     }
+    drawPlanesLow(ctx, v, world);
     this.drawParticles(world);
     this.drawBullets(world);
 
@@ -279,6 +289,7 @@ export class Renderer {
     this.drawTall(cam, Hc);
     // Bikes in the air fly over the low roofs' shadows; drawn again on top while high.
     for (const veh of world.vehicles) if (veh.z > 14 && vis(veh.x, veh.y, 60)) this.drawVehicle(veh, world, t);
+    drawPlanesHigh(ctx, v, world);
     this.drawHeli(world, t);
     this.drawNames(world);
     this.drawTarget(world, t, cam, Hc);
@@ -309,20 +320,24 @@ export class Renderer {
     const ty0 = Math.max(0, Math.floor(v.y0 / T));
     const tx1 = Math.min(map.n - 1, Math.floor(v.x1 / T));
     const ty1 = Math.min(map.n - 1, Math.floor(v.y1 / T));
-    const fill = (t: number, y: number) => {
+    const fill = (t: number, x: number, y: number) => {
       switch (t) {
         case ROAD:
           return this.pat.road;
         case BRIDGE:
           return COL.bridge;
         case WALK:
-          return map.inRiver(y) ? COL.walkBridge : this.pat.walk;
+          return map.inRiver(y) && x < map.cityN ? COL.walkBridge : this.pat.walk;
         case GRASS:
           return this.pat.grass;
         case LOT:
           return this.pat.lot;
         case DIRT:
           return this.pat.dirt;
+        case TARMAC:
+          return this.pat.road;
+        case TRACK:
+          return this.pat.grass;
         case SAND:
           return this.pat.sand;
         default:
@@ -336,7 +351,7 @@ export class Renderer {
         let e = x;
         while (e + 1 <= tx1 && map.at(e + 1, y) === t) e++;
         if (t !== WATER) {
-          ctx.fillStyle = fill(t, y);
+          ctx.fillStyle = fill(t, x, y);
           // Overlap a hair to hide seams between runs.
           ctx.fillRect(x * T, y * T, (e - x + 1) * T + 0.5, T + 0.5);
         }
@@ -373,6 +388,7 @@ export class Renderer {
     ctx.fill();
     // Bridge railings.
     for (const wl of map.walls) {
+      if (wl.hidden) continue;
       if (wl.x1 < v.x0 || wl.x0 > v.x1 || wl.y1 < v.y0 || wl.y0 > v.y1) continue;
       ctx.fillStyle = "#d8d8d2";
       ctx.fillRect(wl.x0, wl.y0, wl.x1 - wl.x0, wl.y1 - wl.y0);
@@ -606,7 +622,7 @@ export class Renderer {
     if (world.job) return;
     for (const s of world.map.jobs) {
       if (s.x < v.x0 - 40 || s.x > v.x1 + 40 || s.y < v.y0 - 40 || s.y > v.y1 + 40) continue;
-      const col = s.kind === "delivery" ? "#3ddc6e" : s.kind === "race" ? "#ff9f1a" : "#ff3b3b";
+      const col = jobColour(s.kind);
       const pulse = 1 + Math.sin(t * 4) * 0.12;
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -638,6 +654,11 @@ export class Renderer {
         ctx.stroke();
       } else if (s.kind === "race") {
         for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) ctx.fillRect(-4.5 + i * 3, -4.5 + j * 3, 3, 3);
+      } else if (s.kind === "plane") {
+        ctx.font = "900 11px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("✈", 0, 0.5);
       } else {
         ctx.beginPath();
         ctx.moveTo(0, -6);
@@ -1591,6 +1612,7 @@ export class Renderer {
     if (jt) glow(jt.x, jt.y, 80, 0.75);
     else if (!job) for (const s of this.map.jobs) glow(s.x, s.y, 45, 0.7);
     for (const pl of this.map.places) glow(pl.x, pl.y, 70, 0.7);
+    airportLights(world, v, glow, t);
     for (const k of world.pickups) if (k.respawn <= 0) glow(k.x, k.y, 20, 0.6);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1882,8 +1904,8 @@ export class Renderer {
     const job = world.job;
     const p = this.jobTarget(world);
     if (!job || !p) return;
-    const col = job.kind === "race" || job.kind === "stadium" ? "#ff9f1a" : job.kind === "hot" || job.kind === "phone" ? "#ff3b3b" : "#3ddc6e";
-    const r = job.kind === "race" ? 46 : 26;
+    const col = jobColour(job.kind);
+    const r = job.kind === "race" ? 46 : job.kind === "plane" ? 60 : 26;
     ctx.save();
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = col;
@@ -1957,7 +1979,7 @@ export class Renderer {
     const d = Math.hypot(tx - px, ty - py);
     if (d < (nav ? 20 : 60)) return;
     const a = Math.atan2(ty - py, tx - px);
-    const col = nav ? NAV_COL : world.job!.kind === "race" ? "#ff9f1a" : world.job!.kind === "hot" ? "#ff3b3b" : "#3ddc6e";
+    const col = nav ? NAV_COL : jobColour(world.job!.kind);
     const r = 54 + Math.sin(t * 6) * 3;
     ctx.save();
     ctx.translate(px + Math.cos(a) * r, py + Math.sin(a) * r);
@@ -2122,16 +2144,28 @@ export class Renderer {
         g.stroke();
       }
     };
-    for (const j of map.jobs) if (!world.job) dot(j.x, j.y, j.kind === "delivery" ? "#3ddc6e" : j.kind === "race" ? "#ff9f1a" : "#ff3b3b", 3.5, true);
+    for (const j of map.jobs) if (!world.job) dot(j.x, j.y, jobColour(j.kind), 3.5, true);
     for (const pl of map.places) {
-      const col = { garage: "#2f8fe0", shop: "#d9b778", hospital: "#ff5a5a", police: "#5b8dff" }[pl.kind];
-      dot(pl.x, pl.y, col, 6, true);
+      const col = { garage: "#2f8fe0", shop: "#d9b778", hospital: "#ff5a5a", police: "#5b8dff", home: "#ff9f1a" }[pl.kind];
+      dot(pl.x, pl.y, col, pl.kind === "home" ? 8 : 6, true);
       g.fillStyle = "#fff";
       g.font = `900 ${r(8)}px system-ui, sans-serif`;
       g.textAlign = "center";
       g.textBaseline = "middle";
-      g.fillText({ garage: "С", shop: "₽", hospital: "+", police: "П" }[pl.kind], px(pl.x), px(pl.y) + r(0.5));
+      g.fillText({ garage: "С", shop: "₽", hospital: "+", police: "П", home: "Г" }[pl.kind], px(pl.x), px(pl.y) + r(0.5));
     }
+    // Names of the places beyond the streets.
+    g.font = `900 ${r(11)}px system-ui, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    for (const z of map.zones) {
+      g.lineWidth = r(3);
+      g.strokeStyle = "rgba(0,0,0,0.6)";
+      g.strokeText(z.name, px(z.x), px(z.y) - r(12));
+      g.fillStyle = "#f3ead8";
+      g.fillText(z.name, px(z.x), px(z.y) - r(12));
+    }
+    for (const q of world.planes) dot(q.x, q.y, "#e8eef8", 5, true);
     const flash = Math.floor(t * 4) % 2 === 0;
     map.phones.forEach((ph, i) => dot(ph.x, ph.y, world.ringing === i ? (flash ? "#ffffff" : "#ffd23a") : "#9fb3c8", world.ringing === i ? 6 : 3, true));
     const st = map.stadium;
@@ -2210,8 +2244,9 @@ export class Renderer {
       if (pl.kind === "garage") dot(pl.x, pl.y, "#2f8fe0", 1.1);
       if (pl.kind === "shop") dot(pl.x, pl.y, "#d9b778", 1.2);
       if (pl.kind === "hospital") dot(pl.x, pl.y, "#ff5a5a", 0.9);
+      if (pl.kind === "home") dot(pl.x, pl.y, "#ff9f1a", 1.3);
     }
-    if (!world.job) for (const j of map.jobs) dot(j.x, j.y, j.kind === "delivery" ? "#3ddc6e" : j.kind === "race" ? "#ff9f1a" : "#ff3b3b", 1);
+    if (!world.job) for (const j of map.jobs) dot(j.x, j.y, jobColour(j.kind), 1);
     const flash = Math.floor(t * 6) % 2 === 0;
     for (const v of world.vehicles)
       if (v.police && v.chase && Math.abs(v.x / T - cx) < span / 2 && Math.abs(v.y / T - cy) < span / 2) dot(v.x, v.y, flash ? "#ff3030" : "#3060ff", 0.8);

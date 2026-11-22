@@ -1,4 +1,5 @@
 import { BILLBOARDS } from "./brands.ts";
+import { type Airport, type Track, type Zone, buildZones } from "./zones.ts";
 
 // The city: a tile map generated from a seed. Roads form a grid (two lanes each, right-hand
 // traffic), blocks between them are ringed with pavement and split into lots: buildings of
@@ -16,6 +17,8 @@ export const LOT = 5;
 export const BRIDGE = 6;
 export const SAND = 7;
 export const DIRT = 8; // the enduro stadium floor
+export const TARMAC = 9; // airport runway, taxiways and apron
+export const TRACK = 10; // under the Motodrome's asphalt (drawn as grass; the asphalt is drawn smooth on top)
 
 export type Dir = 0 | 1 | 2 | 3; // east, south, west, north (y grows down)
 export const DX = [1, 0, -1, 0];
@@ -46,7 +49,7 @@ export interface Tree {
   r: number; // canopy radius
 }
 
-export type PlaceKind = "hospital" | "police" | "garage" | "shop";
+export type PlaceKind = "hospital" | "police" | "garage" | "shop" | "home";
 export interface Place {
   kind: PlaceKind;
   x: number;
@@ -54,7 +57,7 @@ export interface Place {
   a: number; // facing for respawn
 }
 
-export type JobKind = "delivery" | "race" | "hot" | "stadium" | "phone";
+export type JobKind = "delivery" | "race" | "hot" | "stadium" | "phone" | "circuit" | "plane";
 export interface JobSpot {
   kind: JobKind;
   x: number;
@@ -138,7 +141,12 @@ export class CityMap {
   places: Place[] = [];
   jobs: JobSpot[] = [];
   lots: Rect[] = [];
-  walls: Rect[] = []; // bridge railings (world units)
+  walls: (Rect & { hidden?: boolean })[] = []; // railings and fences (world units); hidden: parked planes
+  tracks: Track[] = []; // laps: the enduro arena, motocross, the Motodrome
+  airport: Airport | null = null;
+  zones: Zone[] = []; // names on the city map
+  homeLot: Rect | null = null; // the player's garage
+  readonly cityN = 354; // the city proper: the street grid fits in this square
   rivers: [number, number][] = []; // first and last water row of each river
   private riverRow: Uint8Array;
   chunks: Chunk[] = [];
@@ -158,8 +166,10 @@ export class CityMap {
     const r = rng(seed);
     const ri = (a: number, b: number) => a + Math.floor(r() * (b - a + 1));
     const pick = <X>(a: X[]) => a[Math.floor(r() * a.length)];
-    // 354 × 354 tiles: about 11 × 11 thousand units (1.4 km across), ten times the first city.
-    const n = 354;
+    // The city: 354 × 354 tiles (1.4 km across); the islands of the airport and the Motopark
+    // round it make the map 470 × 470.
+    const CN = this.cityN;
+    const n = 470;
     this.n = n;
     this.size = n * T;
     this.tiles = new Uint8Array(n * n); // all water
@@ -172,22 +182,22 @@ export class CityMap {
     // One extra-wide column and row cross at the enduro stadium.
     let stadiumCol = -1;
     let stadiumRow = -1;
-    for (let x = 7, i = 0; x <= n - 10; i++) {
+    for (let x = 7, i = 0; x <= CN - 10; i++) {
       this.vroads.push(x);
-      if (stadiumCol < 0 && x > n * 0.18) {
+      if (stadiumCol < 0 && x > CN * 0.18) {
         stadiumCol = i;
         x += 2 + 34;
       } else x += 2 + ri(8, 11);
     }
     const riverGaps = new Set<number>();
     const riverAt = [0.3, 0.68];
-    for (let y = 7, i = 0; y <= n - 10; i++) {
+    for (let y = 7, i = 0; y <= CN - 10; i++) {
       this.hroads.push(y);
-      if (riverAt.length && y > n * riverAt[0]) {
+      if (riverAt.length && y > CN * riverAt[0]) {
         riverAt.shift();
         riverGaps.add(i);
         y += 15;
-      } else if (stadiumRow < 0 && y > n * 0.45) {
+      } else if (stadiumRow < 0 && y > CN * 0.45) {
         stadiumRow = i;
         y += 2 + 34;
       } else y += 2 + ri(8, 11);
@@ -223,7 +233,7 @@ export class CityMap {
       this.rivers.push([ry0, ry1]);
       for (let y = ry0; y <= ry1; y++) {
         this.riverRow[y] = 1;
-        for (let x = 0; x < n; x++) this.set(x, y, WATER);
+        for (let x = 0; x < CN; x++) this.set(x, y, WATER);
       }
     }
 
@@ -336,7 +346,7 @@ export class CityMap {
     // Three hospitals and three police stations, far apart.
     const civic: { kind: "hospital" | "police"; x: number; y: number }[] = [];
     const wantCivic = (kind: "hospital" | "police", x: number, y: number) =>
-      civic.filter((c) => c.kind === kind).length < 3 && civic.every((c) => c.kind !== kind || Math.hypot(c.x - x, c.y - y) > n * 0.35);
+      civic.filter((c) => c.kind === kind).length < 3 && civic.every((c) => c.kind !== kind || Math.hypot(c.x - x, c.y - y) > CN * 0.35);
     for (const i of order) {
       if (used.has(i)) continue;
       const { rect: q, block, park } = leaves[i];
@@ -521,6 +531,9 @@ export class CityMap {
         break;
       }
     }
+
+    // The airport and the Motopark on islands of their own, and the player's garage.
+    buildZones(this, CN);
   }
 
   // No trees on a ramp, its run-up or where it lands.
@@ -545,7 +558,7 @@ export class CityMap {
     }
   }
 
-  private addObstacle(o: Obstacle) {
+  addObstacle(o: Obstacle) {
     if (o.kind === "ramp") this.clearTrees(o);
     this.obstacles.push(o);
     this.chunkAt(Math.floor(o.x / T), Math.floor(o.y / T)).obstacles.push(o);
@@ -601,6 +614,7 @@ export class CityMap {
       P(0.14, 0.86),
     ];
     this.stadium = { rect: { x0: X0, y0: Y0, x1: X1, y1: Y1 }, path };
+    this.tracks.push({ id: "enduro", name: "Эндуро-арена", rect: this.stadium.rect, gates: path, line: path, width: 92, surface: "dirt", limit: 150, laps: 1, grid: [] });
     const seg = (i: number, t: number) => {
       const a = path[i];
       const b = path[(i + 1) % path.length];
@@ -660,7 +674,7 @@ export class CityMap {
     ramp(10, 0.5);
   }
 
-  private chunkAt(tx: number, ty: number) {
+  chunkAt(tx: number, ty: number) {
     const cx = Math.max(0, Math.min(this.cn - 1, Math.floor(tx / CHUNK)));
     const cy = Math.max(0, Math.min(this.cn - 1, Math.floor(ty / CHUNK)));
     return this.chunks[cy * this.cn + cx];
@@ -779,7 +793,7 @@ export class CityMap {
   // through no buildings or water. Returns the turning points (world units) or null.
   route(sx: number, sy: number, tx: number, ty: number) {
     const n = this.n;
-    const cost = (t: number) => (t === ROAD || t === BRIDGE ? 1 : t === LOT ? 1.6 : t === DIRT ? 2 : t === WALK ? 2.6 : t === GRASS ? 3.2 : t === SAND ? 3.6 : 0);
+    const cost = (t: number) => (t === ROAD || t === BRIDGE || t === TARMAC ? 1 : t === TRACK ? 1.2 : t === LOT ? 1.6 : t === DIRT ? 2 : t === WALK ? 2.6 : t === GRASS ? 3.2 : t === SAND ? 3.6 : 0);
     const snap = (wx: number, wy: number) => {
       const x0 = Math.floor(wx / T);
       const y0 = Math.floor(wy / T);
