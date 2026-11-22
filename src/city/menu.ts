@@ -2,6 +2,7 @@
 // rider's colours, options, controls and credits. Keyboard (↑ ↓ Enter Esc) or mouse/touch.
 
 import type { CitySound } from "./audio.ts";
+import { isClean } from "./censor.ts";
 import { BOARD_LAP, BOARD_MONEY, type CityCloud, NICK_RE, type Row } from "./cloud.ts";
 import { MUSIC_CREDIT } from "./radio.ts";
 import { HELMETS, JACKETS, SLOTS, type Save } from "./saves.ts";
@@ -23,6 +24,9 @@ export interface MenuApi {
   packagesTotal: number;
   sound: CitySound;
   cloud: CityCloud;
+  pvp(): boolean;
+  setPvp(on: boolean): void;
+  onlineText(): string;
 }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
@@ -89,12 +93,17 @@ export function initMenu(api: MenuApi) {
         </label>
         <div class="slot-now"><span class="tag">Слот ${api.slot()}</span>${slotLine(s)}</div>
         <button id="m-play" class="primary huge">${started ? "Продолжить" : s?.savedAt ? "Продолжить игру" : "Начать игру"}</button>
+        <p class="note online-note">${esc(api.onlineText())}</p>
         <p class="note">Enter — играть · ↑ ↓ — пункты меню</p>`;
       const inp = $("m-nick") as HTMLInputElement;
       const saveNick = () => {
         const v = inp.value.trim();
         if (!NICK_RE.test(v)) {
           setNickStatus("Имя: от 3 до 16 букв, цифр, пробелов, «-» или «_»", true);
+          return false;
+        }
+        if (!isClean(v)) {
+          setNickStatus("Такое имя не подойдёт — выбери другое", true);
           return false;
         }
         api.setNick(v);
@@ -189,10 +198,12 @@ export function initMenu(api: MenuApi) {
           <button id="o-sound" class="opt">Звук: <b>${snd.muted ? "выкл" : "вкл"}</b></button>
           <button id="o-walk" class="opt">Музыка пешком: <b>${snd.walkOn ? "вкл" : "выкл"}</b></button>
           <button id="o-radio" class="opt">Радио на байке: <b>${esc(snd.radioName)}</b></button>
+          <button id="o-pvp" class="opt">Стрельба по игрокам (PvP): <b>${api.pvp() ? "вкл" : "выкл — мирный режим"}</b></button>
         </div>`;
       $("o-sound").addEventListener("click", () => (snd.toggle(), render()));
       $("o-walk").addEventListener("click", () => (snd.walkToggle(), render()));
       $("o-radio").addEventListener("click", () => (snd.radioCycle(1), render()));
+      $("o-pvp").addEventListener("click", () => (api.setPvp(!api.pvp()), render()));
     } else if (page === "controls") {
       body.innerHTML = `<h2>Управление</h2>
         <table class="ctl">
@@ -203,6 +214,7 @@ export function initMenu(api: MenuApi) {
           <tr><td>Ctrl, J, мышь</td><td>огонь · Q — сменить оружие</td></tr>
           <tr><td>R, колесо мыши</td><td>радио (пешком R — музыка вкл/выкл)</td></tr>
           <tr><td>Tab</td><td>карта города · Esc — пауза · M — звук</td></tr>
+          <tr><td>T</td><td>чат с игроками (Enter — отправить, Esc — закрыть)</td></tr>
           <tr><td>В воздухе ← →</td><td>крутить байк (приземляйся ровно)</td></tr>
         </table>
         <p class="note">На телефоне — экранные кнопки: руль слева, газ и тормоз справа, «Бег», «E», «Огонь» и 📻.</p>`;

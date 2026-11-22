@@ -12,3 +12,8 @@ export const CLOUD_CONFIG: FirebaseOptions | null = {
   messagingSenderId: "764140787685",
   appId: "1:764140787685:web:e46660443e84fe7cb5410c",
 };
+
+// Realtime Database for the online city (Город 67): players' positions, shots and chat.
+// Created in the Firebase console: Build → Realtime Database → Create database, location
+// Belgium (europe-west1). If you pick another location, put its URL here.
+export const CITY_RTDB_URL = "https://moto-aaf82-default-rtdb.europe-west1.firebasedatabase.app";

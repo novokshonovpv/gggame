@@ -6,6 +6,7 @@ import { CitySound } from "./audio.ts";
 import { brandUrl } from "./brands.ts";
 import { BOARD_LAP, BOARD_MONEY, CityCloud } from "./cloud.ts";
 import { initMenu } from "./menu.ts";
+import { Online } from "./online.ts";
 import { MUSIC_CREDIT } from "./radio.ts";
 import { type Save, activeSlot, fresh, loadSlot, localNick, removeSlot, setActive, setLocalNick, write } from "./saves.ts";
 import { CityMap } from "./map.ts";
@@ -42,6 +43,7 @@ let started = false;
 let lastMoney = 0;
 let sentEarned = 0;
 const cloud = new CityCloud();
+const PVP_KEY = "moto-city-pvp";
 
 function store() {
   if (!started) return;
@@ -79,6 +81,17 @@ function applySave(sv: Save) {
   world.spawnPlayerBike(sv.bike, b.x + Math.cos(b.a + Math.PI / 2) * 16, b.y + Math.sin(b.a + Math.PI / 2) * 16, b.a, false);
 }
 applySave(save);
+try {
+  world.pvp = localStorage.getItem(PVP_KEY) !== "off";
+} catch {
+  /* PvP on */
+}
+
+// ---------- online ----------
+
+const online = new Online(world, () => localNick() || "Игрок", () => ({ helmet: save.helmet, jacket: save.jacket }));
+// ?net=local plays between tabs of one browser (testing); ?net=off stays single-player.
+const netMode = new URLSearchParams(location.search).get("net");
 {
   // ?t=22 (or ?night) starts at that hour: handy for an embed that wants night straight away.
   const q = new URLSearchParams(location.search);
@@ -146,6 +159,10 @@ window.addEventListener("keydown", (e) => {
     else if (mode === "pause") resume();
     else if (mode === "shop") closeShop();
   } else if (e.code === "KeyM") sound.toggle();
+  else if ((e.code === "KeyT" || e.code === "Slash") && mode === "play") {
+    e.preventDefault();
+    openChat();
+  }
   else if (e.code === "KeyR" && mode === "play") {
     if (world.player.mode === "ride") radioNext(e.shiftKey ? -1 : 1);
     else walkMusicToggle();
@@ -233,6 +250,7 @@ function show(id: string, on: boolean) {
 
 function start() {
   sound.unlock();
+  if (!started && netMode !== "off") void online.start(netMode === "local" ? "local" : "firebase", cloud);
   started = true;
   mode = "play";
   menu.close();
@@ -415,6 +433,24 @@ const menu = initMenu({
   packagesTotal: map.packages.length,
   sound,
   cloud,
+  pvp: () => world.pvp,
+  setPvp(on) {
+    world.pvp = on;
+    try {
+      localStorage.setItem(PVP_KEY, on ? "on" : "off");
+    } catch {
+      /* this session only */
+    }
+    online.onChange();
+  },
+  onlineText: () =>
+    online.status === "online"
+      ? `Онлайн: в городе ${online.count} ${online.count === 1 ? "игрок" : online.count < 5 ? "игрока" : "игроков"}`
+      : online.status === "connecting"
+        ? "Подключаюсь к городу…"
+        : online.status === "offline"
+          ? "Онлайн недоступен — играешь один"
+          : "Онлайн включится, когда начнёшь игру",
 });
 // The cloud signs in quietly in the background (nickname, leaderboards).
 void cloud.init();
@@ -510,6 +546,61 @@ window.addEventListener("pagehide", store);
 // ---------- HUD ----------
 
 const msgs = $("msgs");
+// ---------- chat and the online badge ----------
+
+const chatLog = $("chat-log");
+function chatLine(nick: string, text: string, mine: boolean) {
+  const el = document.createElement("div");
+  el.className = `chat-line${mine ? " mine" : ""}`;
+  const b = document.createElement("b");
+  b.textContent = `${nick}: `;
+  el.append(b, document.createTextNode(text));
+  chatLog.append(el);
+  while (chatLog.children.length > 6) chatLog.firstElementChild!.remove();
+  setTimeout(() => el.classList.add("fade"), 20000);
+  setTimeout(() => el.remove(), 21000);
+}
+online.onChat = (c, mine) => chatLine(c.n, c.m, mine);
+online.onMessage = (text, tone) => message(text, tone);
+online.onChange = () => {
+  const el = $("net");
+  const st = online.status;
+  el.className = `net ${st}`;
+  el.textContent =
+    st === "online" ? `● Онлайн: ${online.count}${world.pvp ? " · PvP" : ""}` : st === "connecting" ? "● Подключение…" : st === "offline" ? "● Офлайн" : "";
+  el.classList.toggle("hidden", st === "off");
+  menu.refresh();
+};
+
+const chatForm = $<HTMLFormElement>("chat-form");
+const chatInput = $<HTMLInputElement>("chat-input");
+function openChat() {
+  if (!online.online) {
+    message("Чат работает, когда игра онлайн", "info");
+    return;
+  }
+  held.clear();
+  chatForm.classList.remove("hidden");
+  chatInput.value = "";
+  chatInput.focus();
+}
+function closeChat() {
+  chatForm.classList.add("hidden");
+  chatInput.blur();
+  window.focus();
+}
+chatForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (text) online.sendChat(text);
+  closeChat();
+});
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeChat();
+  e.stopPropagation();
+});
+$("b-chat").addEventListener("click", () => (chatForm.classList.contains("hidden") ? openChat() : closeChat()));
+
 function message(text: string, tone: "good" | "bad" | "info") {
   const el = document.createElement("div");
   el.className = `msg ${tone}`;
@@ -683,6 +774,9 @@ function handleEvents() {
         big("Разбился!", "wasted");
         sound.fail();
         break;
+      case "pvpDown":
+        big("Тебя сбили!", "wasted");
+        break;
       case "shop":
         if (world.player.mode !== "out") openShop();
         break;
@@ -712,6 +806,7 @@ function frame(now: number) {
     }
     if (steps === 6) acc = 0;
     for (const e of world.events) if (e.type === "crash" && e.power > 90) shake = Math.max(shake, Math.min(10, e.power / 30));
+    online.update(dt);
     handleEvents();
     const p = world.player;
     if (p.mode === "out" && p.outT <= 0) {
