@@ -88,6 +88,7 @@ export class FirebaseNet implements Transport {
   private cloud: CityCloud;
   private nick: () => string;
   private lastSent = new Map<string, number>();
+  private want: string[] = []; // chunks asked for, applied once connected
 
   constructor(cloud: CityCloud, nick: () => string) {
     this.cloud = cloud;
@@ -124,6 +125,8 @@ export class FirebaseNet implements Transport {
         if (v && typeof v.m === "string") this.onChat({ u: String(v.u), n: String(v.n).slice(0, 16), m: v.m.slice(0, 80) });
       });
       void remove; // (used per message below)
+      // The game may have asked for its chunks before the connection was up.
+      if (this.want.length) this.setChunks(this.want);
       return true;
     } catch {
       this.onStatus(false);
@@ -132,6 +135,7 @@ export class FirebaseNet implements Transport {
   }
 
   setChunks(chunks: string[]) {
+    this.want = chunks;
     if (!this.db || !this.dbi) return;
     const { ref, onChildAdded, onChildChanged, onChildRemoved, query, orderByChild, startAt } = this.db;
     for (const [c, off] of this.subs)
@@ -171,8 +175,9 @@ export class FirebaseNet implements Transport {
 
   sendEvent(chunk: string, e: NetEvent) {
     if (!this.db || !this.dbi) return;
-    const { ref, push, remove, serverTimestamp } = this.db;
+    const { ref, push, remove, serverTimestamp, onDisconnect } = this.db;
     const r = push(ref(this.dbi, `city67/ev/${chunk}`), { ...e, u: this.uid, t: serverTimestamp() });
+    void onDisconnect(r).remove();
     setTimeout(() => void remove(r).catch(noop), 5000);
   }
 
@@ -181,8 +186,10 @@ export class FirebaseNet implements Transport {
     const now = Date.now();
     if (now - (this.lastSent.get("chat") ?? 0) < 2000) return;
     this.lastSent.set("chat", now);
-    const { ref, push, remove, serverTimestamp } = this.db;
+    const { ref, push, remove, serverTimestamp, onDisconnect } = this.db;
     const r = push(ref(this.dbi, "city67/chat"), { u: this.uid, n: n.slice(0, 16), m: m.slice(0, 80), t: serverTimestamp() });
+    // Gone after two minutes, or when the author leaves (nothing piles up in the database).
+    void onDisconnect(r).remove();
     setTimeout(() => void remove(r).catch(noop), 120000);
   }
 
