@@ -428,6 +428,12 @@ try {
   menu.open("play");
 }
 $("b-map").addEventListener("click", () => (mode === "map" ? closeMap() : mode === "play" ? openMap() : undefined));
+// A click (or tap) on the minimap opens the city map.
+$("mini").addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || mode !== "play") return;
+  e.preventDefault();
+  openMap();
+});
 $("map-close").addEventListener("click", closeMap);
 // Tap the weapon label to switch guns (on a phone there is no Q key).
 $("gun").addEventListener("click", () => world.cycleWeapon());
@@ -747,7 +753,7 @@ function frame(now: number) {
   cam.x += (world.px + mv.vx * 0.45 - cam.x) * k;
   cam.y += (world.py + mv.vy * 0.45 - cam.y) * k;
   const short = Math.min(renderer.w, renderer.h);
-  const base = short / (short < 500 ? 390 : 500);
+  const base = short / (short < 500 ? 320 : 410); // view size in world units (smaller = closer)
   const zt = base / (1 + 0.6 * Math.min(1, speed / 380));
   cam.zoom += (zt - cam.zoom) * (1 - Math.exp(-dt * 1.6));
   if (mode === "title" && !started) {
