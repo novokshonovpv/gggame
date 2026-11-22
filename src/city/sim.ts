@@ -320,6 +320,13 @@ export interface RemoteView {
   z: number;
   veh: Vehicle | null; // riding: a display-only bike
   ped: Ped | null; // on foot or thrown off
+  speech?: Speech; // said out loud just now
+}
+
+// A line said out loud: shown over the speaker's head for a few seconds.
+export interface Speech {
+  m: string;
+  until: number; // world.time
 }
 
 export interface Input {
@@ -379,6 +386,7 @@ export class World {
   private ringCool = 25;
   target: Vehicle | null = null; // a payphone job's mark
   remotes: RemoteView[] = []; // other online players
+  speech: Speech | null = null; // what the player just said out loud
   nav: NavState | null = null; // the navigator's route (nav.ts)
   pvp = true; // this player takes part in PvP
   pvpGrace = 0; // seconds of PvP protection after respawning

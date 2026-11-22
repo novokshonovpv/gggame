@@ -44,7 +44,8 @@ export type NetEvent =
   | { k: "shot"; x: number; y: number; a: number; w: string }
   | { k: "hit"; to: string; dmg: number; w: string }
   | { k: "down"; by: string } // the sender was wasted by player `by`
-  | { k: "lap"; time: number };
+  | { k: "lap"; time: number }
+  | { k: "say"; m: string; x: number; y: number }; // said out loud: heard by players nearby
 
 export interface ChatLine {
   u: string;
