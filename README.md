@@ -104,8 +104,8 @@ node tools/race.ts   # полная гонка с соперниками без 
 
 Пока база не создана, игра работает одна, в углу — «Офлайн».
 
-Реклама: щиты с логотипами брендов из каталога 67МОТО на крышах (BSE — три щита, остальные по
-одному: OXO, LEATT, Acerbis, KAYO, Regulmoto, PROGASI, DAYUN, Motoland, MOTUL, Shark, ROQVI, FX MOTO,
+Реклама: щиты с логотипами брендов из каталога 67МОТО на крышах (36 щитов: BSE — шесть, остальные по
+два: OXO, LEATT, Acerbis, KAYO, Regulmoto, PROGASI, DAYUN, Motoland, MOTUL, Shark, ROQVI, FX MOTO,
 ZUUMAV, Ajerra, BENDA) и четыре на заборе арены. Щиты стоят только на высотках (выше 4,5 клетки),
 которые выше всех домов вокруг, — так их не перекрывают соседние небоскрёбы. Логотипы — файлы сайта 67moto.ru
 (`img/site/brands/<id>-color.webp`, лежат в `public/brands`), список — `src/city/brands.ts`. Щит

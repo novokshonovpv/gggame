@@ -431,7 +431,7 @@ export class CityMap {
       .filter((b) => !b.helipad && b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 4.5)
       .filter((b) => !this.buildings.some((o) => o !== b && o.h > b.h && near(b, o)))
       .sort((a, b) => b.h - a.h);
-    const ads = [...BILLBOARDS].sort(() => r() - 0.5);
+    const ads = [...BILLBOARDS, ...BILLBOARDS].sort(() => r() - 0.5); // every brand twice over
     for (const gap of [1800, 1200, 800, 400]) {
       for (const b of tops) {
         if (!ads.length) break;
