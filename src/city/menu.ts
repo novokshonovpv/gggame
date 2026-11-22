@@ -221,7 +221,7 @@ export function initMenu(api: MenuApi) {
         <p class="note">На телефоне — экранные кнопки: руль слева, газ и тормоз справа, «Бег», «E», «Огонь» и 📻.</p>`;
     } else {
       body.innerHTML = `<h2>Об игре</h2>
-        <p>Город 67 — открытый город с видом сверху: курьерские заказы, уличные гонки, Эндуро-арена, трамплины, телефоны-автоматы, погони и секретные посылки.</p>
+        <p>Город 67 — открытый город с видом сверху: курьерские заказы, уличные гонки, Эндуро-арена, трамплины, телефоны-автоматы, погони и секретные посылки. За мостами — аэропорт (гонка с самолётом на взлётной полосе, груз из ангаров) и Мотопарк: трасса мотокросса и Мотодром для гонок с соперниками. Все купленные байки ждут в твоём гараже.</p>
         <p>При поддержке <b>67МОТО</b> — мотосалон и мотосервис в Смоленске: мотоциклы BSE, OXO, KAYO, Regulmoto, PROGASI, DAYUN, Motoland, FX MOTO, ZUUMAV, Ajerra, BENDA, экипировка LEATT, Acerbis, Shark, ROQVI, масла MOTUL. Щиты брендов на крышах кликабельны — открывают подборку бренда на 67moto.ru.</p>
         <p class="note">${MUSIC_CREDIT}: «Rocket Power», «Organic Grunge», «Surf Shimmy», «Brain Dance», «Ouroboros», «Exit the Premises», «Funky Chunk», «Loopster», «Twisted», «Local Forecast», «Night in Venice», «Groundwork», «Late Night Radio».</p>
         ${api.embedded ? "" : `<a class="link" href="./">Moto Trials — мотокросс в той же серии →</a>`}`;

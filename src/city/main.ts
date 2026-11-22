@@ -51,6 +51,7 @@ function store() {
   save.money = world.money;
   save.arms = { ...world.arms };
   save.bestLap = world.bestLap;
+  save.laps = { mx: world.bestLaps.mx ?? 0, ring: world.bestLaps.ring ?? 0 };
   save.packages = [...world.packagesGot];
   save.savedAt = Date.now();
   write(slot, save);
@@ -73,6 +74,7 @@ function applySave(sv: Save) {
   world.weapon = null;
   world.cycleWeapon();
   world.bestLap = sv.bestLap;
+  world.bestLaps = { ...sv.laps, ...(sv.bestLap ? { enduro: sv.bestLap } : {}) };
   world.packagesGot = new Set(sv.packages);
   const b = world.player.body;
   b.helmet = sv.helmet;
@@ -114,7 +116,7 @@ const cam: Camera = { x: world.px, y: world.py, zoom: 1 };
 world.view = { x0: cam.x - 500, y0: cam.y - 300, x1: cam.x + 500, y1: cam.y + 300 };
 world.populate(true);
 
-type Mode = "title" | "play" | "pause" | "shop" | "map";
+type Mode = "title" | "play" | "pause" | "shop" | "map" | "garage";
 let mode: Mode = "title";
 
 // ---------- input ----------
@@ -172,6 +174,7 @@ window.addEventListener("keydown", (e) => {
     else if (mode === "play") pause();
     else if (mode === "pause") resume();
     else if (mode === "shop") closeShop();
+    else if (mode === "garage") closeGarage();
   } else if (e.code === "KeyM") sound.toggle();
   else if ((e.code === "KeyT" || e.code === "Slash") && mode === "play") {
     e.preventDefault();
@@ -286,6 +289,7 @@ function toMenu() {
   sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
+  sound.jet(0);
   menu.open("play");
 }
 
@@ -299,6 +303,7 @@ function pause() {
   sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
+  sound.jet(0);
 }
 
 function resume() {
@@ -314,6 +319,7 @@ function openMap() {
   sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
+  sound.jet(0);
   if (renderer.mapZoom > 1) renderer.centerMap(world.px, world.py);
   show("bigmap", true);
 }
@@ -330,6 +336,7 @@ function openShop() {
   sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
+  sound.jet(0);
   renderShop();
   show("shop", true);
 }
@@ -339,6 +346,84 @@ function closeShop() {
   show("shop", false);
   window.focus();
 }
+
+// ---------- the player's garage ----------
+
+function openGarage() {
+  mode = "garage";
+  sound.radioPlaying(false);
+  sound.walkPlaying(false);
+  sound.engine(false, 0, 0, "");
+  sound.sirenLevel(0, 0);
+  sound.jet(0);
+  sound.jet(0);
+  // Every visit: the bike is mended and the game saved.
+  const b = world.player.mode === "ride" ? world.player.bike : null;
+  if (b) {
+    b.hp = b.model.hp;
+    b.burn = 0;
+  }
+  store();
+  renderGarage();
+  show("garage", true);
+}
+
+function closeGarage() {
+  mode = "play";
+  show("garage", false);
+  window.focus();
+}
+
+function renderGarage() {
+  const list = $("garage-list");
+  list.innerHTML = "";
+  $("garage-money").textContent = `У тебя ${rub(world.money)}`;
+  const p = world.player;
+  const riding = p.mode === "ride" && p.bike ? p.bike : null;
+  for (const b of BIKES) {
+    if (!save.owned.includes(b.id)) continue;
+    const here = riding?.model.id === b.id;
+    const card = document.createElement("div");
+    card.className = "bike-card" + (here ? " current" : "");
+    const stat = (label: string, v: number) => `<div class="stat"><span>${label}</span><i style="width:${Math.round(v * 100)}%"></i></div>`;
+    card.innerHTML = `
+      <div class="photo" style="background-image:url('${PHOTOS[b.id] ?? ""}')"></div>
+      <b>${b.name}</b>
+      <small>${BLURB[b.id] ?? ""}</small>
+      ${stat("Скорость", b.vmax / 365)}
+      ${stat("Разгон", b.accel / 555)}
+      ${stat("Управление", (b.turn * b.grip) / (3.8 * 17))}
+      ${stat("Прочность", b.hp / 75)}
+      <div class="price">${save.bike === b.id ? "Основной байк" : "В гараже"}</div>`;
+    const btn = document.createElement("button");
+    btn.textContent = here ? "Ты на нём" : "Выехать";
+    btn.disabled = here;
+    btn.addEventListener("click", () => {
+      save.bike = b.id;
+      world.bikeId = b.id;
+      // What the player came on stays: an own bike goes into the garage, anything else is left outside.
+      const home = map.places.find((q) => q.kind === "home")!;
+      const old = p.mode === "ride" ? p.bike : null;
+      if (old) {
+        old.rider = null;
+        old.brk = 1;
+        if (BIKES.some((m) => m.id === old.model.id)) world.vehicles = world.vehicles.filter((v) => v !== old);
+        else old.x += 60;
+      }
+      p.mode = "foot";
+      p.bike = null;
+      world.vehicles = world.vehicles.filter((v) => !(v.bike && v.rider === null && Math.hypot(v.x - home.x, v.y - home.y) < 50));
+      const v = world.spawnPlayerBike(b.id, home.x, home.y, -Math.PI / 2, true);
+      v.vx = v.vy = 0;
+      store();
+      sound.checkpoint();
+      closeGarage();
+    });
+    card.appendChild(btn);
+    list.appendChild(card);
+  }
+}
+$("garage-close").addEventListener("click", closeGarage);
 
 function renderShop() {
   const list = $("shop-list");
@@ -786,7 +871,14 @@ function hud(dt: number) {
   if (p.nitro > 0) perks.push(`<span class="perk nitro">Нитро ×${p.nitro}</span>`);
   if (world.boostT > 0) perks.push(`<span class="perk nitro on">Нитро!</span>`);
   if (world.streak >= 1) perks.push(`<span class="perk streak">Серия ${world.streak} · ×${(1 + 0.25 * Math.min(world.streak, 4)).toFixed(2).replace(/\.?0+$/, "")}</span>`);
-  if (world.job?.kind === "stadium") perks.push(`<span class="perk lap">Круг ${(world.time - (world.job.start ?? world.time)).toFixed(1)} с${world.bestLap ? ` · рекорд ${world.bestLap.toFixed(2)}` : ""}</span>`);
+  if (world.job?.kind === "stadium") {
+    const best = world.bestLaps[world.job.track?.id ?? "enduro"];
+    perks.push(`<span class="perk lap">Круг ${(world.time - (world.job.start ?? world.time)).toFixed(1)} с${best ? ` · рекорд ${best.toFixed(2)}` : ""}</span>`);
+  }
+  if (world.job?.kind === "circuit" && !(world.job.go! > 0)) {
+    const G = world.job.track!.gates.length;
+    perks.push(`<span class="perk lap">Место ${world.racePlace()}/4 · круг ${Math.min(world.job.track!.laps, Math.floor(world.job.idx / G) + 1)}/${world.job.track!.laps}</span>`);
+  }
   if (world.double > 0) perks.push(`<span class="perk double">Деньги ×2 · ${Math.ceil(world.double)} с</span>`);
   if (world.rush) perks.push(`<span class="perk rush">Монеты ${world.rush.got}/10 · ${Math.ceil(world.rush.t)} с</span>`);
   if (p.jailCard) perks.push(`<span class="perk card">Карта «Выйти из участка»</span>`);
@@ -903,7 +995,18 @@ function handleEvents() {
       case "lap":
         if (e.record) big("Рекорд круга!", "surprise");
         store();
-        if (e.record && localNick()) void cloud.init().then(() => cloud.submit(BOARD_LAP, e.time, false));
+        if (e.record && e.track === "enduro" && localNick()) void cloud.init().then(() => cloud.submit(BOARD_LAP, e.time, false));
+        break;
+      case "garage":
+        if (mode === "play") openGarage();
+        break;
+      case "countdown":
+        sound.countdown(e.n);
+        big(e.n > 0 ? String(e.n) : "Старт!", "surprise");
+        break;
+      case "planeHit":
+        sound.crash(500);
+        shake = 10;
         break;
       case "coin":
         sound.cash();
@@ -989,6 +1092,10 @@ function frame(now: number) {
     for (const v of world.vehicles)
       if (v.police && v.chase && v.alive) siren = Math.max(siren, 1 - Math.hypot(v.x - world.px, v.y - world.py) / 900);
     sound.sirenLevel(Math.max(0, siren), time);
+    // Jets: loud on the runway, a distant roar overhead.
+    let jet = 0;
+    for (const q of world.planes) jet = Math.max(jet, (q.phase === "approach" || q.phase === "climb" ? 0.7 : q.v > 60 ? 1 : 0.35) * q.fade * Math.max(0, 1 - Math.hypot(q.x - world.px, q.y - world.py) / 2600));
+    sound.jet(jet);
   }
 
   // Camera: ahead of the bike, wider at speed.

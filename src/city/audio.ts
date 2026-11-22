@@ -123,6 +123,24 @@ export class CitySound {
       sg.connect(this.master);
       so.start();
       this.siren = { o: so, g: sg };
+      // Jet engines: looped noise, a low roar and a high whine, faded by distance.
+      const js = ctx.createBufferSource();
+      js.buffer = this.noiseBuf;
+      js.loop = true;
+      const jl = ctx.createBiquadFilter();
+      jl.type = "lowpass";
+      jl.frequency.value = 900;
+      const jw = ctx.createBiquadFilter();
+      jw.type = "bandpass";
+      jw.frequency.value = 3200;
+      jw.Q.value = 6;
+      const jg = ctx.createGain();
+      jg.gain.value = 0;
+      js.connect(jl).connect(jg);
+      js.connect(jw).connect(jg);
+      jg.connect(this.master);
+      js.start();
+      this.jetG = jg;
       this.radio = new Radio(ctx, this.master, this.noiseBuf, this.radioIndex);
       this.radio.onTrack = (s, t) => this.onTrack?.(s, t);
       this.walk = new Radio(ctx, this.master, this.noiseBuf, this.walkOn ? 0 : -1, WALK_MUSIC, 0.3);
@@ -215,6 +233,18 @@ export class CitySound {
     }
     this.engTone.frequency.setTargetAtTime(P.tone + load * 1500 + this.rpm * 600, t, 0.08);
     this.engOut.gain.setTargetAtTime(on ? 0.075 * P.vol * (0.45 + load * 0.55) : 0, t, on ? 0.08 : 0.2);
+  }
+
+  private jetG: GainNode | null = null;
+  // How loud the nearest plane is: 0 … 1.
+  jet(level: number) {
+    if (!this.ctx || !this.jetG) return;
+    this.jetG.gain.setTargetAtTime(level * 0.22, this.ctx.currentTime, 0.3);
+  }
+  // Start lights: three low beeps, then a high one.
+  countdown(n: number) {
+    if (n > 0) this.tone(523, 0, 0.18, 0.13);
+    else this.tone(1047, 0, 0.45, 0.15);
   }
 
   sirenLevel(level: number, time: number) {

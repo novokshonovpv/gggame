@@ -3,6 +3,7 @@
 // fires, pick-ups and the courier jobs.
 
 import type { NavState } from "./nav.ts";
+import type { Track } from "./zones.ts";
 import { BRIDGE, BUILD, CityMap, DIRT, type Obstacle, DX, DY, type Dir, GRASS, type JobKind, type JobSpot, LOT, type Place, ROAD, SAND, T, WALK, WATER, rng } from "./map.ts";
 
 export type VType = "bike" | "car" | "bus" | "police";
@@ -155,6 +156,7 @@ export class Vehicle {
   ramped = false; // this flight began on a ramp (only those count as stunts)
   lastOb: Obstacle | null = null;
   gunT = 1; // police: time to the next shot
+  racer: Racer | null = null; // a Motodrome rider
   readonly circles: [number, number][];
   readonly inertia: number;
 
@@ -270,7 +272,13 @@ export interface Pickup {
 export interface Job {
   kind: JobKind;
   spot: JobSpot;
-  start?: number; // stadium: lap start time
+  start?: number; // laps: start time
+  track?: Track; // laps and races: which track
+  go?: number; // seconds of countdown before the start (races)
+  hold?: { v: Vehicle; x: number; y: number; a: number }[]; // held on the line during the countdown
+  racers?: Vehicle[]; // the Motodrome: the other riders
+  plane?: Plane; // the runway race: the plane to beat
+  goal?: { x: number; y: number }; // the runway race: the finish
   phone?: { type: "chase" | "destroy" | "escape"; stage: number; target: Vehicle | null };
   points: { x: number; y: number }[];
   idx: number;
@@ -304,9 +312,38 @@ export type GameEvent =
   | { type: "stunt"; text: string; amount: number }
   | { type: "ring"; x: number; y: number }
   | { type: "package"; got: number; total: number }
-  | { type: "lap"; time: number; best: number; record: boolean }
+  | { type: "lap"; time: number; best: number; record: boolean; track: string }
+  | { type: "garage" }
+  | { type: "countdown"; n: number } // 3, 2, 1, 0 = go
+  | { type: "planeHit" }
   | { type: "pvpHit"; uid: string; dmg: number; weapon: string }
   | { type: "pvpDown"; by: string };
+
+// An airliner on the runway or in the air near the airport.
+export interface Plane {
+  x: number;
+  y: number;
+  a: number;
+  v: number; // speed, units/s
+  acc: number; // take-off roll acceleration
+  z: number; // 0 on the ground … 1 cruising (drawn bigger, shadow further off)
+  phase: "roll" | "climb" | "approach" | "brake" | "fade";
+  fade: number; // 1 … 0 while it leaves the picture
+  livery: number;
+  liftoff: number; // world x where it leaves the ground (departures)
+  race: boolean; // the runway race's plane
+}
+
+// A Motodrome rider.
+export interface Racer {
+  line: { x: number; y: number }[];
+  i: number; // the point of the line it heads for
+  laps: number;
+  done: number; // finish time (world.time), 0 while racing
+  skill: number;
+  lost: number; // seconds off the bike or stuck
+  ped: Ped | null; // the rider while thrown off
+}
 
 // Another player in the city, as this client sees them (moved by the network code).
 export interface RemoteView {
@@ -379,6 +416,11 @@ export class World {
   double = 0; // seconds of double money left
   streak = 0; // jobs in a row without being wasted or busted: raises the money multiplier
   bestLap = 0; // stadium record, seconds
+  bestLaps: Record<string, number> = {}; // records of every track (enduro = bestLap)
+  planes: Plane[] = [];
+  private planeT = 8;
+  private planeArrive = true; // the first one takes off
+  private planeHitT = 0;
   packagesGot = new Set<number>();
   heli: { x: number; y: number; a: number; vx: number; vy: number; gunT: number; rotor: number } | null = null;
   ringing = -1; // payphone that is ringing
@@ -414,9 +456,8 @@ export class World {
   constructor(map: CityMap) {
     this.map = map;
     this.flow = new Int16Array(map.n * map.n);
-    // Start by the workshop nearest the city centre.
-    const mid = (map.n * T) / 2;
-    const home = map.nearest("garage", mid, mid) ?? map.places[0];
+    // Start at the player's own garage.
+    const home = map.places.find((q) => q.kind === "home") ?? map.places[0];
     const start = map.nearestWalk(home.x, home.y - T * 2);
     const body = new Ped(start.x, start.y, -Math.PI / 2);
     body.helmet = "#ff7a1a";
@@ -574,7 +615,7 @@ export class World {
     const py = this.py;
     // Forget what is far behind.
     this.vehicles = this.vehicles.filter((v) => {
-      if (v === this.player.bike || v === this.target) return true;
+      if (v === this.player.bike || v === this.target || v.racer) return true;
       const d = Math.hypot(v.x - px, v.y - py);
       if (v.chase && this.wanted > 0) return d < 2400;
       return d < 1500 || !this.offscreen(v.x, v.y, 200);
@@ -595,6 +636,7 @@ export class World {
 
   mount(v: Vehicle) {
     const p = this.player;
+    v.racer = null;
     if (v.rider === "npc") {
       if (v.bike) this.throwRider(v, 60);
       else this.bail(v);
@@ -680,6 +722,7 @@ export class World {
       ped.state = "fly";
       ped.t = 6 + this.r() * 4;
       this.peds.push(ped);
+      if (v.racer) v.racer.ped = ped;
     }
     v.rider = null;
     v.ai = null;
@@ -811,7 +854,8 @@ export class World {
     this.shoot(dt, inp);
 
     for (const v of this.vehicles) {
-      if (v.rider === "npc" && v.alive && !v.down && (v.chase || v.ai)) {
+      if (v.racer) this.driveRacer(v, dt);
+      else if (v.rider === "npc" && v.alive && !v.down && (v.chase || v.ai)) {
         if (v.chase) this.drivePolice(v, dt);
         else this.driveTraffic(v, dt);
       } else if (v.rider !== "player") {
@@ -823,6 +867,7 @@ export class World {
       this.integrate(v, dt);
     }
     this.collideVehicles();
+    this.holdOnLine(dt);
     this.collideRemotes();
     this.pvpGrace = Math.max(0, this.pvpGrace - dt);
     for (const ped of this.peds) this.stepPed(ped, dt);
@@ -838,6 +883,7 @@ export class World {
     this.stepBullets(dt);
     this.stepPickups(dt);
     this.stepJob(dt);
+    this.stepPlanes(dt);
     this.stepPlaces();
     this.stepFx(dt);
     if (this.tick % 15 === 0) this.populate(false);
@@ -2288,7 +2334,7 @@ export class World {
   private stepPlaces() {
     const p = this.player;
     for (const pl of this.map.places) {
-      const inside = Math.hypot(pl.x - this.px, pl.y - this.py) < (pl.kind === "garage" || pl.kind === "shop" ? 36 : 0);
+      const inside = Math.hypot(pl.x - this.px, pl.y - this.py) < (pl.kind === "garage" || pl.kind === "shop" ? 36 : pl.kind === "home" ? 44 : 0);
       if (!inside) {
         this.placeIn.delete(pl);
         continue;
@@ -2296,6 +2342,7 @@ export class World {
       if (this.placeIn.has(pl)) continue;
       this.placeIn.add(pl);
       if (pl.kind === "shop") this.emit({ type: "shop" });
+      if (pl.kind === "home" && p.mode !== "out" && p.mode !== "fly") this.emit({ type: "garage" });
       if (pl.kind === "garage" && p.mode === "ride" && p.bike) {
         const v = p.bike;
         if (this.wanted > 0) {
@@ -2390,6 +2437,8 @@ export class World {
 
   failJob(text: string) {
     if (!this.job) return;
+    if (this.job.kind === "circuit") this.endRace(this.job);
+    if (this.job.plane) this.job.plane.race = false;
     this.job = null;
     this.target = null;
     this.jobCooldown = 3;
@@ -2403,11 +2452,15 @@ export class World {
     if (p.mode === "out") return;
     const job = this.job;
     if (!job) {
-      const st = this.map.stadium;
-      if (st && p.mode === "ride" && Math.hypot(st.path[0].x - this.px, st.path[0].y - this.py) < 45 && this.jobCooldown <= 0) {
-        this.startLap();
-        return;
-      }
+      // Ride onto a track's start line: a lap on the clock, or a race at the Motodrome.
+      if (p.mode === "ride" && this.jobCooldown <= 0)
+        for (const tr of this.map.tracks) {
+          const s = tr.gates[0];
+          if (Math.hypot(s.x - this.px, s.y - this.py) > 45) continue;
+          if (tr.id === "ring") this.startRace(tr);
+          else this.startLap(tr);
+          return;
+        }
       if (this.jobCooldown > 0) return;
       for (const s of this.map.jobs)
         if (Math.hypot(s.x - this.px, s.y - this.py) < 26) {
@@ -2415,33 +2468,59 @@ export class World {
             if (this.tick % 120 === 0) this.say("Задания берут на мотоцикле или машине", "info");
             continue;
           }
-          this.startJob(s);
+          if (s.kind === "plane") this.startPlaneRace();
+          else this.startJob(s);
           break;
         }
       return;
     }
+    if (job.go !== undefined && job.go > 0) {
+      // Countdown on the start line.
+      const before = Math.ceil(job.go);
+      job.go -= dt;
+      const now = Math.max(0, Math.ceil(job.go));
+      if (now !== before) this.emit({ type: "countdown", n: now });
+      if (job.go <= 0) {
+        job.hold = undefined;
+        job.start = this.time;
+        if (job.plane) job.plane.phase = "roll";
+      }
+      return;
+    }
     job.time -= dt;
     if (job.time <= 0) {
-      this.failJob(job.kind === "stadium" ? "Круг не уложился в 2,5 минуты" : "Время вышло — задание провалено");
+      this.failJob(job.kind === "stadium" ? `Круг не уложился в ${Math.round((job.track?.limit ?? 150) / 60 * 10) / 10} мин`.replace(".", ",") : "Время вышло — задание провалено");
       return;
     }
     if (job.kind === "phone") {
       this.stepPhoneJob(job);
       return;
     }
+    if (job.kind === "plane") {
+      this.stepPlaneRace(job);
+      return;
+    }
     const t = job.points[job.idx];
-    const radius = job.kind === "race" ? 50 : job.kind === "stadium" ? 70 : 30;
+    const radius = job.kind === "race" ? 50 : job.kind === "stadium" || job.kind === "circuit" ? 75 : 30;
     if (Math.hypot(t.x - this.px, t.y - this.py) < radius) {
       job.idx++;
       if (job.idx >= job.points.length) {
         if (job.kind === "stadium") {
+          const tr = job.track ?? this.map.tracks[0];
           const lap = this.time - (job.start ?? this.time);
-          const record = !this.bestLap || lap < this.bestLap;
-          if (record) this.bestLap = lap;
-          this.emit({ type: "lap", time: lap, best: this.bestLap, record });
-          this.completeJob(job, record ? 10000 : 0, ` Круг ${lap.toFixed(2)} с${record ? " — новый рекорд стадиона!" : ` (рекорд ${this.bestLap.toFixed(2)} с)`}`);
+          const prev = this.bestLaps[tr.id] ?? 0;
+          const record = !prev || lap < prev;
+          if (record) this.bestLaps[tr.id] = lap;
+          if (tr.id === "enduro") this.bestLap = this.bestLaps.enduro;
+          const best = this.bestLaps[tr.id];
+          this.emit({ type: "lap", time: lap, best, record, track: tr.id });
+          this.completeJob(job, record ? 10000 : 0, ` Круг ${lap.toFixed(2)} с${record ? ` — новый рекорд: ${tr.name}!` : ` (рекорд ${best.toFixed(2)} с)`}`);
           // Straight into the next lap.
-          this.startLap();
+          this.startLap(tr);
+          return;
+        }
+        if (job.kind === "circuit") {
+          this.finishRace(job);
           return;
         }
         const bonus = Math.max(0, Math.floor(job.time)) * 100;
@@ -2456,11 +2535,374 @@ export class World {
     }
   }
 
-  private startLap() {
-    const st = this.map.stadium!;
-    const spot: JobSpot = { kind: "stadium", x: st.path[0].x, y: st.path[0].y };
-    this.job = { kind: "stadium", spot, points: [...st.path.slice(1), st.path[0]], idx: 0, time: 150, reward: 4000, title: "Эндуро-стадион: круг на время", start: this.time };
+  private startLap(tr: Track) {
+    const g = tr.gates;
+    const spot: JobSpot = { kind: "stadium", x: g[0].x, y: g[0].y };
+    const reward = tr.id === "mx" ? 6000 : 4000;
+    this.job = { kind: "stadium", spot, points: [...g.slice(1), g[0]], idx: 0, time: tr.limit, reward, title: `${tr.name}: круг на время`, start: this.time, track: tr };
     this.jobCooldown = 0;
+  }
+
+  // ---------- the Motodrome: a race against three riders ----------
+
+  private startRace(tr: Track) {
+    const p = this.player;
+    const me = p.bike;
+    if (!me || !me.bike) {
+      if (this.tick % 120 === 0) this.say("Гонки на Мотодроме — только на мотоцикле", "info");
+      return;
+    }
+    const g = tr.gates;
+    const points: { x: number; y: number }[] = [];
+    for (let l = 0; l < tr.laps; l++) points.push(...g.slice(1), g[0]);
+    // Line up: the player in pole, the others behind on the same kind of bike, a little
+    // slower or quicker.
+    const slot = tr.grid;
+    const put = (v: Vehicle, i: number) => {
+      v.x = slot[i].x;
+      v.y = slot[i].y;
+      v.a = slot[i].a;
+      v.vx = v.vy = 0;
+      v.spin = 0;
+    };
+    put(me, 0);
+    const names = [
+      { jacket: "#1e88e5", helmet: "#fdd835" },
+      { jacket: "#43a047", helmet: "#f4f4f4" },
+      { jacket: "#8e24aa", helmet: "#e53935" },
+    ];
+    const skills = [0.96, 0.9, 0.84];
+    const racers: Vehicle[] = [];
+    const L = tr.line.length;
+    for (let k = 0; k < 3; k++) {
+      const v = new Vehicle(me.model, 0, 0, 0, pickOf(me.model.colors.length > 1 ? me.model.colors : ["#1d1d1f", "#f2f2f2", "#c62828"]));
+      v.color = ["#1c4fd8", "#2e7d32", "#6a1b9a"][k];
+      put(v, k + 1);
+      v.rider = "npc";
+      v.look = names[k];
+      // Behind the line: the first crossing only starts lap one.
+      let i = 0;
+      let bd = Infinity;
+      for (let j = 0; j < L; j++) {
+        const d = Math.hypot(tr.line[j].x - v.x, tr.line[j].y - v.y);
+        if (d < bd) (bd = d), (i = j);
+      }
+      v.racer = { line: tr.line, i, laps: i > L / 2 ? -1 : 0, done: 0, skill: skills[k], lost: 0, ped: null };
+      this.vehicles.push(v);
+      racers.push(v);
+    }
+    const spot: JobSpot = { kind: "circuit", x: g[0].x, y: g[0].y };
+    this.job = {
+      kind: "circuit",
+      spot,
+      points,
+      idx: 0,
+      time: tr.limit,
+      reward: 25000,
+      title: `${tr.name}: гонка, ${tr.laps} круга`,
+      track: tr,
+      go: 3.2,
+      hold: [me, ...racers].map((v) => ({ v, x: v.x, y: v.y, a: v.a })),
+      racers,
+    };
+    this.emit({ type: "countdown", n: 3 });
+    this.say(`${tr.name}: ${tr.laps} круга против трёх гонщиков. 1-е место — ${rub(25000)}`, "info");
+  }
+
+  // Where the player is in the race (1 … 4).
+  racePlace() {
+    const job = this.job;
+    if (!job || job.kind !== "circuit" || !job.racers || !job.track) return 0;
+    const tr = job.track;
+    const L = tr.line.length;
+    const G = tr.gates.length;
+    const lap = Math.floor(job.idx / G);
+    // Between the last gate passed and the next one, the nearest point of the line.
+    const gi = (g: number) => (g % G === 0 ? (g === 0 ? 0 : L) : this.lineIdx(tr, g % G));
+    const base = job.idx % G === 0 ? 0 : gi(job.idx % G);
+    const next = gi((job.idx % G) + 1);
+    let best = base;
+    let bd = Infinity;
+    for (let j = base; j <= Math.min(next, L - 1); j++) {
+      const d = Math.hypot(tr.line[j].x - this.px, tr.line[j].y - this.py);
+      if (d < bd) (bd = d), (best = j);
+    }
+    const mine = lap * L + best;
+    let ahead = 0;
+    for (const v of job.racers) {
+      const r = v.racer;
+      if (!r) continue;
+      // The rider's aim runs a little ahead of the bike: use the nearest point behind it.
+      let j = r.i;
+      let rd = Infinity;
+      for (let k = 0; k <= 5; k++) {
+        const q = tr.line[(r.i - k + L) % L];
+        const d = Math.hypot(q.x - v.x, q.y - v.y);
+        if (d < rd) (rd = d), (j = r.i - k);
+      }
+      if (r.done || r.laps * L + j > mine) ahead++;
+    }
+    return ahead + 1;
+  }
+  private lineIdxCache = new Map<string, number[]>();
+  private lineIdx(tr: Track, g: number) {
+    let c = this.lineIdxCache.get(tr.id);
+    if (!c) {
+      c = tr.gates.map((q) => {
+        let i = 0;
+        let bd = Infinity;
+        tr.line.forEach((p, j) => {
+          const d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < bd) (bd = d), (i = j);
+        });
+        return i;
+      });
+      this.lineIdxCache.set(tr.id, c);
+    }
+    return c[g];
+  }
+
+  private finishRace(job: Job) {
+    const racers = job.racers ?? [];
+    const place = 1 + racers.filter((v) => v.racer && v.racer.done > 0).length;
+    this.endRace(job);
+    if (place >= 4) {
+      this.job = job;
+      this.failJob("Финиш четвёртым — без приза");
+      return;
+    }
+    const prize = [25000, 12000, 6000][place - 1];
+    job.reward = prize;
+    this.emit({ type: "lap", time: this.time - (job.start ?? this.time), best: 0, record: false, track: "ring" });
+    this.completeJob(job, 0, ` ${place}-е место на Мотодроме!`);
+  }
+
+  // The riders pull over and stop where they are.
+  private endRace(job: Job) {
+    for (const v of job.racers ?? []) {
+      if (v.racer?.ped) this.peds = this.peds.filter((q) => q !== v.racer!.ped);
+      v.racer = null;
+      v.thr = 0;
+      v.brk = 1;
+    }
+  }
+
+  private driveRacer(v: Vehicle, dt: number) {
+    const r = v.racer!;
+    const job = this.job;
+    const line = r.line;
+    const L = line.length;
+    // Off the bike (a crash) or stuck: back on the line after a moment.
+    if (v.rider !== "npc" || v.down || !v.alive || v.burn > 0) {
+      r.lost += dt;
+      if (r.lost > 2.5 && v.alive) {
+        if (r.ped) this.peds = this.peds.filter((q) => q !== r.ped);
+        r.ped = null;
+        const q = line[r.i];
+        const n = line[(r.i + 1) % L];
+        v.x = q.x;
+        v.y = q.y;
+        v.a = Math.atan2(n.y - q.y, n.x - q.x);
+        v.vx = v.vy = 0;
+        v.spin = 0;
+        v.down = false;
+        v.burn = 0;
+        v.hp = v.model.hp;
+        v.rider = "npc";
+        r.lost = 0;
+      }
+      v.thr = 0;
+      v.brk = 0;
+      v.steer = 0;
+      return;
+    }
+    if (!job || job.kind !== "circuit" || (job.go ?? 0) > 0 || r.done) {
+      v.thr = 0;
+      v.brk = 1;
+      v.steer = 0;
+      return;
+    }
+    // Move the aim along the line as the rider gets to it.
+    for (let k = 0; k < 8; k++) {
+      const q = line[r.i];
+      const n = line[(r.i + 1) % L];
+      const ahead = (q.x - v.x) * (n.x - q.x) + (q.y - v.y) * (n.y - q.y);
+      if (Math.hypot(q.x - v.x, q.y - v.y) > 70 && ahead > 0) break;
+      r.i = (r.i + 1) % L;
+      if (r.i === 0) {
+        r.laps++;
+        if (r.laps >= (job.track?.laps ?? 2)) r.done = this.time;
+      }
+    }
+    const aim = line[(r.i + 2) % L];
+    const want = Math.atan2(aim.y - v.y, aim.x - v.x);
+    const diff = wrap(want - v.a);
+    v.steer = clamp(diff * 2.8, -1, 1);
+    // How hard the line bends over the next stretch sets the speed.
+    let bend = 0;
+    for (let k = 0; k < 9; k++) {
+      const a = line[(r.i + k) % L];
+      const b = line[(r.i + k + 1) % L];
+      const c = line[(r.i + k + 2) % L];
+      bend += Math.abs(wrap(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x)));
+    }
+    const vmax = v.model.vmax * r.skill;
+    const target = Math.min(vmax, Math.max(90, vmax * (1 - bend * 0.55))) * (Math.abs(diff) > 0.5 ? 0.6 : 1);
+    const sp = v.fwd;
+    if (sp < target - 4) {
+      v.thr = 1;
+      v.brk = 0;
+    } else if (sp > target + 10) {
+      v.thr = 0;
+      v.brk = Math.min(1, (sp - target) / 50);
+    } else {
+      v.thr = 0.5;
+      v.brk = 0;
+    }
+    v.hb = false;
+    r.lost = v.speed < 12 ? r.lost + dt : 0;
+    if (r.lost > 3) {
+      v.down = true; // stuck against something: reset next frames
+      r.lost = 2.6;
+    }
+  }
+
+  // During a countdown the bikes stay on their marks.
+  private holdOnLine(_dt: number) {
+    const hold = this.job?.hold;
+    if (!hold) return;
+    for (const h of hold) {
+      h.v.x = h.x;
+      h.v.y = h.y;
+      h.v.a = h.a;
+      h.v.vx = h.v.vy = 0;
+      h.v.spin = 0;
+    }
+  }
+
+  // ---------- the airport ----------
+
+  private stepPlanes(dt: number) {
+    const ap = this.map.airport;
+    if (!ap) return;
+    const rw = ap.runway;
+    const cy = (rw.y0 + rw.y1) / 2;
+    this.planeHitT = Math.max(0, this.planeHitT - dt);
+    // A plane now and then while someone is around to see it.
+    const near = Math.hypot(this.px - (rw.x0 + rw.x1) / 2, this.py - cy) < 9000;
+    this.planeT -= dt;
+    if (near && this.planeT <= 0 && !this.planes.some((q) => !q.race)) {
+      this.planeT = 40 + this.r() * 35;
+      this.planeArrive = !this.planeArrive;
+      const livery = Math.floor(this.r() * 3);
+      if (this.planeArrive)
+        this.planes.push({ x: rw.x1 + 3600, y: cy + 20, a: Math.PI, v: 380, acc: 0, z: 1, phase: "approach", fade: 1, livery, liftoff: 0, race: false });
+      else this.planes.push({ x: rw.x0 + 120, y: cy + 20, a: 0, v: 0, acc: 34, z: 0, phase: "roll", fade: 1, livery, liftoff: ap.liftoff, race: false });
+    }
+    for (const q of this.planes) {
+      if (q.phase === "roll") {
+        if (q.race && this.job?.plane === q && (this.job.go ?? 0) > 0) continue;
+        q.v += q.acc * dt;
+        if (q.x > q.liftoff && q.v > 250) q.phase = "climb";
+      } else if (q.phase === "climb") {
+        q.v = Math.min(q.v + q.acc * dt, 520);
+        q.z = Math.min(1, q.z + dt * 0.28);
+        if (q.x > rw.x1 + 3000) q.phase = "fade";
+      } else if (q.phase === "approach") {
+        const touch = rw.x1 - 900;
+        q.z = clamp((q.x - touch) / 3400, 0, 1);
+        if (q.z <= 0) q.phase = "brake";
+      } else if (q.phase === "brake") {
+        q.v = Math.max(50, q.v - 60 * dt);
+        if (q.v <= 50 || q.x < rw.x0 + 1500) q.phase = "fade"; // turns off onto the taxiway
+      } else {
+        q.fade -= dt * 0.6;
+        if (q.z < 0.2) q.v = Math.max(0, q.v - 40 * dt);
+      }
+      q.x += Math.cos(q.a) * q.v * dt;
+      q.y += Math.sin(q.a) * q.v * dt;
+      // On the ground and moving: it flattens whatever is in its way.
+      if (q.z < 0.12 && q.v > 40 && this.planeHitT <= 0 && this.player.mode !== "out") {
+        const dx = this.px - q.x;
+        const dy = this.py - q.y;
+        const u = dx * Math.cos(q.a) + dy * Math.sin(q.a);
+        const w = -dx * Math.sin(q.a) + dy * Math.cos(q.a);
+        const body = Math.abs(u) < 100 && Math.abs(w) < 18;
+        const wing = Math.abs(u + 8) < 22 && Math.abs(w) < 95;
+        if (body || wing) {
+          this.planeHitT = 3;
+          const p = this.player;
+          const push = { x: Math.cos(q.a) * q.v * 0.8 + (w > 0 ? -1 : 1) * Math.sin(q.a) * 160, y: Math.sin(q.a) * q.v * 0.8 + (w > 0 ? 1 : -1) * Math.cos(q.a) * 160 };
+          if (p.mode === "ride" && p.bike) {
+            p.bike.vx += push.x;
+            p.bike.vy += push.y;
+            if (p.bike.bike) this.throwRider(p.bike, 420);
+            else this.hurt(45);
+          } else {
+            p.body.vx = push.x;
+            p.body.vy = push.y;
+            p.body.state = "fly";
+            p.mode = "fly";
+            this.hurt(45);
+          }
+          this.say("Тебя снёс самолёт!", "bad");
+          this.emit({ type: "planeHit" });
+        }
+      }
+    }
+    this.planes = this.planes.filter((q) => q.fade > 0);
+  }
+
+  // The runway race: from a standing start to the lift-off marker before the plane gets there.
+  private startPlaneRace() {
+    const ap = this.map.airport!;
+    const me = this.player.bike!;
+    const rw = ap.runway;
+    const lane = rw.y0 + 34;
+    const x0 = rw.x0 + 300;
+    const D = 4600;
+    me.x = x0;
+    me.y = lane;
+    me.a = 0;
+    me.vx = me.vy = 0;
+    me.spin = 0;
+    // The plane is as quick as the bike would be flat out, near enough: a fair fight.
+    const vm = me.model.vmax;
+    const t = D / (vm * 0.95) + 1.3;
+    const acc = (2 * D) / (t * t);
+    const plane: Plane = { x: x0 - 40, y: rw.y1 - 96, a: 0, v: 0, acc, z: 0, phase: "roll", fade: 1, livery: 0, liftoff: x0 + D + 250, race: true };
+    this.planes = this.planes.filter((q) => q.z > 0.3);
+    this.planes.push(plane);
+    const spot: JobSpot = { kind: "plane", x: ap.raceStart.x, y: ap.raceStart.y };
+    this.job = {
+      kind: "plane",
+      spot,
+      points: [{ x: x0 + D, y: lane }],
+      idx: 0,
+      time: 60,
+      reward: 15000,
+      title: "Обгони самолёт: доберись до флажка раньше него",
+      go: 3.2,
+      hold: [{ v: me, x: me.x, y: me.y, a: 0 }],
+      plane,
+      goal: { x: x0 + D, y: lane },
+    };
+    this.emit({ type: "countdown", n: 3 });
+    this.say("Аэропорт: гонка с самолётом на взлётной полосе!", "info");
+  }
+
+  private stepPlaneRace(job: Job) {
+    const g = job.goal!;
+    const plane = job.plane!;
+    if (this.px >= g.x && Math.abs(this.py - g.y) < 260) {
+      plane.race = false;
+      this.completeJob(job, Math.max(0, Math.floor(job.time)) * 100, " Ты быстрее самолёта!");
+      return;
+    }
+    if (plane.x >= g.x) {
+      plane.race = false;
+      this.failJob("Самолёт оказался быстрее");
+    }
   }
 
   // ---------- guns ----------

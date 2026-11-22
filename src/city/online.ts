@@ -219,7 +219,7 @@ export class Online {
         if (Math.hypot(e.x - src.x, e.y - src.y) < 40) net.sendEvent(c, { k: "shot", x: Math.round(e.x), y: Math.round(e.y), a: Math.round(src.a * 100) / 100, w: e.weapon });
       } else if (e.type === "pvpHit") net.sendEvent(c, { k: "hit", to: e.uid, dmg: e.dmg, w: e.weapon });
       else if (e.type === "pvpDown") net.sendEvent(c, { k: "down", by: e.by });
-      else if (e.type === "lap") net.sendEvent(c, { k: "lap", time: Math.round(e.time * 100) / 100 });
+      else if (e.type === "lap" && e.track === "enduro") net.sendEvent(c, { k: "lap", time: Math.round(e.time * 100) / 100 });
     }
     // Others, a little in the past.
     const now = performance.now();

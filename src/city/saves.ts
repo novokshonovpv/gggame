@@ -10,6 +10,7 @@ export interface Save {
   bike: string;
   arms: Partial<Record<WeaponId, number>>;
   bestLap: number;
+  laps: Record<string, number>; // best laps: mx (motocross), ring (Motodrome race time)
   packages: number[];
   helmet: string;
   jacket: string;
@@ -34,6 +35,7 @@ export const fresh = (): Save => ({
   bike: "z3",
   arms: {},
   bestLap: 0,
+  laps: {},
   packages: [],
   helmet: HELMETS[0],
   jacket: JACKETS[0],
@@ -57,6 +59,11 @@ function clean(s: Partial<Save> | null): Save | null {
     bike: s.bike && SHOP_IDS.has(s.bike) && BIKE[s.bike] ? s.bike : def.bike,
     arms,
     bestLap: Math.max(0, Number(s.bestLap) || 0),
+    laps: Object.fromEntries(
+      Object.entries(s.laps && typeof s.laps === "object" ? s.laps : {})
+        .map(([k, v]) => [k, Number(v)] as const)
+        .filter(([k, v]) => ["mx", "ring"].includes(k) && v > 0 && v < 3600),
+    ),
     packages: Array.isArray(s.packages) ? s.packages.filter((i) => Number.isInteger(i) && i >= 0 && i < 100) : [],
     helmet: HELMETS.includes(s.helmet ?? "") ? s.helmet! : def.helmet,
     jacket: JACKETS.includes(s.jacket ?? "") ? s.jacket! : def.jacket,
