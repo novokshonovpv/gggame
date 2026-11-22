@@ -120,8 +120,15 @@
           </div>
           <button id="map-close" class="ibtn" aria-label="Закрыть">✕</button>
         </div>
-        <p id="map-hint" class="map-hint">Навигатор: нажми на карту — проложу маршрут по улицам</p>
-        <canvas id="bigmap-canvas" class="bigmap-canvas"></canvas>
+        <p id="map-hint" class="map-hint">Нажми на карту — проложу маршрут. Масштаб: колесо мыши, два пальца или +/−, двигать — перетаскиванием</p>
+        <div class="map-wrap">
+          <canvas id="bigmap-canvas" class="bigmap-canvas"></canvas>
+          <div class="map-zoom">
+            <button id="map-in" class="ibtn" aria-label="Приблизить">+</button>
+            <button id="map-out" class="ibtn" aria-label="Отдалить">−</button>
+            <button id="map-me" class="ibtn" aria-label="Где я">◎</button>
+          </div>
+        </div>
       </div>
     </div>
 

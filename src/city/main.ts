@@ -309,6 +309,7 @@ function openMap() {
   sound.walkPlaying(false);
   sound.engine(false, 0, 0, "");
   sound.sirenLevel(0, 0);
+  if (renderer.mapZoom > 1) renderer.centerMap(world.px, world.py);
   show("bigmap", true);
 }
 
@@ -480,11 +481,82 @@ $("mini").addEventListener("pointerdown", (e) => {
   openMap();
 });
 $("map-close").addEventListener("click", closeMap);
-// The navigator: a click on the city map puts a destination there and plans the route.
-$("bigmap-canvas").addEventListener("pointerdown", (e) => {
+// The city map: drag to move, wheel / pinch / buttons to zoom, a tap plans a route.
+const mapCanvas = $<HTMLCanvasElement>("bigmap-canvas");
+const mapPts = new Map<number, { x: number; y: number }>();
+let mapMoved = 0; // CSS pixels dragged since the first finger went down
+let mapPinch = 0;
+const mapXY = (e: PointerEvent | WheelEvent) => {
+  const r = mapCanvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+};
+const spread = () => {
+  const [a, b] = [...mapPts.values()];
+  return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+};
+mapCanvas.addEventListener("pointerdown", (e) => {
   if (mode !== "map") return;
   e.preventDefault();
-  const pt = renderer.mapToWorld(e.offsetX, e.offsetY);
+  mapCanvas.setPointerCapture(e.pointerId);
+  if (mapPts.size === 0) mapMoved = 0;
+  mapPts.set(e.pointerId, mapXY(e));
+  if (mapPts.size === 2) {
+    mapPinch = spread().d;
+    mapMoved = 99; // a pinch is never a tap
+  }
+});
+mapCanvas.addEventListener("pointermove", (e) => {
+  const prev = mapPts.get(e.pointerId);
+  if (!prev || mode !== "map") return;
+  const pt = mapXY(e);
+  mapPts.set(e.pointerId, pt);
+  if (mapPts.size >= 2) {
+    const s = spread();
+    if (mapPinch > 0) renderer.zoomMap(s.d / mapPinch, s.x, s.y);
+    mapPinch = s.d;
+    return;
+  }
+  mapMoved += Math.abs(pt.x - prev.x) + Math.abs(pt.y - prev.y);
+  if (mapMoved > 6) {
+    renderer.panMap(pt.x - prev.x, pt.y - prev.y);
+    mapCanvas.classList.add("dragging");
+  }
+});
+const mapUp = (e: PointerEvent) => {
+  if (!mapPts.delete(e.pointerId)) return;
+  if (mapPts.size === 1) mapPinch = 0;
+  if (mapPts.size > 0) return;
+  mapCanvas.classList.remove("dragging");
+  if (mapMoved <= 6 && e.type === "pointerup") mapTap(mapXY(e));
+};
+mapCanvas.addEventListener("pointerup", mapUp);
+mapCanvas.addEventListener("pointercancel", mapUp);
+mapCanvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (mode !== "map") return;
+    e.preventDefault();
+    const p = mapXY(e);
+    renderer.zoomMap(Math.exp(-Math.max(-300, Math.min(300, e.deltaY)) * 0.0018), p.x, p.y);
+  },
+  { passive: false },
+);
+const zoomMid = (f: number) => renderer.zoomMap(f, mapCanvas.clientWidth / 2, mapCanvas.clientHeight / 2);
+$("map-in").addEventListener("click", () => zoomMid(1.6));
+$("map-out").addEventListener("click", () => zoomMid(1 / 1.6));
+$("map-me").addEventListener("click", () => {
+  if (renderer.mapZoom < 4) renderer.mapZoom = 4;
+  renderer.centerMap(world.px, world.py);
+});
+window.addEventListener("keydown", (e) => {
+  if (mode !== "map") return;
+  if (e.key === "+" || e.key === "=") zoomMid(1.6);
+  else if (e.key === "-" || e.key === "_") zoomMid(1 / 1.6);
+});
+
+// The navigator: a tap on the city map puts a destination there and plans the route.
+function mapTap(at: { x: number; y: number }) {
+  const pt = renderer.mapToWorld(at.x, at.y);
   if (!pt) return;
   // A click on the current destination removes it.
   const nav = world.nav;
@@ -497,7 +569,7 @@ $("bigmap-canvas").addEventListener("pointerdown", (e) => {
     sound.checkpoint();
     $("map-hint").textContent = `Маршрут проложен: ${fmtDist(world.nav!.dist)}. Нажми на флажок, чтобы сбросить`;
   } else $("map-hint").textContent = "Туда не проехать — выбери точку на улице";
-});
+}
 $("nav").addEventListener("click", () => {
   navi.clear();
   message("Маршрут сброшен", "info");
