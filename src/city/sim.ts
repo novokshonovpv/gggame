@@ -2,6 +2,7 @@
 // pedestrians, the police, traffic that follows lanes and turns at crossings, crashes,
 // fires, pick-ups and the courier jobs.
 
+import type { NavState } from "./nav.ts";
 import { BRIDGE, BUILD, CityMap, DIRT, type Obstacle, DX, DY, type Dir, GRASS, type JobKind, type JobSpot, LOT, type Place, ROAD, SAND, T, WALK, WATER, rng } from "./map.ts";
 
 export type VType = "bike" | "car" | "bus" | "police";
@@ -378,6 +379,7 @@ export class World {
   private ringCool = 25;
   target: Vehicle | null = null; // a payphone job's mark
   remotes: RemoteView[] = []; // other online players
+  nav: NavState | null = null; // the navigator's route (nav.ts)
   pvp = true; // this player takes part in PvP
   pvpGrace = 0; // seconds of PvP protection after respawning
   private lastHitBy: { uid: string; t: number } | null = null;
@@ -1054,6 +1056,13 @@ export class World {
     const list = this.map.obstaclesAt(px, py);
     let touched: Obstacle | null = null;
     let mud = false;
+    let crawl = false;
+    // Tyres and rocks under either wheel: the bike climbs over them at a crawl, bucking.
+    const under = this.map.obstaclesAt(v.x, v.y);
+    for (const set of [list, under])
+      if (set)
+        for (const o of set)
+          if ((o.kind === "tire" || o.kind === "rock") && Math.hypot(v.x - o.x, v.y - o.y) < o.len / 2 + v.model.len * 0.4) crawl = true;
     if (list)
       for (const o of list) {
         if (o.kind === "tire" || o.kind === "rock") continue;
@@ -1109,6 +1118,20 @@ export class World {
         }
       }
     v.lastOb = touched;
+    if (crawl) {
+      const sp = v.speed;
+      const cap = v.bike ? 40 : 30;
+      if (sp > cap) {
+        const k = Math.max(cap / sp, Math.exp(-7 * dt));
+        v.vx *= k;
+        v.vy *= k;
+      }
+      if (sp > 15 && this.r() < dt * 6) {
+        v.vz = 35 + this.r() * 25;
+        v.z = 0.1;
+        v.spin += (this.r() - 0.5) * 1.2;
+      }
+    }
     if (mud) {
       const k = Math.exp(-2.4 * dt);
       v.vx *= k;
@@ -1154,19 +1177,7 @@ export class World {
     for (let ty = ty0; ty <= ty1; ty++)
       for (let tx = tx0; tx <= tx1; tx++) {
         if (map.at(tx, ty) === BUILD) push(cx + dx, cy + dy, tx * T, ty * T, (tx + 1) * T, (ty + 1) * T);
-        const obs = low ? map.obCells.get(ty * map.n + tx) : undefined;
-        if (obs)
-          for (const o of obs) {
-            if (o.kind !== "tire" && o.kind !== "rock") continue;
-            const ex = cx + dx - o.x;
-            const ey = cy + dy - o.y;
-            const d = Math.hypot(ex, ey);
-            const rr = r + o.len / 2;
-            if (d < rr && d > 0) {
-              dx += (ex / d) * (rr - d);
-              dy += (ey / d) * (rr - d);
-            }
-          }
+        void low; // tyres and rocks are ridden over (slowly), see groundObstacles
         const trees = map.treeCells.get(ty * map.n + tx);
         if (trees)
           for (const t of trees) {

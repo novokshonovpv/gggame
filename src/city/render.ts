@@ -10,6 +10,7 @@ import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 const LOGO = new Image();
 LOGO.src = new URL("../assets/67moto/logo-512.png", import.meta.url).href;
 const BRAND = "#d9b778";
+const NAV_COL = "#38b6ff";
 
 // Brand logos for the billboards (files from the 67moto.ru site, in public/brands).
 const LOGOS: Record<string, HTMLImageElement> = {};
@@ -240,6 +241,7 @@ export class Renderer {
     this.drawObstacles();
     this.drawPickups(world, t);
     this.drawPhones(world, t);
+    this.drawRoute(world, t);
     this.drawPackages(world, t);
     this.drawJobs(world, t);
 
@@ -279,6 +281,7 @@ export class Renderer {
     this.drawHeli(world, t);
     this.drawNames(world);
     this.drawTarget(world, t, cam, Hc);
+    this.drawNavPin(world, t, cam, Hc);
 
     // Screen space: arrow to the job and the bust warning.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1866,18 +1869,34 @@ export class Renderer {
     ctx.restore();
   }
 
+  // A point ~150 units ahead along the navigator's route (where the arrow should point).
+  private navAhead(world: World) {
+    const nav = world.nav;
+    if (!nav) return null;
+    let left = 150;
+    for (let i = 0; i + 1 < nav.path.length; i++) {
+      const a = nav.path[i];
+      const b = nav.path[i + 1];
+      const l = Math.hypot(b.x - a.x, b.y - a.y);
+      if (l >= left) return { x: a.x + ((b.x - a.x) * left) / l, y: a.y + ((b.y - a.y) * left) / l };
+      left -= l;
+    }
+    return nav.path[nav.path.length - 1];
+  }
+
   private drawArrow(world: World, cam: Camera, t: number) {
     const ctx = this.ctx;
-    const p = this.jobTarget(world);
+    const nav = !this.jobTarget(world);
+    const p = this.jobTarget(world) ?? this.navAhead(world);
     if (!p || world.player.mode === "out") return;
     const px = (world.px - cam.x) * cam.zoom + this.w / 2;
     const py = (world.py - cam.y) * cam.zoom + this.h / 2;
     const tx = (p.x - cam.x) * cam.zoom + this.w / 2;
     const ty = (p.y - cam.y) * cam.zoom + this.h / 2;
     const d = Math.hypot(tx - px, ty - py);
-    if (d < 60) return;
+    if (d < (nav ? 20 : 60)) return;
     const a = Math.atan2(ty - py, tx - px);
-    const col = world.job!.kind === "race" ? "#ff9f1a" : world.job!.kind === "hot" ? "#ff3b3b" : "#3ddc6e";
+    const col = nav ? NAV_COL : world.job!.kind === "race" ? "#ff9f1a" : world.job!.kind === "hot" ? "#ff3b3b" : "#3ddc6e";
     const r = 54 + Math.sin(t * 6) * 3;
     ctx.save();
     ctx.translate(px + Math.cos(a) * r, py + Math.sin(a) * r);
@@ -1895,6 +1914,67 @@ export class Renderer {
     ctx.stroke();
     ctx.restore();
   }
+
+  // ---------- navigator ----------
+
+  // The route on the streets: a wide translucent band with marching chevrons.
+  private drawRoute(world: World, t: number) {
+    const nav = world.nav;
+    if (!nav || nav.path.length < 2) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(40,170,255,0.35)";
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    nav.path.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(220,245,255,0.85)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 14]);
+    ctx.lineDashOffset = -t * 40;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // The destination: a pin standing over the roofs.
+  private drawNavPin(world: World, t: number, cam: Camera, Hc: number) {
+    const nav = world.nav;
+    if (!nav) return;
+    const ctx = this.ctx;
+    const k = Hc / (Hc - 46 - Math.sin(t * 3) * 5);
+    const x = cam.x + (nav.x - cam.x) * k;
+    const y = cam.y + (nav.y - cam.y) * k;
+    ctx.save();
+    ctx.fillStyle = "rgba(40,170,255,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(nav.x, nav.y, 16, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(x, y);
+    ctx.fillStyle = NAV_COL;
+    ctx.strokeStyle = "#0b2a40";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, -16, 10, Math.PI * 0.85, Math.PI * 2.15);
+    ctx.lineTo(0, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(0, -16, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // From a point on the full map canvas (CSS pixels) to the city (world units).
+  mapToWorld(x: number, y: number) {
+    const f = this.fullMap;
+    if (!f) return null;
+    return { x: ((x * this.dpr - f.ox) / f.s) * T, y: ((y * this.dpr - f.oy) / f.s) * T };
+  }
+  private fullMap: { s: number; ox: number; oy: number } | null = null;
 
   // ---------- full city map ----------
 
@@ -1914,6 +1994,7 @@ export class Renderer {
     const s = Math.min((w * dpr) / lw, (h * dpr) / lh);
     const ox = (w * dpr - lw * s) / 2 - L.x0 * s;
     const oy = (h * dpr - lh * s) / 2 - L.y0 * s;
+    this.fullMap = { s, ox, oy };
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = "#1e4a66";
     g.fillRect(0, 0, c.width, c.height);
@@ -1958,6 +2039,16 @@ export class Renderer {
     for (const r of world.remotes) dot(r.x, r.y, "#4fd8ff", 4.5, true);
     const target = this.jobTarget(world);
     if (target) dot(target.x, target.y, "#ffe14a", 7 + (flash ? 2 : 0), true);
+    const nav = world.nav;
+    if (nav) {
+      g.strokeStyle = NAV_COL;
+      g.lineWidth = r(4);
+      g.lineJoin = "round";
+      g.beginPath();
+      nav.path.forEach((q, i) => (i ? g.lineTo(q.x / T, q.y / T) : g.moveTo(q.x / T, q.y / T)));
+      g.stroke();
+      dot(nav.x, nav.y, NAV_COL, 7, true);
+    }
     const a = world.player.mode === "ride" && world.player.bike ? world.player.bike.a : world.player.body.a;
     g.save();
     g.translate(px(world.px), px(world.py));
@@ -2025,6 +2116,18 @@ export class Renderer {
     for (const r of world.remotes) dot(r.x, r.y, "#4fd8ff", 1.1);
     const target = this.jobTarget(world);
     if (target) dot(target.x, target.y, "#ffe14a", 1.3 + (flash ? 0.3 : 0));
+    const nav = world.nav;
+    if (nav) {
+      g.save();
+      g.strokeStyle = NAV_COL;
+      g.lineWidth = 0.7;
+      g.lineJoin = "round";
+      g.beginPath();
+      nav.path.forEach((q, i) => (i ? g.lineTo(q.x / T, q.y / T) : g.moveTo(q.x / T, q.y / T)));
+      g.stroke();
+      g.restore();
+      dot(nav.x, nav.y, NAV_COL, 1.3);
+    }
     // The player: an arrowhead.
     const a = world.player.mode === "ride" && world.player.bike ? world.player.bike.a : world.player.body.a;
     g.save();
