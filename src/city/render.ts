@@ -3,6 +3,7 @@
 // (the classic look of the old top-down city games, drawn from scratch here).
 
 import { BRIDGE, BUILD, type Building, type Chunk, CityMap, DIRT, type Lamp, GRASS, LOT, type Obstacle, ROAD, SAND, T, WALK, WATER } from "./map.ts";
+import { BRAND_BY_ID, BRANDS, type Brand } from "./brands.ts";
 import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 
 // The 67MOTO logo for the showroom and the rooftop billboards.
@@ -10,26 +11,23 @@ const LOGO = new Image();
 LOGO.src = new URL("../assets/67moto/logo-512.png", import.meta.url).href;
 const BRAND = "#d9b778";
 
-// Billboards: 67MOTO and brands it sells (names only, no logos copied).
-interface Ad {
-  title: string;
-  sub: string;
-  bg: string;
-  fg: string;
-  accent: string;
-  logo?: boolean;
+// Brand logos for the billboards (files from the 67moto.ru site, in public/brands).
+const LOGOS: Record<string, HTMLImageElement> = {};
+for (const b of BRANDS) {
+  const img = new Image();
+  img.src = new URL(`brands/${b.id}.webp`, document.baseURI).href;
+  LOGOS[b.id] = img;
 }
-const ADS: Record<string, Ad> = {
-  "67moto": { title: "67МОТО", sub: "мотоциклы BSE", bg: "#1c1a17", fg: "#f3ead8", accent: "#d9b778", logo: true },
-  motoland: { title: "MOTOLAND", sub: "эндуро и питбайки · в 67МОТО", bg: "#f26b1d", fg: "#ffffff", accent: "#1a1a1a" },
-  regulmoto: { title: "REGULMOTO", sub: "мотоциклы · в 67МОТО", bg: "#141414", fg: "#ffffff", accent: "#e53935" },
-  kayo: { title: "KAYO", sub: "питбайки и эндуро · в 67МОТО", bg: "#f5c400", fg: "#141414", accent: "#141414" },
-  leatt: { title: "LEATT", sub: "защита для мотокросса · в 67МОТО", bg: "#f4f4f4", fg: "#141414", accent: "#d32f2f" },
-  acerbis: { title: "ACERBIS", sub: "экипировка · в 67МОТО", bg: "#1565c0", fg: "#ffffff", accent: "#ffffff" },
-  motul: { title: "MOTUL", sub: "моторные масла · в 67МОТО", bg: "#d71920", fg: "#ffffff", accent: "#ffffff" },
-  liquimoly: { title: "LIQUI MOLY", sub: "масла и химия · в 67МОТО", bg: "#0d3c8c", fg: "#ffffff", accent: "#e30613" },
-  shark: { title: "SHARK", sub: "мотошлемы · в 67МОТО", bg: "#262626", fg: "#ffffff", accent: "#b0b0b0" },
-};
+
+// Where each billboard ended up on screen this frame (CSS pixels), for clicks.
+export interface AdHit {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  brand: Brand;
+}
+
 const BRAND_FONT = "Unbounded, system-ui, sans-serif";
 
 const hash = (...n: number[]) => {
@@ -160,6 +158,7 @@ export class Renderer {
   private light = canvas(1, 1);
   private lg = this.light.getContext("2d")!;
   private dark = 0;
+  adHits: AdHit[] = [];
   private chunks: Chunk[] = [];
   private lampsInView: Lamp[] = [];
   lightsT = 0; // game minutes, to switch windows on and off now and then
@@ -217,6 +216,7 @@ export class Renderer {
     const vh = h / z;
     const v = (this.view = { x0: cam.x - vw / 2, y0: cam.y - vh / 2, x1: cam.x + vw / 2, y1: cam.y + vh / 2 });
     world.view = v;
+    this.adHits.length = 0;
     this.chunks = this.map.inView(v.x0, v.y0, v.x1, v.y1);
     this.lampsInView = this.chunks.flatMap((c) => c.lamps);
     // Camera height for the perspective of buildings: scales with the view so the lean stays the same on screen.
@@ -635,39 +635,57 @@ export class Renderer {
     }
   }
 
-  // A sign: brand name and what it is, in the brand's colours.
-  private adBoard(bx: number, by: number, bw: number, bh: number, ad: Ad) {
+  // A billboard: the brand's logo and a "see it at 67MOTO" strip. Clickable.
+  private adBoard(bx: number, by: number, bw: number, bh: number, brand: Brand) {
     const ctx = this.ctx;
     const dark = this.dark;
+    const img = LOGOS[brand.id];
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(bx + 3, by + 3, bw, bh);
-    ctx.fillStyle = ad.bg;
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = ad.accent;
-    ctx.lineWidth = Math.max(1, bh * 0.05);
-    ctx.strokeRect(bx + 1, by + 1, bw - 2, bh - 2);
-    let tx = bx + bh * 0.25;
-    if (ad.logo && LOGO.complete && LOGO.naturalWidth) {
-      ctx.drawImage(LOGO, bx + 3, by + 3, bh - 6, bh - 6);
-      tx = bx + bh + 1;
+    // Frame and legs-free board.
+    ctx.fillStyle = "#2b2b2b";
+    ctx.fillRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
+    const strip = bh * 0.2;
+    const lh = bh - strip;
+    ctx.fillStyle = brand.dark ? "#13151c" : "#ffffff";
+    ctx.fillRect(bx, by, bw, lh);
+    if (img.complete && img.naturalWidth) {
+      // Contain the 2:1 logo in the board.
+      const s = Math.min(bw / img.naturalWidth, lh / img.naturalHeight);
+      const w = img.naturalWidth * s;
+      const h = img.naturalHeight * s;
+      ctx.drawImage(img, bx + (bw - w) / 2, by + (lh - h) / 2, w, h);
     }
-    const room = bx + bw - tx - 4;
-    ctx.textAlign = "left";
+    ctx.fillStyle = BRAND;
+    ctx.fillRect(bx, by + lh, bw, strip);
+    ctx.fillStyle = "#1c1a17";
+    ctx.font = `800 ${strip * 0.62}px Manrope, system-ui, sans-serif`;
+    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = ad.fg;
-    ctx.font = `900 ${bh * 0.36}px ${BRAND_FONT}`;
-    ctx.fillText(ad.title, tx, by + bh * 0.38, room);
-    ctx.fillStyle = ad.logo ? BRAND : ad.fg;
-    ctx.globalAlpha = 0.85;
-    ctx.font = `700 ${bh * 0.18}px Manrope, system-ui, sans-serif`;
-    ctx.fillText(ad.sub, tx, by + bh * 0.74, room);
-    ctx.globalAlpha = 1;
+    ctx.fillText("смотреть в 67МОТО ↗", bx + bw / 2, by + lh + strip * 0.55, bw - 4);
     if (dark > 0.05) {
       ctx.globalCompositeOperation = "lighter";
-      ctx.fillStyle = `rgba(255,240,210,${0.1 * dark})`;
+      ctx.fillStyle = `rgba(255,240,210,${0.12 * dark})`;
       ctx.fillRect(bx - 3, by - 3, bw + 6, bh + 6);
       ctx.globalCompositeOperation = "source-over";
     }
+    // Remember where it is on screen.
+    const m = ctx.getTransform();
+    const d = this.dpr;
+    const x0 = (m.a * bx + m.c * by + m.e) / d;
+    const y0 = (m.b * bx + m.d * by + m.f) / d;
+    const x1 = (m.a * (bx + bw) + m.c * (by + bh) + m.e) / d;
+    const y1 = (m.b * (bx + bw) + m.d * (by + bh) + m.f) / d;
+    this.adHits.push({ x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1), brand });
+  }
+
+  // The billboard under a point on the screen (CSS pixels), if any.
+  adAt(x: number, y: number) {
+    for (let i = this.adHits.length - 1; i >= 0; i--) {
+      const h = this.adHits[i];
+      if (x >= h.x0 && x <= h.x1 && y >= h.y0 && y <= h.y1) return h.brand;
+    }
+    return null;
   }
 
   // ---------- stadium, obstacles, phones, packages ----------
@@ -730,15 +748,15 @@ export class Renderer {
     }
     // Sponsor banners along the fence, clear of the gates.
     const R = st.rect;
-    const bw = 150;
-    const bh = 26;
+    const bw = 120;
+    const bh = 72;
     const banners: [number, number, string][] = [
-      [R.x0 + (R.x1 - R.x0) * 0.2, R.y0 + 8, "motoland"],
+      [R.x0 + (R.x1 - R.x0) * 0.2, R.y0 + 8, "bse"],
       [R.x0 + (R.x1 - R.x0) * 0.8, R.y0 + 8, "kayo"],
       [R.x0 + (R.x1 - R.x0) * 0.2, R.y1 - 8 - bh, "leatt"],
-      [R.x0 + (R.x1 - R.x0) * 0.8, R.y1 - 8 - bh, "motul"],
+      [R.x0 + (R.x1 - R.x0) * 0.8, R.y1 - 8 - bh, "bse"],
     ];
-    for (const [x, y, k] of banners) this.adBoard(x - bw / 2, y, bw, bh, ADS[k]);
+    for (const [x, y, k] of banners) this.adBoard(x - bw / 2, y, bw, bh, BRAND_BY_ID[k]);
     // Name on the infield.
     ctx.save();
     ctx.globalAlpha = 0.55;
@@ -1699,7 +1717,7 @@ export class Renderer {
       ctx.fillRect(x0, y0, w, h);
     }
     // What glows: signs, the hospital cross, the helipad, the billboards.
-    if (b.ad) this.billboard(cx, cy, w, h, dark, ADS[b.ad] ?? ADS["67moto"]);
+    if (b.ad && BRAND_BY_ID[b.ad]) this.billboard(cx, cy, w, h, BRAND_BY_ID[b.ad]);
     else if (b.kind === "hospital") {
       ctx.fillStyle = "#d32f2f";
       const s = Math.min(w, h) * 0.5;
@@ -1734,14 +1752,19 @@ export class Renderer {
   }
 
   // A lit 67MOTO billboard, in roof coordinates.
-  private billboard(cx: number, cy: number, w: number, h: number, dark: number, ad: Ad) {
+  private billboard(cx: number, cy: number, w: number, h: number, brand: Brand) {
     const ctx = this.ctx;
-    const bw = Math.min(w * 0.82, 130);
-    const bh = Math.min(h * 0.6, bw * 0.34);
+    const dark = this.dark;
+    // A 2:1 logo plus the strip: about 1.67:1.
+    let bw = Math.min(w * 0.86, 130);
+    let bh = bw * 0.6;
+    if (bh > h * 0.86) {
+      bh = h * 0.86;
+      bw = bh / 0.6;
+    }
     const bx = cx - bw / 2;
     const by = cy - bh / 2;
-    this.adBoard(bx, by, bw, bh, ad);
-    void dark;
+    this.adBoard(bx, by, bw, bh, brand);
     if (dark > 0.05) {
       ctx.globalCompositeOperation = "lighter";
       ctx.fillStyle = `rgba(217,183,120,${0.12 * dark})`;

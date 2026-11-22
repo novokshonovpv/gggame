@@ -209,7 +209,7 @@ export function initMenu(api: MenuApi) {
     } else {
       body.innerHTML = `<h2>Об игре</h2>
         <p>Город 67 — открытый город с видом сверху: курьерские заказы, уличные гонки, Эндуро-арена, трамплины, телефоны-автоматы, погони и секретные посылки.</p>
-        <p>При поддержке <b>67МОТО</b> — мотосалон и мотосервис в Смоленске: мотоциклы BSE, Motoland, Regulmoto, KAYO и другие, экипировка LEATT, Acerbis, Shark, масла MOTUL и LIQUI MOLY.</p>
+        <p>При поддержке <b>67МОТО</b> — мотосалон и мотосервис в Смоленске: мотоциклы BSE, OXO, KAYO, Regulmoto, PROGASI, DAYUN, Motoland, FX MOTO, ZUUMAV, Ajerra, BENDA, экипировка LEATT, Acerbis, Shark, ROQVI, масла MOTUL. Щиты брендов на крышах кликабельны — открывают подборку бренда на 67moto.ru.</p>
         <p class="note">${MUSIC_CREDIT}: «Rocket Power», «Organic Grunge», «Surf Shimmy», «Brain Dance», «Ouroboros», «Exit the Premises», «Funky Chunk», «Loopster», «Twisted», «Local Forecast», «Night in Venice», «Groundwork», «Late Night Radio».</p>
         ${api.embedded ? "" : `<a class="link" href="./">Moto Trials — мотокросс в той же серии →</a>`}`;
     }
