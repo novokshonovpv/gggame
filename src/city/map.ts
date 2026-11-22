@@ -1,3 +1,5 @@
+import { BILLBOARDS } from "./brands.ts";
+
 // The city: a tile map generated from a seed. Roads form a grid (two lanes each, right-hand
 // traffic), blocks between them are ringed with pavement and split into lots: buildings of
 // different heights (taller downtown), parks with trees and car parks. A river crosses the
@@ -409,9 +411,20 @@ export class CityMap {
 
     // Rooftop billboards.
     const roomy = this.buildings.filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
-    // 67MOTO and a few brands from its catalogue; not many, the city is not an ad wall.
-    const brands = ["67moto", "motoland", "motul", "67moto", "kayo", "leatt", "67moto", "regulmoto", "liquimoly", "shark"];
-    for (let i = 0; i < brands.length && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = brands[i];
+    // Brands from the 67MOTO catalogue (BSE three times as often), spread over the city.
+    const ads = [...BILLBOARDS];
+    for (let k = 0; k < ads.length && roomy.length; k++) {
+      // Keep billboards apart: pick the roomy roof farthest from those already up (of a few tries).
+      let best = -1;
+      let bestD = -1;
+      for (let tries = 0; tries < 12; tries++) {
+        const i = Math.floor(r() * roomy.length);
+        const b = roomy[i];
+        const d = Math.min(Infinity, ...this.buildings.filter((o) => o.ad).map((o) => Math.hypot(o.x0 - b.x0, o.y0 - b.y0)));
+        if (d > bestD) (bestD = d), (best = i);
+      }
+      roomy.splice(best, 1)[0].ad = ads[k];
+    }
 
     // Street lights along the kerbs.
     for (let y = L.y0; y <= L.y1; y++)

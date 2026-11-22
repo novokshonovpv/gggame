@@ -3,6 +3,7 @@
 
 import { enterFullscreen, exitFullscreen, isFullscreen, isTouch, onFullscreenChange } from "../fullscreen.ts";
 import { CitySound } from "./audio.ts";
+import { brandUrl } from "./brands.ts";
 import { BOARD_LAP, BOARD_MONEY, CityCloud } from "./cloud.ts";
 import { initMenu } from "./menu.ts";
 import { MUSIC_CREDIT } from "./radio.ts";
@@ -158,10 +159,23 @@ window.addEventListener("keyup", (e) => {
 });
 // Left mouse button fires too.
 canvas.addEventListener("pointerdown", (e) => {
+  // A click (or tap) on a billboard opens that brand's selection on 67moto.ru.
+  const brand = mode === "play" ? renderer.adAt(e.offsetX, e.offsetY) : null;
+  if (brand) {
+    e.preventDefault();
+    message(`Открываю ${brand.name} в каталоге 67МОТО`, "info");
+    window.open(brandUrl(brand), "_blank", "noopener");
+    return;
+  }
   if (e.pointerType === "mouse" && e.button === 0 && mode === "play") {
     held.add("fire");
     edges.add("fire");
   }
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse") return;
+  const over = mode === "play" && !!renderer.adAt(e.offsetX, e.offsetY);
+  canvas.style.cursor = over ? "pointer" : "";
 });
 window.addEventListener("pointerup", (e) => {
   if (e.pointerType === "mouse" && e.button === 0) held.delete("fire");
