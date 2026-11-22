@@ -1052,12 +1052,42 @@ button {
   font-weight: 800;
 }
 
+.map-wrap {
+  position: relative;
+  min-height: 0;
+}
+
 .bigmap-canvas {
+  display: block;
   cursor: crosshair;
   width: 100%;
   height: 100%;
   min-height: 0;
   border-radius: 10px;
+  touch-action: none;
+}
+
+.bigmap-canvas.dragging {
+  cursor: grabbing;
+}
+
+.map-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.map-zoom .ibtn {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 10, 12, 0.78);
+  color: #f3ead8;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 @media (max-height: 520px) {

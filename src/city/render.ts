@@ -1984,6 +1984,39 @@ export class Renderer {
     return { x: ((x * this.dpr - f.ox) / f.s) * T, y: ((y * this.dpr - f.oy) / f.s) * T };
   }
   private fullMap: { s: number; ox: number; oy: number } | null = null;
+  // Zoom of the full map (1 = whole city) and the tile at its centre.
+  mapZoom = 1;
+  private mapC: { x: number; y: number } | null = null;
+
+  // Zooms the full map by a factor, keeping the point under (x, y) (CSS pixels) in place.
+  zoomMap(f: number, x: number, y: number) {
+    const fm = this.fullMap;
+    const z = Math.max(1, Math.min(12, this.mapZoom * f));
+    if (!fm || z === this.mapZoom) return;
+    const dpr = this.dpr;
+    const tx = (x * dpr - fm.ox) / fm.s;
+    const ty = (y * dpr - fm.oy) / fm.s;
+    const s2 = (fm.s / this.mapZoom) * z;
+    const ox2 = x * dpr - tx * s2;
+    const oy2 = y * dpr - ty * s2;
+    const c = this.mapCanvasSize;
+    this.mapZoom = z;
+    this.mapC = { x: (c.w / 2 - ox2) / s2, y: (c.h / 2 - oy2) / s2 };
+  }
+
+  // Drags the full map by (dx, dy) CSS pixels.
+  panMap(dx: number, dy: number) {
+    const fm = this.fullMap;
+    if (!fm || this.mapZoom <= 1) return;
+    const c = this.mapC ?? { x: 0, y: 0 };
+    this.mapC = { x: c.x - (dx * this.dpr) / fm.s, y: c.y - (dy * this.dpr) / fm.s };
+  }
+
+  // Centres the full map on a city point (world units).
+  centerMap(x: number, y: number) {
+    this.mapC = { x: x / T, y: y / T };
+  }
+  private mapCanvasSize = { w: 1, h: 1 };
 
   // ---------- full city map ----------
 
@@ -2000,9 +2033,22 @@ export class Renderer {
     const L = map.land;
     const lw = L.x1 - L.x0 + 1;
     const lh = L.y1 - L.y0 + 1;
-    const s = Math.min((w * dpr) / lw, (h * dpr) / lh);
-    const ox = (w * dpr - lw * s) / 2 - L.x0 * s;
-    const oy = (h * dpr - lh * s) / 2 - L.y0 * s;
+    const W = w * dpr;
+    const H = h * dpr;
+    this.mapCanvasSize = { w: W, h: H };
+    const s = Math.min(W / lw, H / lh) * this.mapZoom;
+    // The centre: the middle of the city, or wherever the map was zoomed and dragged to
+    // (kept so the city never slides off the screen).
+    const fit = (c: number | undefined, lo: number, n: number, view: number) => {
+      const half = view / s / 2;
+      if (c === undefined || half >= n / 2) return lo + n / 2;
+      return Math.max(lo + half, Math.min(lo + n - half, c));
+    };
+    const cx = fit(this.mapC?.x, L.x0, lw, W);
+    const cy = fit(this.mapC?.y, L.y0, lh, H);
+    if (this.mapC) this.mapC = { x: cx, y: cy };
+    const ox = W / 2 - cx * s;
+    const oy = H / 2 - cy * s;
     this.fullMap = { s, ox, oy };
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = "#1e4a66";

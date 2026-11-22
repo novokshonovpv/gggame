@@ -25,19 +25,14 @@ export interface Model {
   colors: string[];
 }
 
-const m = (o: Partial<Model> & Pick<Model, "id" | "name" | "type" | "len" | "wid">): Model => ({
-  mass: 1,
-  vmax: 300,
-  accel: 400,
-  brake: 520,
-  turn: 3,
-  grip: 14,
-  offroad: 0.7,
-  hp: 60,
-  price: 0,
-  colors: ["#c33"],
-  ...o,
-});
+// Everything on wheels is a little calmer than the figures below: top speed and pick-up.
+const PACE = 0.87;
+const m = (o: Partial<Model> & Pick<Model, "id" | "name" | "type" | "len" | "wid">): Model => {
+  const md: Model = { mass: 1, vmax: 300, accel: 400, brake: 520, turn: 3, grip: 14, offroad: 0.7, hp: 60, price: 0, colors: ["#c33"], ...o };
+  md.vmax *= PACE;
+  md.accel *= 0.92;
+  return md;
+};
 
 // The 67MOTO showroom sells the BSE line (prices in roubles); the player starts on a Z3.
 export const BIKES: Model[] = [
