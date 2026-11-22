@@ -34,7 +34,7 @@ export interface Building extends Rect {
   roof: string;
   kind: BuildingKind;
   seed: number;
-  ad?: boolean; // a 67MOTO billboard on the roof
+  ad?: string; // a billboard on the roof: brand key (see ADS in render.ts)
 }
 
 export interface Tree {
@@ -407,9 +407,11 @@ export class CityMap {
         else this.treeCells.set(key, [t]);
       }
 
-    // A few rooftop billboards of the 67MOTO shop.
+    // Rooftop billboards.
     const roomy = this.buildings.filter((b) => b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 2.5);
-    for (let i = 0; i < 8 && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = true;
+    // 67MOTO and a few brands from its catalogue; not many, the city is not an ad wall.
+    const brands = ["67moto", "motoland", "motul", "67moto", "kayo", "leatt", "67moto", "regulmoto", "liquimoly", "shark"];
+    for (let i = 0; i < brands.length && roomy.length; i++) roomy.splice(Math.floor(r() * roomy.length), 1)[0].ad = brands[i];
 
     // Street lights along the kerbs.
     for (let y = L.y0; y <= L.y1; y++)

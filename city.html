@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#1c1a17" />
-    <meta name="description" content="Мото-город от 67МОТО: курьер на мотоцикле BSE в большом городе. Доставки, гонки, погони с полицией, день и ночь — прямо в браузере." />
+    <meta name="description" content="Город 67 от 67МОТО: курьер на мотоцикле BSE в большом городе. Доставки, гонки, погони с полицией, день и ночь — прямо в браузере." />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Мото-город · 67МОТО</title>
+    <title>Город 67 · 67МОТО</title>
   </head>
   <body class="city">
     <canvas id="c"></canvas>
@@ -64,31 +64,23 @@
 
     <div id="big" class="big hidden"></div>
 
-    <div id="title" class="overlay">
-      <div class="panel title-panel">
-        <div class="brand"><img src="/src/assets/67moto/logo-512.png" alt="67МОТО" /><span>67МОТО представляет</span></div>
-        <h1>Мото<span>город</span></h1>
-        <p class="lead">Ты — курьер 67МОТО на мотоцикле BSE. Развози запчасти по городу, гоняй по улицам, уходи от полиции и копи на байк мечты в нашем салоне.</p>
-        <button id="b-play" class="primary">Играть</button>
-        <div class="keys kbd-only">
-          <div><b>W A S D</b> / <b>стрелки</b> — газ, тормоз, руль · <b>Пробел</b> — занос (пешком — удар)</div>
-          <div><b>E</b> — сесть / слезть · <b>Ctrl</b>, <b>J</b> или мышь — огонь · <b>Q</b> — сменить оружие</div>
-          <div><b>Shift</b> — бег (на байке — нитро) · <b>R</b> / колесо мыши — радио · <b>Tab</b> — карта · <b>Esc</b> — пауза · <b>M</b> — звук</div>
-        </div>
-        <div class="keys touch-only">
-          <div><b>◀ ▶</b> — руль, <b>Газ</b> и <b>Тормоз</b> — справа</div>
-          <div><b>E</b> — сесть / слезть · <b>Огонь</b> появится с оружием, тап по названию — сменить</div>
-          <div><b>Бег</b> — бегом, на байке — нитро · тап по 📻 — радио</div>
-        </div>
-        <div class="legend">
-          <span><i style="background: #3ddc6e"></i>доставка</span>
-          <span><i style="background: #ff9f1a"></i>гонка</span>
-          <span><i style="background: #ff3b3b"></i>горячий груз</span>
-          <span><i style="background: #2f8fe0"></i>сервис 67МОТО</span>
-          <span><i style="background: #d9b778"></i>салон 67МОТО</span>
-        </div>
-        <p class="site">67МОТО — мотоциклы BSE, Смоленск</p>
-        <p id="title-credit" class="credit"></p>
+    <div id="menu" class="menu hidden">
+      <div class="menu-logo" aria-label="Город 67">
+        <div class="logo-pre"><img src="/src/assets/67moto/logo-512.png" alt="" />67МОТО представляет</div>
+        <h1 class="logo">
+          <span class="word"><i style="--i: 0">Г</i><i style="--i: 1">О</i><i style="--i: 2">Р</i><i style="--i: 3">О</i><i style="--i: 4">Д</i></span>
+          <span class="num">67</span>
+        </h1>
+        <div class="logo-sub">мото-курьер · открытый город</div>
+        <svg class="logo-bike" viewBox="0 0 120 50" aria-hidden="true">
+          <circle cx="24" cy="38" r="10" /><circle cx="96" cy="38" r="10" />
+          <path d="M24 38l20-18h26l14 18M44 20l-6-8h10M70 20l8-10h10M56 20l6 14" />
+          <circle cx="62" cy="9" r="6" class="helmet" />
+        </svg>
+      </div>
+      <div class="menu-body">
+        <nav id="menu-nav" class="menu-nav"></nav>
+        <section id="menu-page" class="menu-page"></section>
       </div>
     </div>
 
@@ -104,7 +96,7 @@
           <div>Эндуро-арена — въезжай на старт, круг на время. Трамплины в парках и над реками — трюки за деньги (в воздухе ← → крутят байк). Звонит телефон-автомат ☎ — особое задание. По городу спрятаны 20 секретных посылок. Пешком играет музыка, R — выключить.</div>
           <div>Сервис 67МОТО (синий) снимает розыск и чинит байк. В салоне 67МОТО (бежевый) — мотоциклы BSE. Ящики с ружьём — оружие, ящики «?» — сюрпризы: деньги, броня, нитро, взятка, ракетница… или ловушка.</div>
         </div>
-        <button id="p-menu" class="link">В главное меню Moto Trials</button>
+        <button id="p-menu" class="link">Главное меню: сохранения, рекорды, настройки</button>
         <p id="pause-credit" class="credit"></p>
       </div>
     </div>

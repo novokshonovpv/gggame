@@ -3,15 +3,16 @@
 
 import { enterFullscreen, exitFullscreen, isFullscreen, isTouch, onFullscreenChange } from "../fullscreen.ts";
 import { CitySound } from "./audio.ts";
+import { BOARD_LAP, BOARD_MONEY, CityCloud } from "./cloud.ts";
+import { initMenu } from "./menu.ts";
 import { MUSIC_CREDIT } from "./radio.ts";
+import { type Save, activeSlot, fresh, loadSlot, localNick, removeSlot, setActive, setLocalNick, write } from "./saves.ts";
 import { CityMap } from "./map.ts";
 import { type Camera, Renderer } from "./render.ts";
-import { BIKE, BIKES, type Input, WEAPONS, type WeaponId, World, rub } from "./sim.ts";
+import { BIKES, type Input, WEAPONS, World, rub } from "./sim.ts";
 import "./style.css";
 
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
-const SAVE = "moto-city-v2";
-const OLD_SAVE = "moto-city-v1"; // dollars, before the switch to roubles and the BSE line
 // Photos of the BSE bikes from the 67MOTO catalogue.
 const PHOTOS: Record<string, string> = {
   ex125: new URL("../assets/67moto/bikes/125.jpg", import.meta.url).href,
@@ -34,76 +35,54 @@ const embedded = (() => {
   }
 })();
 
-interface Save {
-  money: number;
-  owned: string[];
-  bike: string;
-  arms: Partial<Record<WeaponId, number>>;
-  bestLap: number;
-  packages: number[];
-}
+let slot = activeSlot();
+let save: Save = loadSlot(slot) ?? fresh();
+let started = false;
+let lastMoney = 0;
+let sentEarned = 0;
+const cloud = new CityCloud();
 
-const SHOP_IDS = new Set(BIKES.map((b) => b.id));
-
-function load(): Save {
-  const def: Save = { money: 0, owned: ["z3"], bike: "z3", arms: {}, bestLap: 0, packages: [] };
-  try {
-    const s = JSON.parse(localStorage.getItem(SAVE) ?? "null") as Partial<Save> | null;
-    if (!s) {
-      // Dollars from the first version become roubles (x50).
-      const old = JSON.parse(localStorage.getItem(OLD_SAVE) ?? "null") as { money?: number } | null;
-      if (old) def.money = Math.max(0, Math.floor(Number(old.money) || 0)) * 50;
-      return def;
-    }
-    const arms: Save["arms"] = {};
-    for (const id of Object.keys(WEAPONS) as WeaponId[]) {
-      const n = Math.floor(Number(s.arms?.[id]) || 0);
-      if (n > 0) arms[id] = n;
-    }
-    return {
-      money: Math.max(0, Math.floor(Number(s.money) || 0)),
-      owned: Array.isArray(s.owned) ? [...new Set([...def.owned, ...s.owned.filter((id) => SHOP_IDS.has(id))])] : def.owned,
-      bike: s.bike && SHOP_IDS.has(s.bike) && BIKE[s.bike] ? s.bike : def.bike,
-      arms,
-      bestLap: Math.max(0, Number(s.bestLap) || 0),
-      packages: Array.isArray(s.packages) ? s.packages.filter((i) => Number.isInteger(i) && i >= 0 && i < 100) : [],
-    };
-  } catch {
-    return def;
-  }
-}
-
-const save = load();
 function store() {
+  if (!started) return;
   save.money = world.money;
   save.arms = { ...world.arms };
   save.bestLap = world.bestLap;
   save.packages = [...world.packagesGot];
-  try {
-    localStorage.setItem(SAVE, JSON.stringify(save));
-  } catch {
-    /* private mode: progress lives only in this tab */
+  save.savedAt = Date.now();
+  write(slot, save);
+  // The leaderboard: total money earned (sent when it has grown).
+  if (save.earned > sentEarned + 999 && localNick()) {
+    sentEarned = save.earned;
+    void cloud.init().then(() => cloud.submit(BOARD_MONEY, save.earned, true));
   }
 }
 
 const map = new CityMap(67);
 const world = new World(map);
-world.money = save.money;
-world.bikeId = save.bike;
-world.arms = { ...save.arms };
-world.bestLap = save.bestLap;
-world.packagesGot = new Set(save.packages);
-world.cycleWeapon();
+
+// Puts a save into the world: money, guns, records, the rider's colours and own bike.
+function applySave(sv: Save) {
+  world.money = sv.money;
+  lastMoney = sv.money;
+  world.bikeId = sv.bike;
+  world.arms = { ...sv.arms };
+  world.weapon = null;
+  world.cycleWeapon();
+  world.bestLap = sv.bestLap;
+  world.packagesGot = new Set(sv.packages);
+  const b = world.player.body;
+  b.helmet = sv.helmet;
+  b.shirt = sv.jacket;
+  if (world.player.mode === "ride" && world.player.bike) return;
+  world.vehicles = world.vehicles.filter((v) => !(v.bike && v.rider === null && Math.hypot(v.x - b.x, v.y - b.y) < 40));
+  world.spawnPlayerBike(sv.bike, b.x + Math.cos(b.a + Math.PI / 2) * 16, b.y + Math.sin(b.a + Math.PI / 2) * 16, b.a, false);
+}
+applySave(save);
 {
   // ?t=22 (or ?night) starts at that hour: handy for an embed that wants night straight away.
   const q = new URLSearchParams(location.search);
   const h = q.has("night") ? 22 : Number(q.get("t"));
   if (q.has("night") || (q.has("t") && h >= 0 && h < 24)) world.clock = h;
-}
-{
-  // Start on foot by the workshop, the rider's own bike at the kerb.
-  const b = world.player.body;
-  world.spawnPlayerBike(save.bike, b.x + Math.cos(b.a + Math.PI / 2) * 16, b.y + Math.sin(b.a + Math.PI / 2) * 16, b.a, false);
 }
 const canvas = $<HTMLCanvasElement>("c");
 const renderer = new Renderer(canvas, map);
@@ -141,6 +120,11 @@ const KEYS: Record<string, string> = {
   ShiftRight: "sprint",
 };
 window.addEventListener("keydown", (e) => {
+  if ((e.target as HTMLElement | null)?.closest?.("input")) return;
+  if (mode === "title") {
+    menu.key(e);
+    return;
+  }
   const k = KEYS[e.code];
   if (k) {
     e.preventDefault();
@@ -235,11 +219,28 @@ function show(id: string, on: boolean) {
 
 function start() {
   sound.unlock();
+  started = true;
   mode = "play";
-  show("title", false);
+  menu.close();
+  show("pause", false);
   show("hud", true);
   show("touch", isTouch());
   window.focus();
+  store();
+}
+
+// Back to the main menu (from the pause screen): the city keeps its state.
+function toMenu() {
+  store();
+  mode = "title";
+  show("pause", false);
+  show("hud", false);
+  show("touch", false);
+  sound.radioPlaying(false);
+  sound.walkPlaying(false);
+  sound.engine(false, 0, 0, "");
+  sound.sirenLevel(0, 0);
+  menu.open("play");
 }
 
 function pause() {
@@ -306,8 +307,8 @@ function renderShop() {
       <div class="photo" style="background-image:url('${PHOTOS[b.id] ?? ""}')"></div>
       <b>${b.name}</b>
       <small>${BLURB[b.id] ?? ""}</small>
-      ${stat("Скорость", b.vmax / 425)}
-      ${stat("Разгон", b.accel / 620)}
+      ${stat("Скорость", b.vmax / 365)}
+      ${stat("Разгон", b.accel / 555)}
       ${stat("Управление", (b.turn * b.grip) / (3.8 * 17))}
       ${stat("Прочность", b.hp / 75)}
       <div class="price">${owned ? "Куплен" : b.price ? rub(b.price) : "Бесплатно"}</div>`;
@@ -350,7 +351,68 @@ function renderShop() {
   }
 }
 
-$("b-play").addEventListener("click", start);
+const menu = initMenu({
+  slot: () => slot,
+  slotInfo: (i) => (i === slot && started ? { ...save, money: world.money } : loadSlot(i)),
+  choose(i) {
+    if (i === slot) return;
+    store();
+    setActive(i);
+    if (started) {
+      // A fresh city for another save: reload straight into the game.
+      try {
+        sessionStorage.setItem("moto-city-autostart", "1");
+      } catch {
+        /* the menu will ask again */
+      }
+      location.reload();
+      return;
+    }
+    slot = i;
+    save = loadSlot(i) ?? fresh();
+    applySave(save);
+  },
+  erase(i) {
+    removeSlot(i);
+    if (i === slot && !started) {
+      save = fresh();
+      applySave(save);
+    }
+  },
+  newGame() {
+    removeSlot(slot);
+    save = fresh();
+    applySave(save);
+  },
+  play: start,
+  started: () => started,
+  embedded,
+  nick: localNick,
+  setNick: setLocalNick,
+  hero: () => ({ helmet: save.helmet, jacket: save.jacket }),
+  setHero(helmet, jacket) {
+    save.helmet = helmet;
+    save.jacket = jacket;
+    world.player.body.helmet = helmet;
+    world.player.body.shirt = jacket;
+    if (started) store();
+    else if (save.savedAt) write(slot, save);
+  },
+  packagesTotal: map.packages.length,
+  sound,
+  cloud,
+});
+// The cloud signs in quietly in the background (nickname, leaderboards).
+void cloud.init();
+try {
+  if (sessionStorage.getItem("moto-city-autostart")) {
+    sessionStorage.removeItem("moto-city-autostart");
+    if (localNick()) setTimeout(start, 0);
+    else menu.open("play");
+  } else menu.open("play");
+} catch {
+  menu.open("play");
+}
 $("b-map").addEventListener("click", () => (mode === "map" ? closeMap() : mode === "play" ? openMap() : undefined));
 $("map-close").addEventListener("click", closeMap);
 // Tap the weapon label to switch guns (on a phone there is no Q key).
@@ -372,7 +434,7 @@ canvas.addEventListener(
   },
   { passive: false },
 );
-for (const id of ["title-credit", "pause-credit"]) $(id).textContent = MUSIC_CREDIT;
+$("pause-credit").textContent = MUSIC_CREDIT;
 
 let bannerT = 0;
 function radioBanner(station: string, song: string) {
@@ -419,11 +481,7 @@ $("b-mute").addEventListener("click", () => {
 sound.onMute((m) => $("b-mute").classList.toggle("muted", m));
 $("b-fs").addEventListener("click", () => void (isFullscreen() ? exitFullscreen() : enterFullscreen()));
 onFullscreenChange(() => setTimeout(() => renderer.resize(), 100));
-if (embedded) $("p-menu").classList.add("hidden");
-$("p-menu").addEventListener("click", () => {
-  store();
-  location.href = "./";
-});
+$("p-menu").addEventListener("click", toMenu);
 window.addEventListener("resize", () => renderer.resize());
 window.addEventListener("pagehide", store);
 // For the embed API and debugging from the console.
@@ -586,6 +644,7 @@ function handleEvents() {
       case "lap":
         if (e.record) big("Рекорд круга!", "surprise");
         store();
+        if (e.record && localNick()) void cloud.init().then(() => cloud.submit(BOARD_LAP, e.time, false));
         break;
       case "coin":
         sound.cash();
@@ -641,6 +700,9 @@ function frame(now: number) {
       handleEvents();
       store();
     }
+    if (world.money > lastMoney) save.earned += world.money - lastMoney;
+    lastMoney = world.money;
+    save.playTime += dt;
     if (world.time - lastSave > 10) {
       lastSave = world.time;
       store();
@@ -674,7 +736,7 @@ function frame(now: number) {
   const base = short / (short < 500 ? 390 : 500);
   const zt = base / (1 + 0.6 * Math.min(1, speed / 380));
   cam.zoom += (zt - cam.zoom) * (1 - Math.exp(-dt * 1.6));
-  if (mode === "title") {
+  if (mode === "title" && !started) {
     cam.x = world.px + Math.cos(time * 0.1) * 300;
     cam.y = world.py + Math.sin(time * 0.1) * 200;
     cam.zoom = base * 0.8;
