@@ -3,7 +3,7 @@
 // fires, pick-ups and the courier jobs.
 
 import type { NavState } from "./nav.ts";
-import type { Track } from "./zones.ts";
+import { TYRE_R, type Track } from "./zones.ts";
 import { BRIDGE, BUILD, CityMap, DIRT, type Obstacle, DX, DY, type Dir, GRASS, type JobKind, type JobSpot, LOT, type Place, ROAD, SAND, T, WALK, WATER, rng } from "./map.ts";
 
 export type VType = "bike" | "car" | "bus" | "police";
@@ -1208,6 +1208,7 @@ export class World {
     const map = this.map;
     let dx = 0;
     let dy = 0;
+    let hard = false; // anything but tyre stacks
     const push = (px: number, py: number, rx0: number, ry0: number, rx1: number, ry1: number) => {
       const qx = clamp(px, rx0, rx1);
       const qy = clamp(py, ry0, ry1);
@@ -1239,7 +1240,25 @@ export class World {
     const ty1 = Math.floor((cy + r) / T);
     for (let ty = ty0; ty <= ty1; ty++)
       for (let tx = tx0; tx <= tx1; tx++) {
-        if (map.at(tx, ty) === BUILD) push(cx + dx, cy + dy, tx * T, ty * T, (tx + 1) * T, (ty + 1) * T);
+        if (map.at(tx, ty) === BUILD) {
+          const bx = dx;
+          const by = dy;
+          push(cx + dx, cy + dy, tx * T, ty * T, (tx + 1) * T, (ty + 1) * T);
+          if (bx !== dx || by !== dy) hard = true;
+        }
+        // Tyre barriers (cleared in a jump).
+        const tyres = low ? map.tyreCells.get(ty * map.n + tx) : undefined;
+        if (tyres)
+          for (const t of tyres) {
+            const ex = cx + dx - t.x;
+            const ey = cy + dy - t.y;
+            const d = Math.hypot(ex, ey);
+            const rr = r + TYRE_R;
+            if (d < rr && d > 0) {
+              dx += (ex / d) * (rr - d);
+              dy += (ey / d) * (rr - d);
+            }
+          }
         void low; // tyres and rocks are ridden over (slowly), see groundObstacles
         const trees = map.treeCells.get(ty * map.n + tx);
         if (trees)
@@ -1251,12 +1270,16 @@ export class World {
             if (d < rr && d > 0) {
               dx += (ex / d) * (rr - d);
               dy += (ey / d) * (rr - d);
+              hard = true;
             }
           }
       }
     for (const w of map.walls)
-      if (cx + r > w.x0 && cx - r < w.x1 && cy + r > w.y0 && cy - r < w.y1) push(cx + dx, cy + dy, w.x0, w.y0, w.x1, w.y1);
-    return { dx, dy };
+      if (cx + r > w.x0 && cx - r < w.x1 && cy + r > w.y0 && cy - r < w.y1) {
+        push(cx + dx, cy + dy, w.x0, w.y0, w.x1, w.y1);
+        hard = true;
+      }
+    return { dx, dy, soft: !hard };
   }
 
   private collideWorld(v: Vehicle) {
@@ -1265,7 +1288,7 @@ export class World {
     for (const [o, r] of v.circles) {
       const cx = v.x + fx * o;
       const cy = v.y + fy * o;
-      const { dx, dy } = this.resolveCircle(cx, cy, r, v.z < 8);
+      const { dx, dy, soft } = this.resolveCircle(cx, cy, r, v.z < 8);
       if (dx === 0 && dy === 0) continue;
       v.x += dx;
       v.y += dy;
@@ -1280,7 +1303,8 @@ export class World {
       if (vn >= 0) continue;
       const rn = rx * ny - ry * nx;
       const im = 1 / v.model.mass;
-      const j = (-(1 + 0.25) * vn) / (im + (rn * rn) / v.inertia);
+      // Tyres give: hardly any bounce, and a much softer knock.
+      const j = (-(1 + (soft ? 0.05 : 0.25)) * vn) / (im + (rn * rn) / v.inertia);
       v.vx += j * nx * im;
       v.vy += j * ny * im;
       v.spin = clamp(v.spin + (rn * j) / v.inertia, -7, 7);
@@ -1291,7 +1315,7 @@ export class World {
       const jt = clamp(-vt * 0.25, -Math.abs(j) * 0.3, Math.abs(j) * 0.3) * v.model.mass;
       v.vx += jt * tx * im;
       v.vy += jt * ty * im;
-      this.impact(v, -vn, cx + nx * -r, cy + ny * -r, null);
+      this.impact(v, soft ? -vn * 0.45 : -vn, cx + nx * -r, cy + ny * -r, null);
     }
   }
 
@@ -2456,7 +2480,7 @@ export class World {
       if (p.mode === "ride" && this.jobCooldown <= 0)
         for (const tr of this.map.tracks) {
           const s = tr.gates[0];
-          if (Math.hypot(s.x - this.px, s.y - this.py) > 45) continue;
+          if (Math.hypot(s.x - this.px, s.y - this.py) > Math.max(45, tr.width / 2 + 8)) continue;
           if (tr.id === "ring") this.startRace(tr);
           else this.startLap(tr);
           return;

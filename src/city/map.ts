@@ -143,6 +143,7 @@ export class CityMap {
   lots: Rect[] = [];
   walls: (Rect & { hidden?: boolean })[] = []; // railings and fences (world units); hidden: parked planes
   tracks: Track[] = []; // laps: the enduro arena, motocross, the Motodrome
+  tyreCells = new Map<number, { x: number; y: number }[]>(); // tile -> tyre-barrier stacks
   airport: Airport | null = null;
   zones: Zone[] = []; // names on the city map
   homeLot: Rect | null = null; // the player's garage
@@ -614,7 +615,7 @@ export class CityMap {
       P(0.14, 0.86),
     ];
     this.stadium = { rect: { x0: X0, y0: Y0, x1: X1, y1: Y1 }, path };
-    this.tracks.push({ id: "enduro", name: "Эндуро-арена", rect: this.stadium.rect, gates: path, line: path, width: 92, surface: "dirt", limit: 150, laps: 1, grid: [] });
+    this.tracks.push({ id: "enduro", name: "Эндуро-арена", rect: this.stadium.rect, gates: path, line: path, width: 92, surface: "dirt", limit: 150, laps: 1, grid: [], tyres: [] });
     const seg = (i: number, t: number) => {
       const a = path[i];
       const b = path[(i + 1) % path.length];

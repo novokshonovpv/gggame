@@ -87,9 +87,36 @@ function title(ctx: CanvasRenderingContext2D, x: number, y: number, name: string
   ctx.restore();
 }
 
+// Tyre barriers: black stacks, painted red and white on the Motodrome, blue and white at the motocross.
+function tyres(ctx: CanvasRenderingContext2D, v: View, tr: Track) {
+  const paint = tr.surface === "asphalt" ? ["#e53935", "#f4f4f4"] : ["#1e88e5", "#f4f4f4"];
+  tr.tyres.forEach((p, i) => {
+    if (p.x < v.x0 - 20 || p.x > v.x1 + 20 || p.y < v.y0 - 20 || p.y > v.y1 + 20) return;
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.arc(p.x + 2.5, p.y + 3, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1b1b1d";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = paint[Math.floor(i / 2) % 2];
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 7.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#3a3a3e";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 export function drawTracks(ctx: CanvasRenderingContext2D, v: View, world: World, t: number, road: CanvasPattern, dirt: CanvasPattern) {
   for (const tr of world.map.tracks) {
     if (tr.id === "enduro" || !inView(v, tr.rect, 80)) continue;
+    // (barriers last, over the track edges)
+    const after = () => tyres(ctx, v, tr);
     const L = tr.line;
     const w = tr.width;
     ctx.lineJoin = "round";
@@ -132,6 +159,7 @@ export function drawTracks(ctx: CanvasRenderingContext2D, v: View, world: World,
         ctx.restore();
       }
       gates(ctx, tr, world, t, w / 2);
+      after();
       const best = world.bestLaps.ring;
       title(ctx, (tr.rect.x0 + tr.rect.x1) / 2, tr.rect.y0 + (tr.rect.y1 - tr.rect.y0) * 0.36, "МОТОДРОМ 67", best ? "гонка на 2 круга · выезжай на старт" : "выезжай на старт — гонка с тремя гонщиками");
     } else {
@@ -161,6 +189,7 @@ export function drawTracks(ctx: CanvasRenderingContext2D, v: View, world: World,
       }
       ctx.setLineDash([]);
       gates(ctx, tr, world, t, w / 2);
+      after();
       const best = world.bestLaps.mx;
       title(ctx, (tr.rect.x0 + tr.rect.x1) / 2, tr.rect.y0 + (tr.rect.y1 - tr.rect.y0) * 0.24, "МОТОКРОСС", best ? `рекорд круга ${best.toFixed(2)} с` : "выезжай на старт — круг на время");
     }
