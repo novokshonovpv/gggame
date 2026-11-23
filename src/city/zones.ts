@@ -45,7 +45,10 @@ export interface Track {
   limit: number; // seconds for a lap
   laps: number; // laps in a race (the Motodrome) or 1 (time trial)
   grid: { x: number; y: number; a: number }[]; // start slots (the Motodrome)
+  tyres: Pt[]; // tyre-stack barriers on the outside of the corners
 }
+
+export const TYRE_R = 10; // a stack of tyres, world units
 
 export interface Airport {
   rect: Rect; // world units
@@ -201,9 +204,12 @@ export function buildZones(map: CityMap, cityN: number) {
     const R = { x0: (q.x0 + 1) * T, y0: (q.y0 + 1) * T, x1: q.x1 * T, y1: q.y1 * T };
     const P = (u: number, v: number) => ({ x: R.x0 + u * (R.x1 - R.x0), y: R.y0 + v * (R.y1 - R.y0) });
     const gv = ((hA + 1) * T - R.y0) / (R.y1 - R.y0);
+    // The start/finish line is straight across from the gate: ride in and you are on it.
     const ctrl = [
-      P(0.14, gv),
-      P(0.45, gv),
+      P(0.05, gv),
+      P(0.1, 0.12),
+      P(0.4, 0.1),
+      P(0.5, 0.3),
       P(0.68, 0.12),
       P(0.9, 0.1),
       P(0.92, 0.36),
@@ -214,14 +220,14 @@ export function buildZones(map: CityMap, cityN: number) {
       P(0.46, 0.7),
       P(0.3, 0.9),
       P(0.1, 0.88),
-      P(0.08, 0.62),
-      P(0.3, 0.52),
-      P(0.1, 0.42),
+      P(0.05, 0.62),
     ];
     const line = smoothLoop(ctrl, 30);
-    fence(q, [{ x: q.x0 * T, y: (hA + 1) * T }]);
+    const gate = { x: q.x0 * T, y: (hA + 1) * T };
+    fence(q, [gate]);
     const gates = ctrl.map((c) => line.reduce((a, b) => (Math.hypot(b.x - c.x, b.y - c.y) < Math.hypot(a.x - c.x, a.y - c.y) ? b : a)));
-    map.tracks.push({ id: "mx", name: "Мотокросс", rect: R, gates, line, width: 110, surface: "dirt", limit: 200, laps: 1, grid: [] });
+    const mx: Track = { id: "mx", name: "Мотокросс", rect: R, gates, line, width: 110, surface: "dirt", limit: 200, laps: 1, grid: [], tyres: [] };
+    map.tracks.push(mx);
     // Features along the lap (fraction of the way round the smooth line).
     const at = (f: number) => {
       const i = Math.floor(f * line.length) % line.length;
@@ -252,6 +258,7 @@ export function buildZones(map: CityMap, cityN: number) {
     whoops(0.79, 8);
     add("mud", 0.86, 120, 100);
     add("ramp", 0.93, 44, 90);
+    tyreWalls(map, mx, [gate, gates[0]]);
     map.zones.push({ name: "МОТОКРОСС", x: (R.x0 + R.x1) / 2, y: (R.y0 + R.y1) / 2 });
   }
 
@@ -262,10 +269,11 @@ export function buildZones(map: CityMap, cityN: number) {
     const R = { x0: (q.x0 + 1) * T, y0: (q.y0 + 1) * T, x1: q.x1 * T, y1: q.y1 * T };
     const P = (u: number, v: number) => ({ x: R.x0 + u * (R.x1 - R.x0), y: R.y0 + v * (R.y1 - R.y0) });
     const gv = ((hB + 1) * T - R.y0) / (R.y1 - R.y0);
+    // The main straight runs past the gate; the start line is level with it.
     const ctrl = [
-      P(0.2, Math.min(0.75, gv + 0.08)),
-      P(0.2, 0.12),
-      P(0.3, 0.05),
+      P(0.1, gv),
+      P(0.1, 0.12),
+      P(0.2, 0.05),
       P(0.48, 0.08),
       P(0.56, 0.22),
       P(0.8, 0.1),
@@ -278,8 +286,8 @@ export function buildZones(map: CityMap, cityN: number) {
       P(0.52, 0.86),
       P(0.42, 0.66),
       P(0.32, 0.88),
-      P(0.22, 0.94),
-      P(0.2, 0.85),
+      P(0.18, 0.94),
+      P(0.1, 0.85),
     ];
     const line = smoothLoop(ctrl, 30);
     const width = 124;
@@ -298,10 +306,12 @@ export function buildZones(map: CityMap, cityN: number) {
       { x: s.x - 28, y: s.y + 140, a: -Math.PI / 2 },
       { x: s.x + 28, y: s.y + 180, a: -Math.PI / 2 },
     ];
-    map.tracks.push({ id: "ring", name: "Мотодром", rect: R, gates, line, width, surface: "asphalt", limit: 240, laps: 2, grid });
+    const ring: Track = { id: "ring", name: "Мотодром", rect: R, gates, line, width, surface: "asphalt", limit: 240, laps: 2, grid, tyres: [] };
+    map.tracks.push(ring);
     // Grandstand along the main straight, clear of the gate lane.
     const gx0 = q.x0 + 2;
     building({ x0: gx0, y0: q.y0 + 12, x1: gx0 + 2, y1: Math.min(hB - 3, q.y0 + 44) }, T * 1.4, "#d9d4c7", "#c62828", "plain");
+    tyreWalls(map, ring, [{ x: q.x0 * T, y: (hB + 1) * T }, gates[0], ...grid]);
     // Trees in the infield, clear of the asphalt.
     for (let k = 0; k < 160; k++) {
       const x = R.x0 + r() * (R.x1 - R.x0);
@@ -432,6 +442,54 @@ export function buildZones(map: CityMap, cityN: number) {
   void CHUNK;
   void LOT;
   void SAND;
+}
+
+// Tyre stacks along the outside of every bend, just off the track: they soak up a rider who
+// runs wide. None across the gate, the start or another part of the lap.
+function tyreWalls(map: CityMap, tr: Track, keepClear: Pt[]) {
+  const L = tr.line;
+  const n = L.length;
+  const k = 5;
+  const off = tr.width / 2 + 24;
+  const inside = (p: Pt) => p.x > tr.rect.x0 + 18 && p.x < tr.rect.x1 - 18 && p.y > tr.rect.y0 + 18 && p.y < tr.rect.y1 - 18;
+  const put = (p: Pt) => {
+    if (!inside(p) || map.tileAt(p.x, p.y) === BUILD) return;
+    if (keepClear.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < 170)) return;
+    if (loopDist(L, p.x, p.y) < tr.width / 2 + 16) return;
+    if (tr.tyres.some((t) => Math.hypot(t.x - p.x, t.y - p.y) < TYRE_R * 1.7)) return;
+    if (map.obstacles.some((o) => Math.hypot(o.x - p.x, o.y - p.y) < Math.max(o.len, o.wid) / 2 + 12)) return;
+    tr.tyres.push(p);
+    const key = Math.floor(p.y / T) * map.n + Math.floor(p.x / T);
+    const cell = map.tyreCells.get(key);
+    if (cell) cell.push(p);
+    else map.tyreCells.set(key, [p]);
+  };
+  const wrapA = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  let prev: Pt | null = null;
+  for (let i = 0; i < n; i++) {
+    const a = L[(i - k + n) % n];
+    const b = L[i];
+    const c = L[(i + k) % n];
+    const turn = wrapA(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
+    if (Math.abs(turn) < 0.42) {
+      prev = null;
+      continue;
+    }
+    const p0 = L[(i - 1 + n) % n];
+    const p1 = L[(i + 1) % n];
+    const l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+    // Outside of the bend: left of a right-hander, right of a left-hander.
+    const d = -Math.sign(turn) * off;
+    const p = { x: b.x - ((p1.y - p0.y) / l) * d, y: b.y + ((p1.x - p0.x) / l) * d };
+    // A continuous wall: fill in from the previous stack.
+    if (prev) {
+      const gap = Math.hypot(p.x - prev.x, p.y - prev.y);
+      const steps = Math.ceil(gap / (TYRE_R * 1.75));
+      for (let s = 1; s < steps; s++) put({ x: prev.x + ((p.x - prev.x) * s) / steps, y: prev.y + ((p.y - prev.y) * s) / steps });
+    }
+    put(p);
+    prev = p;
+  }
 }
 
 function addTree(map: CityMap, x: number, y: number, r: number) {
