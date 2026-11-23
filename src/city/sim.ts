@@ -2487,6 +2487,19 @@ export class World {
       }
       return;
     }
+    // Off the track (out through the gate or over the fence): the clock stops, the lap is off.
+    if ((job.kind === "stadium" || job.kind === "circuit") && job.track) {
+      const R = job.track.rect;
+      const m = 30;
+      if (this.px < R.x0 - m || this.px > R.x1 + m || this.py < R.y0 - m || this.py > R.y1 + m) {
+        if (job.kind === "circuit") this.endRace(job);
+        this.job = null;
+        this.target = null;
+        this.jobCooldown = 3;
+        this.say(job.kind === "circuit" ? `Ты покинул ${job.track.name} — гонка остановлена` : `${job.track.name}: ты съехал с трассы — время круга остановлено`, "info");
+        return;
+      }
+    }
     job.time -= dt;
     if (job.time <= 0) {
       this.failJob(job.kind === "stadium" ? `Круг не уложился в ${Math.round((job.track?.limit ?? 150) / 60 * 10) / 10} мин`.replace(".", ",") : "Время вышло — задание провалено");
