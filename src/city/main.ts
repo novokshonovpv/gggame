@@ -51,7 +51,8 @@ function store() {
   save.money = world.money;
   save.arms = { ...world.arms };
   save.bestLap = world.bestLap;
-  save.laps = { mx: world.bestLaps.mx ?? 0, ring: world.bestLaps.ring ?? 0 };
+  save.laps = Object.fromEntries(["mx", "ring", "slalom", "drift"].filter((k) => world.bestLaps[k]).map((k) => [k, world.bestLaps[k]]));
+  save.jumps = [...world.jumpsDone];
   save.packages = [...world.packagesGot];
   save.savedAt = Date.now();
   write(slot, save);
@@ -75,6 +76,8 @@ function applySave(sv: Save) {
   world.cycleWeapon();
   world.bestLap = sv.bestLap;
   world.bestLaps = { ...sv.laps, ...(sv.bestLap ? { enduro: sv.bestLap } : {}) };
+  world.jumpsDone = new Set(sv.jumps);
+  world.owned = sv.owned;
   world.packagesGot = new Set(sv.packages);
   const b = world.player.body;
   b.helmet = sv.helmet;
@@ -297,7 +300,9 @@ function pause() {
   mode = "pause";
   const owned = save.owned.length;
   const lap = world.bestLap ? ` · рекорд стадиона ${world.bestLap.toFixed(2)} с` : "";
-  $("pause-stats").textContent = `Деньги: ${rub(world.money)} · байков BSE: ${owned} из ${BIKES.length} · секретных посылок: ${world.packagesGot.size} из ${map.packages.length}${lap}`;
+  const bl = world.bestLaps;
+  const recs = [bl.mx && `мотокросс ${bl.mx.toFixed(2)} с`, bl.slalom && `слалом ${bl.slalom.toFixed(2)} с`, bl.drift && `дрифт ${Math.round(bl.drift).toLocaleString("ru-RU")}`].filter(Boolean).join(" · ");
+  $("pause-stats").textContent = `Деньги: ${rub(world.money)} · байков BSE: ${owned} из ${BIKES.length} · секретных посылок: ${world.packagesGot.size} из ${map.packages.length} · трюковых трамплинов ★ ${world.jumpsDone.size} из ${map.jumps.length}${lap}${recs ? ` · ${recs}` : ""}`;
   show("pause", true);
   sound.radioPlaying(false);
   sound.walkPlaying(false);
@@ -412,8 +417,8 @@ function renderGarage() {
       }
       p.mode = "foot";
       p.bike = null;
-      world.vehicles = world.vehicles.filter((v) => !(v.bike && v.rider === null && Math.hypot(v.x - home.x, v.y - home.y) < 50));
-      const v = world.spawnPlayerBike(b.id, home.x, home.y, -Math.PI / 2, true);
+      world.vehicles = world.vehicles.filter((v) => !(v.rider === null && (v.homeBay >= 0 || (v.bike && Math.hypot(v.x - home.x, v.y - home.y) < 50))));
+      const v = world.spawnPlayerBike(b.id, home.x, home.y, Math.PI / 2, true);
       v.vx = v.vy = 0;
       store();
       sound.checkpoint();
@@ -875,6 +880,8 @@ function hud(dt: number) {
     const best = world.bestLaps[world.job.track?.id ?? "enduro"];
     perks.push(`<span class="perk lap">Круг ${(world.time - (world.job.start ?? world.time)).toFixed(1)} с${best ? ` · рекорд ${best.toFixed(2)}` : ""}</span>`);
   }
+  if (world.job?.kind === "drift")
+    perks.push(`<span class="perk lap">Дрифт ${Math.round(world.job.score ?? 0).toLocaleString("ru-RU")} очков · ×${world.driftCombo().toFixed(1)}</span>`);
   if (world.job?.kind === "circuit" && !(world.job.go! > 0)) {
     const G = world.job.track!.gates.length;
     perks.push(`<span class="perk lap">Место ${world.racePlace()}/4 · круг ${Math.min(world.job.track!.laps, Math.floor(world.job.idx / G) + 1)}/${world.job.track!.laps}</span>`);
@@ -1003,6 +1010,11 @@ function handleEvents() {
       case "countdown":
         sound.countdown(e.n);
         big(e.n > 0 ? String(e.n) : "Старт!", "surprise");
+        break;
+      case "jump":
+        sound.jobDone();
+        big(`Трюк ★ ${e.got}/${e.total}`, "surprise");
+        store();
         break;
       case "planeHit":
         sound.crash(500);

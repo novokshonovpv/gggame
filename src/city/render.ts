@@ -3,7 +3,7 @@
 // (the classic look of the old top-down city games, drawn from scratch here).
 
 import { BRIDGE, BUILD, type Building, type Chunk, CityMap, DIRT, type Lamp, GRASS, LOT, type Obstacle, ROAD, SAND, T, TARMAC, TRACK, WALK, WATER } from "./map.ts";
-import { airportLights, drawAirportGround, drawHome, drawPlanesHigh, drawPlanesLow, drawTracks } from "./render-zones.ts";
+import { airportLights, drawAirportGround, drawDriftPad, drawHome, drawPlanesHigh, drawPlanesLow, drawTracks } from "./render-zones.ts";
 import { BRAND_BY_ID, BRANDS, type Brand } from "./brands.ts";
 import { type Ped, type Vehicle, type World, darkness } from "./sim.ts";
 
@@ -142,7 +142,33 @@ function makePatterns(ctx: CanvasRenderingContext2D) {
 }
 
 export const jobColour = (k: string) =>
-  k === "race" || k === "stadium" || k === "circuit" ? "#ff9f1a" : k === "hot" || k === "phone" ? "#ff3b3b" : k === "plane" ? "#38b6ff" : "#3ddc6e";
+  k === "race" || k === "stadium" || k === "circuit"
+    ? "#ff9f1a"
+    : k === "hot" || k === "phone"
+      ? "#ff3b3b"
+      : k === "plane"
+        ? "#38b6ff"
+        : k === "drift"
+          ? "#c77dff"
+          : k === "testdrive"
+            ? "#d9b778"
+            : "#3ddc6e";
+
+// A five-pointed star.
+function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, col: string) {
+  ctx.fillStyle = col;
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = r * 0.11;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
 
 const shade = (hex: string, k: number) => {
   const n = parseInt(hex.slice(1), 16);
@@ -247,7 +273,8 @@ export class Renderer {
     this.drawStadium(world, t);
     drawTracks(ctx, v, world, t, this.pat.road, this.pat.dirt);
     drawHome(ctx, v, world, t);
-    this.drawObstacles();
+    drawDriftPad(ctx, v, world);
+    this.drawObstacles(world);
     this.drawPickups(world, t);
     this.drawPhones(world, t);
     this.drawRoute(world, t);
@@ -654,11 +681,11 @@ export class Renderer {
         ctx.stroke();
       } else if (s.kind === "race") {
         for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) ctx.fillRect(-4.5 + i * 3, -4.5 + j * 3, 3, 3);
-      } else if (s.kind === "plane") {
+      } else if (s.kind === "plane" || s.kind === "drift" || s.kind === "testdrive") {
         ctx.font = "900 11px system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("✈", 0, 0.5);
+        ctx.fillText(s.kind === "plane" ? "✈" : s.kind === "drift" ? "D" : "Т", 0, 0.5);
       } else {
         ctx.beginPath();
         ctx.moveTo(0, -6);
@@ -808,7 +835,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawObstacles() {
+  private drawObstacles(world: World) {
     const ctx = this.ctx;
     const v = this.view;
     const list: Obstacle[] = this.chunks.flatMap((c) => c.obstacles);
@@ -931,6 +958,13 @@ export class Renderer {
           }
           ctx.fillStyle = "#e8e0d0";
           ctx.fillRect(L / 2 - 2, -W / 2, 2, W);
+          if (o.unique !== undefined) {
+            // A stunt ramp: a gold star (dimmed once jumped).
+            const done = world.jumpsDone.has(o.unique);
+            ctx.globalAlpha = done ? 0.45 : 1;
+            star(ctx, -L * 0.18, 0, 11, done ? "#9e9e9e" : "#ffd23a");
+            ctx.globalAlpha = 1;
+          }
           break;
         }
       }
@@ -1808,7 +1842,7 @@ export class Renderer {
     const cy = y0 + h / 2;
     let s = b.seed;
     const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-    if (b.kind !== "hospital" && b.kind !== "police" && !b.ad && !b.helipad) {
+    if (b.kind !== "hospital" && b.kind !== "police" && !b.ad && !b.helipad && !b.sign) {
       // Vents and air conditioners.
       const n = 1 + Math.floor(rnd() * 3);
       for (let i = 0; i < n; i++) {
@@ -1847,6 +1881,14 @@ export class Renderer {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("ПОЛИЦИЯ", cx, cy);
+    } else if (b.sign) {
+      ctx.fillStyle = "rgba(0,0,0,0.25)";
+      ctx.fillRect(x0 + 5, cy - h * 0.2, w - 10, h * 0.4);
+      ctx.fillStyle = "#1c1a17";
+      ctx.font = `900 ${Math.min(h * 0.24, w / (b.sign.length * 0.75))}px ${BRAND_FONT}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(b.sign, cx, cy + 1);
     } else if (b.helipad) {
       {
         ctx.strokeStyle = "#e9e3c8";
@@ -2166,6 +2208,7 @@ export class Renderer {
       g.fillText(z.name, px(z.x), px(z.y) - r(12));
     }
     for (const q of world.planes) dot(q.x, q.y, "#e8eef8", 5, true);
+    for (const o of map.jumps) if (!world.jumpsDone.has(o.unique!)) star(g, px(o.x), px(o.y), r(6), "#ffd23a");
     const flash = Math.floor(t * 4) % 2 === 0;
     map.phones.forEach((ph, i) => dot(ph.x, ph.y, world.ringing === i ? (flash ? "#ffffff" : "#ffd23a") : "#9fb3c8", world.ringing === i ? 6 : 3, true));
     const st = map.stadium;

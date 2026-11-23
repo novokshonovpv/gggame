@@ -157,6 +157,8 @@ export class Vehicle {
   lastOb: Obstacle | null = null;
   gunT = 1; // police: time to the next shot
   racer: Racer | null = null; // a Motodrome rider
+  launch: Obstacle | null = null; // the stunt ramp (★) this jump began on
+  homeBay = -1; // parked in the player's garage yard (bay index)
   readonly circles: [number, number][];
   readonly inertia: number;
 
@@ -279,6 +281,10 @@ export interface Job {
   racers?: Vehicle[]; // the Motodrome: the other riders
   plane?: Plane; // the runway race: the plane to beat
   goal?: { x: number; y: number }; // the runway race: the finish
+  score?: number; // the drift challenge: points
+  chain?: number; // seconds of the current unbroken drift
+  lost?: number; // seconds since the last slide
+  testBike?: Vehicle; // the test drive: the showroom's bike
   phone?: { type: "chase" | "destroy" | "escape"; stage: number; target: Vehicle | null };
   points: { x: number; y: number }[];
   idx: number;
@@ -316,6 +322,7 @@ export type GameEvent =
   | { type: "garage" }
   | { type: "countdown"; n: number } // 3, 2, 1, 0 = go
   | { type: "planeHit" }
+  | { type: "jump"; got: number; total: number; amount: number }
   | { type: "pvpHit"; uid: string; dmg: number; weapon: string }
   | { type: "pvpDown"; by: string };
 
@@ -416,7 +423,9 @@ export class World {
   double = 0; // seconds of double money left
   streak = 0; // jobs in a row without being wasted or busted: raises the money multiplier
   bestLap = 0; // stadium record, seconds
-  bestLaps: Record<string, number> = {}; // records of every track (enduro = bestLap)
+  bestLaps: Record<string, number> = {}; // records of every track (enduro = bestLap); drift: best score
+  jumpsDone = new Set<number>(); // stunt ramps (★) jumped
+  owned: string[] = ["z3"]; // bikes bought at 67MOTO (the garage yard shows them)
   planes: Plane[] = [];
   private planeT = 8;
   private planeArrive = true; // the first one takes off
@@ -458,7 +467,7 @@ export class World {
     this.flow = new Int16Array(map.n * map.n);
     // Start at the player's own garage.
     const home = map.places.find((q) => q.kind === "home") ?? map.places[0];
-    const start = map.nearestWalk(home.x, home.y - T * 2);
+    const start = map.home?.start ?? map.nearestWalk(home.x, home.y - T * 2);
     const body = new Ped(start.x, start.y, -Math.PI / 2);
     body.helmet = "#ff7a1a";
     body.shirt = "#1d1d1f";
@@ -630,6 +639,28 @@ export class World {
     for (let i = 0; i < (first ? 60 : 2) && this.peds.length < 55; i++) this.spawnPed(first);
     for (let i = 0; i < (first ? 10 : 1) && parked + i < 6; i++) this.spawnParked(first);
     if (cops < POLICE_FOR[this.wanted] && this.tick % 30 === 0) this.spawnTraffic(false, true);
+    this.yardBikes();
+  }
+
+  // The other own bikes stand in the garage yard's bays.
+  private yardBikes() {
+    const home = this.map.home;
+    if (!home || Math.hypot(home.door.x - this.px, home.door.y - this.py) > 1300) return;
+    const ids = this.owned.filter((id) => id !== this.bikeId && BIKE[id]).slice(0, home.bays.length);
+    home.bays.forEach((bay, k) => {
+      const id = ids[k];
+      const here = this.vehicles.find((v) => v.homeBay === k);
+      if (here && (!id || here.model.id !== id) && here.rider === null && Math.hypot(here.x - bay.x, here.y - bay.y) < 20) {
+        this.vehicles = this.vehicles.filter((v) => v !== here);
+      } else if (here) return;
+      if (!id) return;
+      if (Math.hypot(this.px - bay.x, this.py - bay.y) < 24) return;
+      const m = BIKE[id];
+      const v = new Vehicle(m, bay.x, bay.y, bay.a, m.colors[0]);
+      v.homeBay = k;
+      v.brk = 1;
+      this.vehicles.push(v);
+    });
   }
 
   // ---------- player ----------
@@ -1080,6 +1111,8 @@ export class World {
     const off = Math.abs(wrap(Math.atan2(v.vy, v.vx) - v.a));
     this.burst(v.x, v.y, 6, "dust");
     const air = v.ramped ? v.airT : 0;
+    const launch = v.launch;
+    v.launch = null;
     const spins = Math.floor((Math.abs(v.airRot) + 0.7) / (Math.PI * 2));
     v.airT = 0;
     v.airRot = 0;
@@ -1107,6 +1140,14 @@ export class World {
       amt = Math.round(amt * this.mult);
       this.money += amt;
       this.emit({ type: "stunt", text: `${name} ${air.toFixed(1)} с в воздухе`, amount: amt });
+    }
+    // A stunt ramp (★) cleared for the first time.
+    if (v.rider === "player" && launch?.unique !== undefined && air > 0.6 && !this.jumpsDone.has(launch.unique)) {
+      this.jumpsDone.add(launch.unique);
+      const amount = Math.round(5000 * this.mult);
+      this.money += amount;
+      this.emit({ type: "jump", got: this.jumpsDone.size, total: this.map.jumps.length, amount });
+      this.say(`Трюковой трамплин ★ ${this.jumpsDone.size}/${this.map.jumps.length}: +${rub(amount)}`, "good");
     }
   }
 
@@ -1154,6 +1195,7 @@ export class World {
           v.airT = 0;
           v.airRot = 0;
           v.ramped = true;
+          v.launch = o.unique !== undefined ? o : null;
         } else if (o.kind === "log") {
           if (v.bike && sp > 50) {
             // An enduro bike hops a log.
@@ -2126,6 +2168,7 @@ export class World {
 
   // Money, streak and messages for any job done.
   private completeJob(job: Job, extra: number, note = "") {
+    if (job.testBike) this.returnTestBike(job);
     const m = this.mult;
     const total = Math.round((job.reward + extra) * m);
     this.money += total;
@@ -2461,6 +2504,7 @@ export class World {
 
   failJob(text: string) {
     if (!this.job) return;
+    if (this.job.testBike) this.returnTestBike(this.job);
     if (this.job.kind === "circuit") this.endRace(this.job);
     if (this.job.plane) this.job.plane.race = false;
     this.job = null;
@@ -2488,11 +2532,13 @@ export class World {
       if (this.jobCooldown > 0) return;
       for (const s of this.map.jobs)
         if (Math.hypot(s.x - this.px, s.y - this.py) < 26) {
-          if (p.mode !== "ride") {
+          if (p.mode !== "ride" && s.kind !== "testdrive") {
             if (this.tick % 120 === 0) this.say("Задания берут на мотоцикле или машине", "info");
             continue;
           }
           if (s.kind === "plane") this.startPlaneRace();
+          else if (s.kind === "drift") this.startDrift(s);
+          else if (s.kind === "testdrive") this.startTestDrive(s);
           else this.startJob(s);
           break;
         }
@@ -2525,6 +2571,10 @@ export class World {
       }
     }
     job.time -= dt;
+    if (job.time <= 0 && job.kind === "drift") {
+      this.finishDrift(job);
+      return;
+    }
     if (job.time <= 0) {
       this.failJob(job.kind === "stadium" ? `Круг не уложился в ${Math.round((job.track?.limit ?? 150) / 60 * 10) / 10} мин`.replace(".", ",") : "Время вышло — задание провалено");
       return;
@@ -2537,8 +2587,12 @@ export class World {
       this.stepPlaneRace(job);
       return;
     }
+    if (job.kind === "drift") {
+      this.stepDrift(job, dt);
+      return;
+    }
     const t = job.points[job.idx];
-    const radius = job.kind === "race" ? 50 : job.kind === "stadium" || job.kind === "circuit" ? 75 : 30;
+    const radius = job.kind === "race" ? 50 : job.kind === "stadium" || job.kind === "circuit" ? (job.track?.gateR ?? 75) : job.kind === "testdrive" ? 45 : 30;
     if (Math.hypot(t.x - this.px, t.y - this.py) < radius) {
       job.idx++;
       if (job.idx >= job.points.length) {
@@ -2815,6 +2869,113 @@ export class World {
       h.v.vx = h.v.vy = 0;
       h.v.spin = 0;
     }
+  }
+
+  // ---------- the drift challenge (airport pad) ----------
+
+  private startDrift(spot: JobSpot) {
+    this.job = { kind: "drift", spot, points: [], idx: 0, time: 45, reward: 0, title: "Дрифт-челлендж: занос (Пробел) на скорости", score: 0, chain: 0, lost: 0 };
+    this.say("Дрифт: 45 секунд, очки за занос. Бронза 6 000 · серебро 12 000 · золото 20 000", "info");
+  }
+
+  private stepDrift(job: Job, dt: number) {
+    const D = this.map.drift;
+    const v = this.player.mode === "ride" ? this.player.bike : null;
+    if (!D || this.px < D.x0 - 40 || this.px > D.x1 + 40 || this.py < D.y0 - 40 || this.py > D.y1 + 40) {
+      this.finishDrift(job);
+      return;
+    }
+    const slip = v ? Math.abs(v.slip) : 0;
+    const sp = v ? v.speed : 0;
+    if (v && v.z <= 0 && slip > 30 && sp > 70) {
+      job.chain = (job.chain ?? 0) + dt;
+      job.lost = 0;
+      const combo = 1 + Math.min(3, job.chain / 1.5);
+      job.score = (job.score ?? 0) + ((slip * Math.min(sp, 320)) / 80) * combo * dt;
+    } else {
+      job.lost = (job.lost ?? 0) + dt;
+      if (job.lost > 0.7 || !v) job.chain = 0;
+    }
+  }
+
+  driftCombo() {
+    const job = this.job;
+    return job?.kind === "drift" ? 1 + Math.min(3, (job.chain ?? 0) / 1.5) : 1;
+  }
+
+  private finishDrift(job: Job) {
+    const score = Math.round(job.score ?? 0);
+    const tiers: [number, number, string][] = [
+      [20000, 15000, "золото"],
+      [12000, 8000, "серебро"],
+      [6000, 3000, "бронза"],
+    ];
+    const prev = this.bestLaps.drift ?? 0;
+    const record = score > prev;
+    if (record) this.bestLaps.drift = score;
+    const tier = tiers.find(([need]) => score >= need);
+    const pts = score.toLocaleString("ru-RU");
+    if (!tier) {
+      this.failJob(`Дрифт: ${pts} очков — для бронзы нужно 6 000`);
+      return;
+    }
+    job.reward = tier[1];
+    this.completeJob(job, 0, ` Дрифт: ${pts} очков — ${tier[2]}${record ? ", новый рекорд!" : ""}`);
+  }
+
+  // ---------- the 67MOTO test drive ----------
+
+  private startTestDrive(spot: JobSpot) {
+    const p = this.player;
+    // The dearest bike the player has not bought yet (or any, if all are theirs).
+    const left = BIKES.filter((b) => !this.owned.includes(b.id)).sort((a, b) => b.price - a.price);
+    const model = left[0] ?? BIKES[Math.floor(this.r() * BIKES.length)];
+    if (p.mode === "ride" && p.bike) {
+      const old = p.bike;
+      old.rider = null;
+      old.thr = 0;
+      old.brk = 1;
+      p.bike = null;
+      p.mode = "foot";
+      p.body.x = old.x;
+      p.body.y = old.y;
+    }
+    const v = new Vehicle(model, spot.x, spot.y, 0, model.colors[0]);
+    this.vehicles.push(v);
+    this.mount(v);
+    // A short loop round the block and back to the showroom.
+    const points: { x: number; y: number }[] = [];
+    let x = spot.x;
+    let y = spot.y;
+    let total = 0;
+    for (let i = 0; i < 4; i++) {
+      const q = this.crossingPoint(x, y, 500, 1000);
+      total += Math.hypot(q.x - x, q.y - y);
+      points.push(q);
+      x = q.x;
+      y = q.y;
+    }
+    total += Math.hypot(spot.x - x, spot.y - y);
+    points.push({ x: spot.x, y: spot.y });
+    const time = Math.round(total / 170 + 25);
+    this.job = { kind: "testdrive", spot, points, idx: 0, time, reward: 1500, title: `Тест-драйв ${model.name}: 4 точки и назад в салон`, testBike: v };
+    this.say(`Тест-драйв: ${model.name} — прокатись и верни в салон 67МОТО (${time} с)`, "info");
+  }
+
+  private returnTestBike(job: Job) {
+    const v = job.testBike!;
+    job.testBike = undefined;
+    const p = this.player;
+    if (p.bike === v) {
+      p.mode = "foot";
+      p.bike = null;
+      p.body.x = v.x + 14;
+      p.body.y = v.y;
+      p.body.vx = p.body.vy = 0;
+    }
+    this.vehicles = this.vehicles.filter((q) => q !== v);
+    const m = v.model;
+    this.say(this.owned.includes(m.id) ? `${m.name} вернулся в салон` : `Понравился ${m.name}? Он ждёт тебя в салоне 67МОТО — ${rub(m.price)}`, "info");
   }
 
   // ---------- the airport ----------

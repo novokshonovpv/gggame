@@ -10,7 +10,8 @@ export interface Save {
   bike: string;
   arms: Partial<Record<WeaponId, number>>;
   bestLap: number;
-  laps: Record<string, number>; // best laps: mx (motocross), ring (Motodrome race time)
+  laps: Record<string, number>; // best laps: mx, ring, slalom (seconds); drift (best score)
+  jumps: number[]; // stunt ramps (★) jumped
   packages: number[];
   helmet: string;
   jacket: string;
@@ -36,6 +37,7 @@ export const fresh = (): Save => ({
   arms: {},
   bestLap: 0,
   laps: {},
+  jumps: [],
   packages: [],
   helmet: HELMETS[0],
   jacket: JACKETS[0],
@@ -62,8 +64,9 @@ function clean(s: Partial<Save> | null): Save | null {
     laps: Object.fromEntries(
       Object.entries(s.laps && typeof s.laps === "object" ? s.laps : {})
         .map(([k, v]) => [k, Number(v)] as const)
-        .filter(([k, v]) => ["mx", "ring"].includes(k) && v > 0 && v < 3600),
+        .filter(([k, v]) => (["mx", "ring", "slalom"].includes(k) && v > 0 && v < 3600) || (k === "drift" && v > 0 && v < 1e8)),
     ),
+    jumps: Array.isArray(s.jumps) ? s.jumps.filter((i) => Number.isInteger(i) && i >= 0 && i < 50) : [],
     packages: Array.isArray(s.packages) ? s.packages.filter((i) => Number.isInteger(i) && i >= 0 && i < 100) : [],
     helmet: HELMETS.includes(s.helmet ?? "") ? s.helmet! : def.helmet,
     jacket: JACKETS.includes(s.jacket ?? "") ? s.jacket! : def.jacket,

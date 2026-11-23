@@ -1,5 +1,5 @@
 import { BILLBOARDS } from "./brands.ts";
-import { type Airport, type Track, type Zone, buildZones } from "./zones.ts";
+import { type Airport, type Home, type Track, type Zone, buildZones } from "./zones.ts";
 
 // The city: a tile map generated from a seed. Roads form a grid (two lanes each, right-hand
 // traffic), blocks between them are ringed with pavement and split into lots: buildings of
@@ -40,6 +40,7 @@ export interface Building extends Rect {
   kind: BuildingKind;
   seed: number;
   ad?: string; // a billboard on the roof: brand id (brands.ts)
+  sign?: string; // a name painted on the roof
   helipad?: boolean;
 }
 
@@ -57,7 +58,7 @@ export interface Place {
   a: number; // facing for respawn
 }
 
-export type JobKind = "delivery" | "race" | "hot" | "stadium" | "phone" | "circuit" | "plane";
+export type JobKind = "delivery" | "race" | "hot" | "stadium" | "phone" | "circuit" | "plane" | "drift" | "testdrive";
 export interface JobSpot {
   kind: JobKind;
   x: number;
@@ -105,6 +106,7 @@ export interface Obstacle {
   len: number;
   wid: number;
   power?: number; // ramps: minimum take-off speed they give (river jumps)
+  unique?: number; // a stunt ramp (★): index in map.jumps
 }
 
 export interface Stadium {
@@ -146,7 +148,9 @@ export class CityMap {
   tyreCells = new Map<number, { x: number; y: number }[]>(); // tile -> tyre-barrier stacks
   airport: Airport | null = null;
   zones: Zone[] = []; // names on the city map
-  homeLot: Rect | null = null; // the player's garage
+  home: Home | null = null; // the player's garage, its yard and parking
+  jumps: Obstacle[] = []; // stunt ramps (★)
+  drift: Rect | null = null; // the drift pad at the airport (world units)
   readonly cityN = 354; // the city proper: the street grid fits in this square
   rivers: [number, number][] = []; // first and last water row of each river
   private riverRow: Uint8Array;
@@ -615,7 +619,7 @@ export class CityMap {
       P(0.14, 0.86),
     ];
     this.stadium = { rect: { x0: X0, y0: Y0, x1: X1, y1: Y1 }, path };
-    this.tracks.push({ id: "enduro", name: "Эндуро-арена", rect: this.stadium.rect, gates: path, line: path, width: 92, surface: "dirt", limit: 150, laps: 1, grid: [], tyres: [] });
+    this.tracks.push({ id: "enduro", name: "Эндуро-арена", rect: this.stadium.rect, gates: path, line: path, width: 92, surface: "dirt", limit: 150, laps: 1, grid: [], tyres: [], cones: [] });
     const seg = (i: number, t: number) => {
       const a = path[i];
       const b = path[(i + 1) % path.length];

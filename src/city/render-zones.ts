@@ -87,6 +87,27 @@ function title(ctx: CanvasRenderingContext2D, x: number, y: number, name: string
   ctx.restore();
 }
 
+// A traffic cone from above.
+function cone(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.fillRect(x - 9 + 3, y - 9 + 3, 18, 18);
+  ctx.fillStyle = "#e8590c";
+  ctx.fillRect(x - 9, y - 9, 18, 18);
+  ctx.fillStyle = "#ff7a1a";
+  ctx.beginPath();
+  ctx.arc(x, y, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f4f4f4";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, 4.2, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "#c2410c";
+  ctx.beginPath();
+  ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 // Tyre barriers: black stacks, painted red and white on the Motodrome, blue and white at the motocross.
 function tyres(ctx: CanvasRenderingContext2D, v: View, tr: Track) {
   const paint = tr.surface === "asphalt" ? ["#e53935", "#f4f4f4"] : ["#1e88e5", "#f4f4f4"];
@@ -117,6 +138,19 @@ export function drawTracks(ctx: CanvasRenderingContext2D, v: View, world: World,
     if (tr.id === "enduro" || !inView(v, tr.rect, 80)) continue;
     // (barriers last, over the track edges)
     const after = () => tyres(ctx, v, tr);
+    if (tr.id === "slalom") {
+      closed(ctx, tr.line);
+      ctx.strokeStyle = "rgba(255,206,58,0.4)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([14, 14]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      gates(ctx, tr, world, t, 34);
+      for (const c of tr.cones) cone(ctx, c.x, c.y);
+      const best = world.bestLaps.slalom;
+      title(ctx, (tr.rect.x0 + tr.rect.x1) / 2, tr.rect.y0 + (tr.rect.y1 - tr.rect.y0) * 0.52, "СЛАЛОМ", best ? `рекорд ${best.toFixed(2)} с` : "змейкой между конусами и назад");
+      continue;
+    }
     const L = tr.line;
     const w = tr.width;
     ctx.lineJoin = "round";
@@ -386,44 +420,91 @@ export function airportLights(world: World, v: View, glow: (x: number, y: number
   }
 }
 
-// The player's garage: a roll-up door and the sign.
+// The player's garage: the door pad in the yard, the parking bays' "P".
 export function drawHome(ctx: CanvasRenderingContext2D, v: View, world: World, t: number) {
-  const lot = world.map.homeLot;
-  if (!lot) return;
+  const home = world.map.home;
+  if (!home) return;
   const T = 32;
-  const x0 = lot.x0 * T;
-  const y0 = lot.y0 * T;
-  const x1 = (lot.x1 + 1) * T;
-  const y1 = (lot.y1 + 1) * T;
-  if (x1 < v.x0 - 60 || x0 > v.x1 + 60 || y1 < v.y0 - 60 || y0 > v.y1 + 60) return;
-  const cx = (x0 + x1) / 2;
-  const cy = (y0 + y1) / 2;
+  const q = home.block;
+  if ((q.x1 + 1) * T < v.x0 - 60 || q.x0 * T > v.x1 + 60 || (q.y1 + 1) * T < v.y0 - 60 || q.y0 * T > v.y1 + 60) return;
+  const { x: cx, y: cy } = home.door;
   ctx.save();
-  ctx.fillStyle = "rgba(255,159,26,0.16)";
+  // Yard: a few oil stains and tyre marks.
+  ctx.fillStyle = "rgba(0,0,0,0.12)";
+  for (const [dx, dy, r] of [
+    [-70, 60, 9],
+    [-20, 90, 6],
+    [40, 70, 8],
+  ])
+    ctx.beginPath(), ctx.ellipse(cx + dx, cy + dy, r * 1.4, r, 0.4, 0, Math.PI * 2), ctx.fill();
+  // The door: a pulsing pad with a roll-up door icon.
+  ctx.fillStyle = "rgba(255,159,26,0.18)";
   ctx.strokeStyle = "#ff9f1a";
   ctx.lineWidth = 2.5;
   ctx.setLineDash([7, 5]);
   ctx.lineDashOffset = -t * 12;
   ctx.beginPath();
-  ctx.roundRect(cx - 40, cy - 28, 80, 56, 7);
+  ctx.roundRect(cx - 28, cy - 22, 56, 44, 7);
   ctx.fill();
   ctx.stroke();
   ctx.setLineDash([]);
-  // A garage front: roof, roll-up door slats.
   ctx.fillStyle = "#ff9f1a";
   ctx.beginPath();
-  ctx.moveTo(cx - 16, cy - 6);
-  ctx.lineTo(cx, cy - 17);
-  ctx.lineTo(cx + 16, cy - 6);
+  ctx.moveTo(cx - 14, cy - 5);
+  ctx.lineTo(cx, cy - 15);
+  ctx.lineTo(cx + 14, cy - 5);
   ctx.closePath();
   ctx.fill();
-  ctx.fillRect(cx - 13, cy - 6, 26, 15);
+  ctx.fillRect(cx - 11, cy - 5, 22, 13);
   ctx.fillStyle = "rgba(30,20,10,0.75)";
-  for (let k = 0; k < 4; k++) ctx.fillRect(cx - 10, cy - 4 + k * 3.4, 20, 1.6);
+  for (let k = 0; k < 4; k++) ctx.fillRect(cx - 8.5, cy - 3 + k * 3, 17, 1.4);
   ctx.fillStyle = "#fff";
-  ctx.font = `800 6.5px ${FONT}`;
+  ctx.font = `800 6px ${FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("ТВОЙ ГАРАЖ", cx, cy + 19, 74);
+  ctx.fillText("ГАРАЖ", cx, cy + 15);
+  // Parking sign by the bays.
+  const b0 = home.bays[0];
+  ctx.fillStyle = "#1e63c8";
+  ctx.fillRect(b0.x - 30, b0.y - 8, 13, 13);
+  ctx.fillStyle = "#fff";
+  ctx.font = `900 10px system-ui, sans-serif`;
+  ctx.fillText("P", b0.x - 23.5, b0.y - 1);
+  ctx.restore();
+}
+
+// The drift pad: a painted border, donut marks, the name.
+export function drawDriftPad(ctx: CanvasRenderingContext2D, v: View, world: World) {
+  const D = world.map.drift;
+  if (!D || !inView(v, D, 60)) return;
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([24, 16]);
+  ctx.strokeRect(D.x0 + 20, D.y0 + 20, D.x1 - D.x0 - 40, D.y1 - D.y0 - 40);
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "rgba(15,15,18,0.35)";
+  ctx.lineWidth = 7;
+  const W = D.x1 - D.x0;
+  const H = D.y1 - D.y0;
+  for (const [u, w, r] of [
+    [0.25, 0.4, 120],
+    [0.7, 0.6, 150],
+    [0.45, 0.75, 90],
+    [0.8, 0.3, 80],
+  ]) {
+    ctx.beginPath();
+    ctx.ellipse(D.x0 + W * u, D.y0 + H * w, r, r * 0.8, u * 3, 0.3, Math.PI * 1.8);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = "#c77dff";
+  ctx.font = `900 64px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("ДРИФТ", D.x0 + W / 2, D.y0 + H * 0.55);
+  ctx.font = `700 15px ${FONT}`;
+  const best = world.bestLaps.drift;
+  ctx.fillText(best ? `рекорд ${Math.round(best).toLocaleString("ru-RU")} очков` : "занос на скорости — очки", D.x0 + W / 2, D.y0 + H * 0.55 + 46);
   ctx.restore();
 }
