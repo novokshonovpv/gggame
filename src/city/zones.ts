@@ -35,7 +35,7 @@ export interface Pt {
 
 // A closed lap: the enduro arena, the motocross track or the Motodrome.
 export interface Track {
-  id: "enduro" | "mx" | "ring";
+  id: "enduro" | "mx" | "ring" | "slalom";
   name: string;
   rect: Rect; // world units, inside the fence
   gates: Pt[]; // checkpoints: start/finish first
@@ -46,6 +46,17 @@ export interface Track {
   laps: number; // laps in a race (the Motodrome) or 1 (time trial)
   grid: { x: number; y: number; a: number }[]; // start slots (the Motodrome)
   tyres: Pt[]; // tyre-stack barriers on the outside of the corners
+  cones: Pt[]; // slalom cones
+  gateR?: number; // how close to a gate counts (default 75)
+}
+
+// The player's garage: a building of its own with a fenced yard and a few parking bays.
+export interface Home {
+  block: Rect; // tiles: the plot inside the pavement
+  building: Rect; // tiles
+  door: Pt; // drive up here to open the garage
+  bays: { x: number; y: number; a: number }[]; // where the other own bikes stand
+  start: Pt; // where a new game begins
 }
 
 export const TYRE_R = 10; // a stack of tyres, world units
@@ -108,6 +119,7 @@ export function loopDist(line: Pt[], x: number, y: number) {
 export function buildZones(map: CityMap, cityN: number) {
   const r = rng(6767);
   const n = map.n;
+  const n0 = n;
   const city = map.land;
   const fill = (q: Rect, t: number) => {
     for (let y = q.y0; y <= q.y1; y++) for (let x = q.x0; x <= q.x1; x++) map.set(x, y, t);
@@ -226,7 +238,7 @@ export function buildZones(map: CityMap, cityN: number) {
     const gate = { x: q.x0 * T, y: (hA + 1) * T };
     fence(q, [gate]);
     const gates = ctrl.map((c) => line.reduce((a, b) => (Math.hypot(b.x - c.x, b.y - c.y) < Math.hypot(a.x - c.x, a.y - c.y) ? b : a)));
-    const mx: Track = { id: "mx", name: "Мотокросс", rect: R, gates, line, width: 110, surface: "dirt", limit: 200, laps: 1, grid: [], tyres: [] };
+    const mx: Track = { id: "mx", name: "Мотокросс", rect: R, gates, line, width: 110, surface: "dirt", limit: 200, laps: 1, grid: [], tyres: [], cones: [] };
     map.tracks.push(mx);
     // Features along the lap (fraction of the way round the smooth line).
     const at = (f: number) => {
@@ -306,7 +318,7 @@ export function buildZones(map: CityMap, cityN: number) {
       { x: s.x - 28, y: s.y + 140, a: -Math.PI / 2 },
       { x: s.x + 28, y: s.y + 180, a: -Math.PI / 2 },
     ];
-    const ring: Track = { id: "ring", name: "Мотодром", rect: R, gates, line, width, surface: "asphalt", limit: 240, laps: 2, grid, tyres: [] };
+    const ring: Track = { id: "ring", name: "Мотодром", rect: R, gates, line, width, surface: "asphalt", limit: 240, laps: 2, grid, tyres: [], cones: [] };
     map.tracks.push(ring);
     // Grandstand along the main straight, clear of the gate lane.
     const gx0 = q.x0 + 2;
@@ -393,6 +405,66 @@ export function buildZones(map: CityMap, cityN: number) {
     map.jobs.push({ kind: "hot", ...W(hx + 9, spineY + 20) });
     map.jobs.push({ kind: "delivery", ...W(term.x0 + 6, spineY + 3.5) });
     map.jobs.push({ kind: "plane", x: map.airport.raceStart.x, y: map.airport.raceStart.y });
+
+    // East of the terminal: a tarmac pad for the drift challenge and a cone slalom.
+    const padY0 = spineY + 3;
+    const padY1 = taxi.y0 - 2;
+    const drift: Rect = { x0: cA + 70, y0: padY0, x1: cA + 130, y1: padY1 };
+    const sl: Rect = { x0: cA + 136, y0: padY0, x1: south.x1 - 18, y1: padY1 };
+    fill(drift, TARMAC);
+    fill(sl, TARMAC);
+    // No trees on the tarmac.
+    const bare = (q: Rect) => {
+      const x0 = q.x0 * T - 20;
+      const y0 = q.y0 * T - 20;
+      const x1 = (q.x1 + 1) * T + 20;
+      const y1 = (q.y1 + 1) * T + 20;
+      const gone = new Set(map.trees.filter((t) => t.x > x0 && t.x < x1 && t.y > y0 && t.y < y1));
+      if (!gone.size) return;
+      map.trees = map.trees.filter((t) => !gone.has(t));
+      for (const ch of map.chunks) ch.trees = ch.trees.filter((t) => !gone.has(t));
+      for (const [k, list] of map.treeCells) {
+        const left = list.filter((t) => !gone.has(t));
+        if (left.length) map.treeCells.set(k, left);
+        else map.treeCells.delete(k);
+      }
+    };
+    bare(drift);
+    bare(sl);
+    const D = A(drift);
+    map.drift = D;
+    map.jobs.push({ kind: "drift", x: (D.x0 + D.x1) / 2, y: D.y0 + 40 });
+    map.zones.push({ name: "ДРИФТ", x: (D.x0 + D.x1) / 2, y: (D.y0 + D.y1) / 2 });
+    {
+      const S = A(sl);
+      const y1 = S.y0 + (S.y1 - S.y0) * 0.3;
+      const y2 = S.y0 + (S.y1 - S.y0) * 0.74;
+      const X0 = S.x0;
+      const X1 = S.x1;
+      const n = Math.max(5, Math.floor((X1 - X0 - 700) / 250));
+      const gates: Pt[] = [{ x: X0 + 160, y: y1 }];
+      const cones: Pt[] = [];
+      for (let k = 0; k < n; k++) {
+        const x = X0 + 420 + k * 250;
+        cones.push({ x, y: y1 });
+        gates.push({ x, y: y1 + (k % 2 ? 80 : -80) });
+      }
+      gates.push({ x: X1 - 150, y: (y1 + y2) / 2 });
+      gates.push({ x: X0 + (X1 - X0) * 0.62, y: y2 });
+      gates.push({ x: X0 + (X1 - X0) * 0.3, y: y2 });
+      gates.push({ x: X0 + 110, y: (y1 + y2) / 2 + 30 });
+      // Cones marking the turns too.
+      for (const g of [gates[n + 1], gates[n + 4]]) for (const d of [-1, 1]) cones.push({ x: g.x + (g === gates[n + 1] ? 100 : -90), y: g.y + d * 60 });
+      const slalom: Track = { id: "slalom", name: "Слалом", rect: S, gates, line: smoothLoop(gates, 30), width: 80, surface: "asphalt", limit: 75, laps: 1, grid: [], tyres: [], cones, gateR: 62 };
+      for (const c of cones) {
+        const key = Math.floor(c.y / T) * n0 + Math.floor(c.x / T);
+        const cell = map.tyreCells.get(key);
+        if (cell) cell.push(c);
+        else map.tyreCells.set(key, [c]);
+      }
+      map.tracks.push(slalom);
+      map.zones.push({ name: "СЛАЛОМ", x: (S.x0 + S.x1) / 2, y: (S.y0 + S.y1) / 2 });
+    }
   }
 
   // Trees on the Motopark island's open grass.
@@ -421,27 +493,120 @@ export function buildZones(map: CityMap, cityN: number) {
       map.chunkAt(x, y).lamps.push(lamp);
     }
 
-  // ---------- the player's garage, in town ----------
+  // ---------- the player's garage, in town: a whole plot of its own ----------
+  buildHome(map, r);
+
+  // ---------- test drives at the 67MOTO showrooms ----------
+  for (const shop of map.places.filter((p) => p.kind === "shop")) {
+    for (const [dx, dy] of [[0, 90], [90, 0], [-90, 0], [0, -90]]) {
+      const w = map.nearestWalk(shop.x + dx, shop.y + dy);
+      const d = Math.hypot(w.x - shop.x, w.y - shop.y);
+      if (d < 60 || d > 160) continue;
+      map.jobs.push({ kind: "testdrive", x: w.x, y: w.y });
+      break;
+    }
+  }
+
+  // ---------- stunt ramps (★): ten of the ramps round town, spread out ----------
   {
-    const mid = { x: ((city.x0 + city.x1) / 2) * T, y: ((city.y0 + city.y1) / 2) * T };
-    const free = map.lots.filter((l) => {
-      const cx = ((l.x0 + l.x1 + 1) / 2) * T;
-      const cy = ((l.y0 + l.y1 + 1) / 2) * T;
-      return (l.x1 - l.x0 + 1) * (l.y1 - l.y0 + 1) >= 4 && map.places.every((p) => Math.hypot(p.x - cx, p.y - cy) > 400) && !map.inRiver(l.y0 - 3) && !map.inRiver(l.y1 + 3);
-    });
-    const best = free.reduce((a, b) => {
-      const d = (l: Rect) => Math.hypot(((l.x0 + l.x1 + 1) / 2) * T - mid.x, ((l.y0 + l.y1 + 1) / 2) * T - mid.y);
-      return d(b) < d(a) ? b : a;
-    });
-    map.places.push({ kind: "home", x: ((best.x0 + best.x1 + 1) / 2) * T, y: ((best.y0 + best.y1 + 1) / 2) * T, a: 0 });
-    map.homeLot = best;
-    map.zones.push({ name: "ТВОЙ ГАРАЖ", x: ((best.x0 + best.x1 + 1) / 2) * T, y: (best.y0 - 1) * T });
+    const inTrack = (o: Obstacle) => map.tracks.some((t) => o.x > t.rect.x0 && o.x < t.rect.x1 && o.y > t.rect.y0 && o.y < t.rect.y1);
+    const pool = map.obstacles.filter((o) => o.kind === "ramp" && !inTrack(o));
+    const picked: Obstacle[] = [];
+    // Farthest-point sampling from the first river ramp: ten ramps all over the city.
+    const first = pool.find((o) => o.power) ?? pool[0];
+    if (first) picked.push(first);
+    while (picked.length < 10 && picked.length < pool.length) {
+      let best: Obstacle | null = null;
+      let bd = -1;
+      for (const o of pool) {
+        if (picked.includes(o)) continue;
+        const d = Math.min(...picked.map((q) => Math.hypot(q.x - o.x, q.y - o.y)));
+        if (d > bd) (bd = d), (best = o);
+      }
+      if (!best) break;
+      picked.push(best);
+    }
+    picked.forEach((o, i) => (o.unique = i));
+    map.jumps = picked;
   }
 
   map.land = { x0: city.x0, y0: city.y0, x1: east.x1, y1: south.y1 };
   void CHUNK;
   void LOT;
   void SAND;
+}
+
+// Clears a city block near the centre and puts the player's garage on it: the building at the
+// back, a fenced yard with a gate onto the street, three parking bays for the other own bikes.
+function buildHome(map: CityMap, r: () => number) {
+  const n = map.n;
+  const V = map.vroads;
+  const H = map.hroads;
+  const c = map.land;
+  const mid = { x: (c.x0 + c.x1) / 2, y: (c.y0 + c.y1) / 2 };
+  const inBlock = (q: Rect, x: number, y: number, m = 1) => x >= (q.x0 - m) * T && x < (q.x1 + 1 + m) * T && y >= (q.y0 - m) * T && y < (q.y1 + 1 + m) * T;
+  let best: Rect | null = null;
+  let bd = Infinity;
+  for (let i = 0; i + 1 < V.length; i++)
+    for (let j = 0; j + 1 < H.length; j++) {
+      const q = { x0: V[i] + 3, y0: H[j] + 3, x1: V[i + 1] - 2, y1: H[j + 1] - 2 }; // inside the pavement ring
+      if (q.x1 - q.x0 + 1 < 8 || q.y1 - q.y0 + 1 < 8 || q.x1 - q.x0 > 12 || q.y1 - q.y0 > 12) continue;
+      let ok = true;
+      for (let y = q.y0 - 1; y <= q.y1 + 1 && ok; y++) if (map.inRiver(y)) ok = false;
+      for (let y = q.y0; y <= q.y1 && ok; y++) for (let x = q.x0; x <= q.x1 && ok; x++) if (map.at(x, y) === DIRT || map.at(x, y) === WATER) ok = false;
+      if (!ok) continue;
+      if (map.places.some((p) => inBlock(q, p.x, p.y))) continue;
+      if ([...map.phones, ...map.packages, ...map.jobs].some((p) => inBlock(q, p.x, p.y))) continue;
+      if (map.obstacles.some((o) => inBlock(q, o.x, o.y, 2))) continue;
+      if (map.buildings.some((b) => (b.ad || b.helipad) && b.x0 >= q.x0 && b.x1 <= q.x1 && b.y0 >= q.y0 && b.y1 <= q.y1)) continue;
+      const d = Math.hypot((q.x0 + q.x1) / 2 - mid.x, (q.y0 + q.y1) / 2 - mid.y);
+      if (d < bd) (bd = d), (best = q);
+    }
+  if (!best) return;
+  const q = best;
+  // Clear the plot: buildings, trees, car parks.
+  const inside = (x0: number, y0: number, x1: number, y1: number) => x0 >= q.x0 && x1 <= q.x1 && y0 >= q.y0 && y1 <= q.y1;
+  const gone = new Set(map.buildings.filter((b) => inside(b.x0, b.y0, b.x1, b.y1)));
+  map.buildings = map.buildings.filter((b) => !gone.has(b));
+  for (const ch of map.chunks) ch.buildings = ch.buildings.filter((b) => !gone.has(b));
+  map.lots = map.lots.filter((l) => !inside(l.x0, l.y0, l.x1, l.y1));
+  const goneT = new Set(map.trees.filter((t) => t.x >= q.x0 * T && t.x < (q.x1 + 1) * T && t.y >= q.y0 * T && t.y < (q.y1 + 1) * T));
+  map.trees = map.trees.filter((t) => !goneT.has(t));
+  for (const ch of map.chunks) ch.trees = ch.trees.filter((t) => !goneT.has(t));
+  for (let y = q.y0; y <= q.y1; y++)
+    for (let x = q.x0; x <= q.x1; x++) {
+      map.treeCells.delete(y * n + x);
+      map.set(x, y, LOT);
+      map.bid[y * n + x] = -1;
+    }
+  // The garage at the back (north), lawn strips either side of it.
+  const bq: Rect = { x0: q.x0 + 1, y0: q.y0, x1: q.x1 - 1, y1: q.y0 + 2 };
+  for (const x of [q.x0, q.x1]) for (let y = bq.y0; y <= bq.y1; y++) map.set(x, y, GRASS);
+  const b: Building = { ...bq, h: T * 1.8, wall: "#3e434b", roof: "#ff9f1a", kind: "plain", seed: Math.floor(r() * 1e9), sign: "ТВОЙ ГАРАЖ" };
+  map.buildings.push(b);
+  map.chunkAt(bq.x0, bq.y0).buildings.push(b);
+  for (let y = bq.y0; y <= bq.y1; y++)
+    for (let x = bq.x0; x <= bq.x1; x++) {
+      map.set(x, y, BUILD);
+      map.bid[y * n + x] = map.buildings.length - 1;
+    }
+  // Yard: three bays on the left, the door on the right, a fence with a gate onto the street.
+  const yardY0 = bq.y1 + 1;
+  map.lots.push({ x0: q.x0 + 1, y0: yardY0, x1: q.x0 + 3, y1: yardY0 });
+  const bays = [0, 1, 2].map((k) => ({ x: (q.x0 + 1 + k + 0.5) * T, y: (yardY0 + 0.55) * T, a: -Math.PI / 2 }));
+  const door = { x: (q.x1 - 1.5) * T, y: yardY0 * T + 24 };
+  const gate = door.x;
+  const Y1 = (q.y1 + 1) * T;
+  map.walls.push(
+    { x0: q.x0 * T - 2, y0: yardY0 * T, x1: q.x0 * T + 2, y1: Y1 },
+    { x0: (q.x1 + 1) * T - 2, y0: yardY0 * T, x1: (q.x1 + 1) * T + 2, y1: Y1 },
+    { x0: q.x0 * T, y0: Y1 - 2, x1: gate - 52, y1: Y1 + 2 },
+    { x0: gate + 52, y0: Y1 - 2, x1: (q.x1 + 1) * T, y1: Y1 + 2 },
+  );
+  const start = { x: (q.x0 + 2) * T, y: (q.y1 + 0.2) * T };
+  map.home = { block: q, building: bq, door, bays, start };
+  map.places.push({ kind: "home", x: door.x, y: door.y, a: Math.PI / 2 });
+  map.zones.push({ name: "ТВОЙ ГАРАЖ", x: ((q.x0 + q.x1 + 1) / 2) * T, y: (q.y0 - 1) * T });
 }
 
 // Tyre stacks along the outside of every bend, just off the track: they soak up a rider who

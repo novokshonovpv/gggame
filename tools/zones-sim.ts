@@ -145,3 +145,87 @@ for (const id of ["z3", "2t"]) {
   }
   console.log("PLANES phases seen:", seen.join(", "), "| now", w.planes.length);
 }
+
+// ---- the drift pad: circles with the handbrake ----
+{
+  const { w } = rider("2t");
+  const D = map.drift!;
+  const b = w.player.bike!;
+  const spot = map.jobs.find((j) => j.kind === "drift")!;
+  b.x = spot.x;
+  b.y = spot.y;
+  const log: string[] = [];
+  for (let i = 0; i < 60 * 60; i++) {
+    const v = w.player.bike;
+    let inp = idle;
+    if (w.job?.kind === "drift" && v) {
+      // Head for the middle, then circle it with the handbrake on.
+      const cx = (D.x0 + D.x1) / 2;
+      const cy = (D.y0 + D.y1) / 2;
+      const far = Math.hypot(v.x - cx, v.y - cy) > 260;
+      let diff = Math.atan2(cy - v.y, cx - v.x) - v.a;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      inp = far ? { ...idle, gas: true, left: diff < -0.1, right: diff > 0.1 } : { ...idle, gas: true, right: true, hb: v.speed > 90 };
+    }
+    for (const e of step(w, inp)) if (e.type === "msg" || e.type === "jobDone" || e.type === "jobFail") log.push(`${(i / 60).toFixed(1)}s ${e.type === "msg" ? e.text : e.type}`);
+    if (i > 60 && !w.job) break;
+  }
+  console.log("DRIFT\n  " + log.slice(-3).join("\n  "));
+}
+
+// ---- slalom lap by autopilot ----
+{
+  const { w } = rider("ex125");
+  const tr = map.tracks.find((t) => t.id === "slalom")!;
+  const b = w.player.bike!;
+  b.x = tr.gates[0].x - 60;
+  b.y = tr.gates[0].y;
+  const k = { i: 0 };
+  const log: string[] = [];
+  for (let i = 0; i < 90 * 60; i++) {
+    if (!w.player.bike) {
+      step(w, idle);
+      continue;
+    }
+    for (const e of step(w, autopilot(w, tr.line, k, 0.6))) if (e.type === "msg" || e.type === "lap") log.push(`${(i / 60).toFixed(1)}s ${e.type === "msg" ? e.text : `lap ${e.time.toFixed(1)} ${e.track}`}`);
+    if (log.some((l) => l.includes("lap "))) break;
+  }
+  console.log("SLALOM\n  " + log.slice(0, 6).join("\n  "));
+}
+
+// ---- stunt ramps and the garage yard ----
+{
+  const { w } = rider("2t");
+  w.owned = ["z3", "ex125", "t5", "2t"];
+  w.bikeId = "2t";
+  const home = map.home!;
+  const b = w.player.bike!;
+  b.x = home.start.x;
+  b.y = home.start.y;
+  step(w, idle);
+  for (let i = 0; i < 30; i++) step(w, idle);
+  console.log("YARD bikes:", w.vehicles.filter((v) => v.homeBay >= 0).map((v) => `${v.homeBay}:${v.model.id}`).join(" "), "| jumps on map", map.jumps.length);
+  // A run at a stunt ramp.
+  const o = map.jumps[1];
+  b.x = o.x - Math.cos(o.a) * 260;
+  b.y = o.y - Math.sin(o.a) * 260;
+  b.a = o.a;
+  const log: string[] = [];
+  for (let i = 0; i < 6 * 60; i++) for (const e of step(w, { ...idle, gas: true })) if (e.type === "msg") log.push(e.text);
+  console.log("STUNT RAMP:", log.join(" | "), "| done", [...w.jumpsDone]);
+}
+
+// ---- test drive at the showroom ----
+{
+  const { w } = rider("z3");
+  const spot = map.jobs.find((j) => j.kind === "testdrive")!;
+  const b = w.player.bike!;
+  b.x = spot.x;
+  b.y = spot.y + 1;
+  const log: string[] = [];
+  for (let i = 0; i < 3 * 60; i++) for (const e of step(w, idle)) if (e.type === "msg") log.push(e.text);
+  console.log("TESTDRIVE:", w.job?.title, "| riding", w.player.bike?.model.name, "|", log.join(" | "));
+  w.failJob("стоп");
+  for (const e of step(w, idle)) if (e.type === "msg") log.push(e.text);
+  console.log("  after:", w.player.mode, log.slice(-2).join(" | "), "| test bike left:", w.vehicles.some((v) => v.model.id === "2t" && v.rider === null));
+}
