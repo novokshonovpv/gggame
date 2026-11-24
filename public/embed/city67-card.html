@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Город 67 — карточка для игрового зала</title>
+    <!--
+      Карточка «Город 67» для игрового зала сайта 67МОТО. Всё, что нужно сайту, — между
+      метками НАЧАЛО и КОНЕЦ: разметка карточки, стили (все с префиксом g67-, ни с чем на сайте
+      не пересекаются) и скрипт, который по «Играть» открывает игру поверх страницы на весь экран.
+      Остальное на этой странице — тёмный фон для предпросмотра.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #0b0c10;
+        color: #f3ead8;
+        font-family: Manrope, system-ui, sans-serif;
+      }
+      .demo {
+        display: flex;
+        gap: 20px;
+        padding: 24px 16px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <!-- ===== НАЧАЛО: карточка «Город 67» ===== -->
+      <article class="g67-card">
+        <img class="g67-bg" src="https://novokshonovpv.github.io/gggame/cards/city67.webp" alt="" loading="lazy" decoding="async" />
+        <span class="g67-num" aria-hidden="true">03</span>
+        <div class="g67-body">
+          <span class="g67-tag">Открытый мир · онлайн</span>
+          <h3 class="g67-title">Город&nbsp;67</h3>
+          <p class="g67-text">Курьер 67МОТО в большом городе: погони, аэропорт, мотокросс и&nbsp;Мотодром</p>
+          <button class="g67-play" type="button" data-g67-open>Играть <span aria-hidden="true">▶</span></button>
+        </div>
+      </article>
+      <style>
+        .g67-card {
+          position: relative;
+          flex: 0 0 auto;
+          width: min(78vw, 340px);
+          aspect-ratio: 0.68;
+          overflow: hidden;
+          border-radius: 28px;
+          background: #15161b;
+          isolation: isolate;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+        }
+        .g67-bg {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          z-index: -2;
+          transition: transform 0.6s ease;
+        }
+        .g67-card:hover .g67-bg {
+          transform: scale(1.04);
+        }
+        .g67-card::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+          background: linear-gradient(180deg, rgba(10, 10, 14, 0) 30%, rgba(10, 10, 14, 0.78) 62%, rgba(10, 10, 14, 0.96) 100%);
+        }
+        .g67-num {
+          position: absolute;
+          top: 14px;
+          right: 18px;
+          font: 900 54px/1 Unbounded, system-ui, sans-serif;
+          color: transparent;
+          -webkit-text-stroke: 2px rgba(255, 255, 255, 0.85);
+          text-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+        }
+        .g67-body {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          padding: 0 22px 24px;
+        }
+        .g67-tag {
+          display: inline-block;
+          padding: 7px 12px;
+          border: 1px solid rgba(255, 255, 255, 0.28);
+          border-radius: 999px;
+          background: rgba(20, 20, 24, 0.75);
+          color: #e8d7b0;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+        .g67-title {
+          margin: 12px 0 8px;
+          color: #fff;
+          font: 900 30px/1.02 Unbounded, system-ui, sans-serif;
+          letter-spacing: -0.01em;
+        }
+        .g67-text {
+          margin: 0 0 18px;
+          color: rgba(243, 234, 216, 0.82);
+          font-size: 15px;
+          line-height: 1.35;
+        }
+        .g67-play {
+          display: inline-flex;
+          align-items: center;
+          gap: 14px;
+          padding: 14px 26px;
+          border: 0;
+          border-radius: 999px;
+          background: linear-gradient(180deg, #f3e4c4, #d9b778);
+          color: #1c1a17;
+          font: 800 16px/1 Manrope, system-ui, sans-serif;
+          cursor: pointer;
+          box-shadow: 0 8px 22px rgba(217, 183, 120, 0.25);
+        }
+        .g67-play:hover {
+          filter: brightness(1.05);
+        }
+        .g67-play span {
+          font-size: 12px;
+        }
+        /* The game over the whole page. */
+        .g67-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 2147483000;
+          background: #000;
+        }
+        .g67-overlay iframe {
+          display: block;
+          width: 100%;
+          height: 100%;
+          border: 0;
+        }
+        .g67-close {
+          position: absolute;
+          top: max(10px, env(safe-area-inset-top));
+          left: max(10px, env(safe-area-inset-left));
+          width: 40px;
+          height: 40px;
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          border-radius: 50%;
+          background: rgba(0, 0, 0, 0.6);
+          color: #fff;
+          font-size: 20px;
+          line-height: 1;
+          cursor: pointer;
+        }
+      </style>
+      <script>
+        (() => {
+          const GAME = "https://novokshonovpv.github.io/gggame/city.html";
+          document.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-g67-open]");
+            if (!btn) return;
+            const box = document.createElement("div");
+            box.className = "g67-overlay";
+            box.innerHTML = '<iframe allow="fullscreen; autoplay" allowfullscreen title="Город 67"></iframe><button class="g67-close" type="button" aria-label="Закрыть игру">✕</button>';
+            box.querySelector("iframe").src = GAME;
+            const close = () => {
+              if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+              box.remove();
+              document.documentElement.style.overflow = "";
+            };
+            box.querySelector(".g67-close").addEventListener("click", close);
+            document.body.appendChild(box);
+            document.documentElement.style.overflow = "hidden";
+            // On a phone: the whole screen (where the browser allows it).
+            if (matchMedia("(pointer: coarse)").matches && box.requestFullscreen) box.requestFullscreen().catch(() => {});
+            box.querySelector("iframe").focus();
+          });
+        })();
+      </script>
+      <!-- ===== КОНЕЦ: карточка «Город 67» ===== -->
+    </div>
+  </body>
+</html>
