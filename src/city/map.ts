@@ -65,6 +65,16 @@ export interface JobSpot {
   y: number;
 }
 
+// Fisher–Yates with the seeded generator: the same order in every browser (a sort with a random
+// comparator depends on the engine's sorting algorithm, so the city came out different).
+export function shuffle<X>(a: X[], r: () => number) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export function rng(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -226,8 +236,8 @@ export class CityMap {
       for (let x = vx0 - 1; x <= vx1 + 1; x++) this.set(x, y, WALK);
 
     // Names for the streets.
-    const hn = [...H_NAMES].sort(() => r() - 0.5);
-    const vn = [...V_NAMES].sort(() => r() - 0.5);
+    const hn = shuffle([...H_NAMES], r);
+    const vn = shuffle([...V_NAMES], r);
     this.hnames = hs.map((_, i) => `ул. ${hn[i % hn.length]}`);
     this.vnames = vs.map((_, i) => `пр. ${vn[i % vn.length]}`);
 
@@ -325,7 +335,7 @@ export class CityMap {
     const touchesEdge = (q: Rect, b: Rect) => q.x0 === b.x0 || q.y0 === b.y0 || q.x1 === b.x1 || q.y1 === b.y1;
     const wantLots = { garage: 5, shop: 2 };
     // Special lots first, spread over the city: workshops and the bike showrooms.
-    const order = leaves.map((_, i) => i).sort(() => r() - 0.5);
+    const order = shuffle(leaves.map((_, i) => i), r);
     const used = new Set<number>();
     const pickLot = (kind: "garage" | "shop", far: { x: number; y: number }[]) => {
       for (const i of order) {
@@ -446,7 +456,7 @@ export class CityMap {
       .filter((b) => !b.helipad && b.kind !== "hospital" && b.kind !== "police" && b.x1 - b.x0 >= 2 && b.y1 - b.y0 >= 1 && b.h > T * 4.5)
       .filter((b) => !this.buildings.some((o) => o !== b && o.h > b.h && near(b, o)))
       .sort((a, b) => b.h - a.h);
-    const ads = [...BILLBOARDS, ...BILLBOARDS].sort(() => r() - 0.5); // every brand twice over
+    const ads = shuffle([...BILLBOARDS, ...BILLBOARDS], r); // every brand twice over
     for (const gap of [1800, 1200, 800, 400]) {
       for (const b of tops) {
         if (!ads.length) break;
@@ -468,7 +478,7 @@ export class CityMap {
 
     // Kicker ramps in parks, and over the rivers from one embankment to the other.
     let ramps = 0;
-    for (const q of [...parks].sort(() => r() - 0.5)) {
+    for (const q of shuffle([...parks], r)) {
       if (ramps >= 16) break;
       const w = q.x1 - q.x0 + 1;
       const h = q.y1 - q.y0 + 1;
@@ -481,7 +491,7 @@ export class CityMap {
       ramps++;
     }
     for (const [ry0, ry1] of this.rivers) {
-      const cols = vs.map((_, i) => i).filter((i) => i + 1 < vs.length && i !== stadiumCol).sort(() => r() - 0.5).slice(0, 4);
+      const cols = shuffle(vs.map((_, i) => i).filter((i) => i + 1 < vs.length && i !== stadiumCol), r).slice(0, 4);
       for (const i of cols) {
         const x = ((vs[i] + 2 + vs[i + 1]) / 2) * T;
         this.addObstacle({ kind: "ramp", x, y: (ry0 - 1.5) * T, a: Math.PI / 2, len: 40, wid: 50, power: 330 });

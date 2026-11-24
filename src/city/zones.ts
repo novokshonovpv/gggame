@@ -495,6 +495,28 @@ export function buildZones(map: CityMap, cityN: number) {
 
   // ---------- the player's garage, in town: a whole plot of its own ----------
   buildHome(map, r);
+  // Round the garage the billboards are BSE, not REGULMOTO: the REGULMOTO board nearby becomes
+  // BSE, the BSE board furthest from the garage takes the brand of the board furthest of all,
+  // and that one becomes REGULMOTO (each brand keeps its number of boards).
+  if (map.home) {
+    const { x, y } = map.home.door;
+    const dist = (b: Building) => Math.hypot(((b.x0 + b.x1 + 1) / 2) * T - x, ((b.y0 + b.y1 + 1) / 2) * T - y);
+    const byFar = (p: Building, q: Building) => dist(q) - dist(p);
+    for (const b of map.buildings.filter((q) => q.ad === "regulmoto" && dist(q) < 3000)) {
+      const bse = map.buildings.filter((q) => q.ad === "bse" && dist(q) > dist(b)).sort(byFar)[0];
+      const other = map.buildings.filter((q) => q.ad && q.ad !== "bse" && q.ad !== "regulmoto" && dist(q) > Math.max(3000, dist(b))).sort(byFar)[0];
+      if (!bse || !other) break;
+      bse.ad = other.ad;
+      other.ad = "regulmoto";
+      b.ad = "bse";
+    }
+    // And the board closest to the garage is a BSE one.
+    const boards = map.buildings.filter((q) => q.ad).sort((p, q) => dist(p) - dist(q));
+    if (boards[0] && boards[0].ad !== "bse") {
+      const far = boards.filter((q) => q.ad === "bse").pop();
+      if (far) [far.ad, boards[0].ad] = [boards[0].ad, "bse"];
+    }
+  }
 
   // ---------- test drives at the 67MOTO showrooms ----------
   for (const shop of map.places.filter((p) => p.kind === "shop")) {
