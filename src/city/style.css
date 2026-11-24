@@ -1125,9 +1125,12 @@ button {
 
 .menu-logo {
   position: relative;
-  justify-self: center;
+  justify-self: stretch;
+  min-width: 0;
   text-align: center;
   user-select: none;
+  /* The title is sized to its column, so it fits a small block on a web page too. */
+  container-type: inline-size;
 }
 
 .logo-pre {
@@ -1158,8 +1161,10 @@ button {
 
 .logo .word {
   display: block;
-  font-size: clamp(56px, 11vw, 150px);
+  font-size: clamp(40px, 11vw, 150px);
+  font-size: clamp(34px, 19cqw, 150px);
   letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
 .logo .word i {
@@ -1176,7 +1181,8 @@ button {
 .logo .num {
   display: inline-block;
   margin-top: -0.12em;
-  font-size: clamp(90px, 18vw, 250px);
+  font-size: clamp(60px, 18vw, 250px);
+  font-size: clamp(52px, 31cqw, 250px);
   color: transparent;
   background: linear-gradient(100deg, #f2a516 0%, #ffe08a 40%, #fff6d8 50%, #ffe08a 60%, #d9822b 100%);
   background-size: 250% 100%;
@@ -1581,21 +1587,46 @@ button.danger {
   white-space: nowrap;
 }
 
-@media (max-width: 860px), (max-height: 520px) {
+/* Narrow (a phone upright, a small block on a page): the title on one line above the menu. */
+@media (max-width: 860px) and (min-height: 521px) {
   .menu {
     grid-template-columns: 1fr;
     align-content: start;
     gap: 8px;
   }
   .logo .word {
-    font-size: clamp(40px, 9vw, 70px);
+    font-size: clamp(34px, 11cqw, 70px);
     display: inline-block;
   }
   .logo .num {
-    font-size: clamp(56px, 12vw, 100px);
+    font-size: clamp(48px, 15cqw, 100px);
     margin-left: 0.15em;
   }
-    .menu-body {
+}
+/* Low (a phone on its side, a short block on a page): two columns, a smaller title. */
+@media (max-height: 520px) {
+  .menu {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 14px;
+    padding-top: max(10px, var(--safe-t));
+    padding-bottom: max(10px, var(--safe-b));
+  }
+  .logo-pre {
+    font-size: 10px;
+  }
+  .logo-pre img {
+    width: 28px;
+    height: 28px;
+  }
+  .logo .word {
+    font-size: clamp(30px, 17cqw, 90px);
+  }
+  .logo .num {
+    font-size: clamp(44px, 26cqw, 140px);
+  }
+}
+@media (max-width: 860px), (max-height: 520px) {
+  .menu-body {
     grid-template-columns: 130px minmax(0, 1fr);
   }
   .menu-nav button {
@@ -1605,6 +1636,26 @@ button.danger {
   .menu-page {
     min-height: 0;
     padding: 12px;
+  }
+}
+/* A phone upright: the menu items in a row that scrolls sideways, the page under them. */
+@media (max-width: 560px) {
+  .menu {
+    padding-left: max(12px, var(--safe-l));
+    padding-right: max(12px, var(--safe-r));
+  }
+  .menu > * {
+    min-width: 0;
+  }
+  .menu-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .menu-nav {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 }
 
